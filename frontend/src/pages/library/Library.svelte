@@ -361,7 +361,7 @@
     margin-top: -72px;
     padding: 72px 0 0 0;
     box-sizing: border-box;
-    background: #070707;
+    background: #0c0c0c;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -396,7 +396,7 @@
     isolation: isolate;
     padding: 0 var(--page-pad-x);
     box-sizing: content-box;
-    margin: 30px 0 36px 0;
+    margin: 30px 0 32px 0;
   }
 
   .library-tabs {
@@ -564,7 +564,7 @@
     grid-area: 1 / 1;
     position: relative;
     list-style: none;
-    margin: 0 var(--page-pad-x) 40px var(--page-pad-x);
+    margin: 0 var(--page-pad-x) 48px var(--page-pad-x);
     padding: 0;
     display: flex;
     flex-direction: column;
@@ -574,14 +574,14 @@
 
   .library-row {
     position: relative;
-    height: 268px;
+    height: 267px;
     overflow: hidden;
-    background: #070707;
+    background: #0c0c0c;
     isolation: isolate;
     display: flex;
     align-items: flex-start;
-    gap: 25px;
-    padding: 26px 24px 0 28px;
+    gap: 24px;
+    padding: 26px;
     box-sizing: border-box;
     flex-shrink: 0;
     contain: layout paint;
@@ -671,15 +671,15 @@
   .row-action {
     position: absolute;
     z-index: 2;
-    top: 23px;
-    right: 24px;
+    top: 26px;
+    right: 26px;
   }
 
   .library-grid {
     grid-area: 1 / 1;
     position: relative;
     list-style: none;
-    margin: 0 var(--page-pad-x) 40px var(--page-pad-x);
+    margin: 0 var(--page-pad-x) 48px var(--page-pad-x);
     padding: 0;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -692,23 +692,12 @@
     border-radius: var(--radius-card);
     overflow: hidden;
     clip-path: inset(0 round var(--radius-card));
-    background: #070707;
+    background: #0c0c0c;
     contain: layout paint;
     isolation: isolate;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-  }
-
-  .library-tile::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-sizing: border-box;
-    pointer-events: none;
-    z-index: 4;
   }
 
   .tile-poster {
@@ -768,7 +757,7 @@
     z-index: 2;
     flex: 1 1 auto;
     min-height: 0;
-    margin: 18px 16px 4px 18px;
+    margin: 18px 18px 4px 18px;
     padding: 0 2px 22px 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 15px;

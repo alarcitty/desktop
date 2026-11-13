@@ -160,7 +160,7 @@
   .releases-section {
     position: relative;
     width: 100%;
-    height: 740px;
+    height: 710px;
     background: #0c0c0c;
     overflow-x: clip;
     overflow-y: visible;
@@ -439,7 +439,7 @@
   /* Centered bottom arrow */
   .releases-bottom-arrow {
     position: absolute;
-    top: 676px;
+    top: 668px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;

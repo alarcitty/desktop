@@ -569,7 +569,7 @@
     margin-top: -72px;
     padding: 0 0 56px 0;
     box-sizing: border-box;
-    background: #070707;
+    background: #0c0c0c;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -610,8 +610,8 @@
     z-index: 1;
     pointer-events: none;
     background:
-      linear-gradient(90deg, rgba(7, 7, 7, 0.94) 18%, rgba(7, 7, 7, 0.62) 55%, rgba(7, 7, 7, 0.25) 100%),
-      linear-gradient(180deg, rgba(7, 7, 7, 0.45) 0%, rgba(7, 7, 7, 0.2) 45%, rgba(7, 7, 7, 1) 100%);
+      linear-gradient(90deg, rgba(12, 12, 12, 0.94) 18%, rgba(12, 12, 12, 0.62) 55%, rgba(12, 12, 12, 0.25) 100%),
+      linear-gradient(180deg, rgba(12, 12, 12, 0.45) 0%, rgba(12, 12, 12, 0.2) 45%, rgba(12, 12, 12, 1) 100%);
   }
 
   .news-head {
@@ -770,7 +770,7 @@
     grid-area: 1 / 1;
     position: relative;
     z-index: 2;
-    padding: 68px var(--page-pad-x) 0 var(--page-pad-x);
+    padding: 48px var(--page-pad-x) 0 var(--page-pad-x);
     max-width: 920px;
     display: flex;
     flex-direction: column;
@@ -831,7 +831,7 @@
   .news-body {
     position: relative;
     z-index: 2;
-    padding: 8px var(--page-pad-x) 0 var(--page-pad-x);
+    padding: 16px var(--page-pad-x) 0 var(--page-pad-x);
     display: flex;
     flex-direction: column;
     gap: 24px;

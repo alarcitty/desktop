@@ -62,7 +62,7 @@
   .recommendations-section {
     position: relative;
     width: 100%;
-    height: 766px;
+    height: 711px;
     background: #0c0c0c;
     overflow: hidden;
     box-sizing: border-box;
@@ -73,7 +73,7 @@
   /* Section Title: PP Monument Extended Black 48px, #D4D4D4 */
   .section-title {
     position: absolute;
-    top: 79px;
+    top: 44px;
     left: 50%;
     transform: translateX(-50%);
     margin: 0;
@@ -91,7 +91,7 @@
   /* Ambient Layer Blur underlay with smooth alpha gradient mask */
   .recommendations-underlay-blur {
     position: absolute;
-    top: 130px;
+    top: 75px;
     left: 0;
     width: 100%;
     height: 620px;
@@ -123,10 +123,10 @@
     overflow: visible;
   }
 
-  /* 5-poster panorama strip: 100% width, 0 gap, exact height 589px at top: 177px */
+  /* 5-poster panorama strip: 100% width, 0 gap, exact height 589px at top: 122px */
   .recommendations-strip {
     position: absolute;
-    top: 177px;
+    top: 122px;
     left: 0;
     width: 100%;
     height: 589px;

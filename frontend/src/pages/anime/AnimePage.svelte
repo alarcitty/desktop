@@ -493,7 +493,7 @@
     color: #ffffff;
     display: flex;
     flex-direction: column;
-    padding-bottom: 84px;
+    padding-bottom: 64px;
     box-sizing: border-box;
   }
 
@@ -553,7 +553,7 @@
     position: relative;
     z-index: 3;
     flex: 1 1 auto;
-    padding: 28px var(--page-pad-x) 36px var(--page-pad-x);
+    padding: 28px var(--page-pad-x) 24px var(--page-pad-x);
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
@@ -574,13 +574,13 @@
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    height: 44px;
-    padding: 0 14px;
+    height: 43px;
+    padding: 0 16px;
     border: none;
     outline: none;
-    border-radius: 999px;
+    border-radius: 21px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.36);
+    color: rgba(255, 255, 255, 0.48);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 14px;
     font-weight: 500;
@@ -808,10 +808,10 @@
   }
 
   .anime-body {
-    padding: 44px var(--page-pad-x) 0 var(--page-pad-x);
+    padding: 36px var(--page-pad-x) 0 var(--page-pad-x);
     display: flex;
     flex-direction: column;
-    gap: 44px;
+    gap: 40px;
   }
 
   .stage-state {
@@ -884,27 +884,28 @@
   }
 
   .range-pill {
-    height: 30px;
-    padding: 0 12px;
+    height: 32px;
+    padding: 0 13px;
     border: none;
     outline: none;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.6);
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.7);
+    font-family: inherit;
     font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
     transition: background-color 0.18s var(--ease-out), color 0.18s var(--ease-out);
   }
 
   .range-pill:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.12);
     color: #ffffff;
   }
 
   .range-pill.is-active {
-    background: #ffffff;
-    color: #0c0c0c;
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
     font-weight: 600;
   }
 
