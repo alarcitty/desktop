@@ -8,8 +8,9 @@ import Home from './home/Home.svelte';
 import LibraryPage from './library/Library.svelte';
 import News from './news/News.svelte';
 import ImportPage from './import/Import.svelte';
+import AnimePage from './anime/AnimePage.svelte';
 
-export type PageId = 'home' | 'library' | 'news' | 'import';
+export type PageId = 'home' | 'library' | 'news' | 'import' | 'anime';
 
 export interface PageDef
 {
@@ -20,8 +21,7 @@ export interface PageDef
   component: Component;
 }
 
-// Single source of truth for all app pages. Order = order of header tabs.
-// To add a new page: create pages/<name>/<Name>.svelte and register it here.
+// Single source of truth for top header tabs. Order = order of header tabs.
 export const pages: PageDef[] = [
   { id: 'home', name: 'Home', icon: House, component: Home },
   { id: 'library', name: 'Library', icon: Library, component: LibraryPage },
@@ -29,9 +29,13 @@ export const pages: PageDef[] = [
   { id: 'import', name: 'Import', icon: Import, component: ImportPage }
 ];
 
+const hiddenPages: Record<string, PageDef> = {
+  anime: { id: 'anime', name: 'Anime', icon: House, component: AnimePage }
+};
+
 export const defaultPage: PageId = 'home';
 
 export function getPage(aId: PageId): PageDef
 {
-  return pages.find((p) => p.id === aId) ?? pages[0];
+  return hiddenPages[aId] ?? pages.find((p) => p.id === aId) ?? pages[0];
 }

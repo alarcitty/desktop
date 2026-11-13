@@ -1,0 +1,966 @@
+<script lang="ts">
+  import { fade, scale } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
+  import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+  import Play from '@lucide/svelte/icons/play';
+  import Bookmark from '@lucide/svelte/icons/bookmark';
+  import Check from '@lucide/svelte/icons/check';
+  import RefreshCw from '@lucide/svelte/icons/refresh-cw';
+  import X from '@lucide/svelte/icons/x';
+
+  import MainButton from '../../marlakit/button/MainButton.svelte';
+  import SecondButton from '../../marlakit/button/SecondButton.svelte';
+  import MetaLine from '../../marlakit/meta/MetaLine.svelte';
+  import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
+  import HlsPlayer from '../../marlakit/player/HlsPlayer.svelte';
+  import { buildMetaTags, episodeSources } from '../../api/anime';
+  import { goBack } from '../../app/router.svelte';
+  import {
+    nextEpisode,
+    player,
+    retryWatch,
+    selectEpisode
+  } from '../../app/player.svelte';
+
+  const EP_PAGE_SIZE = 16;
+
+  let playerSectionEl = $state<HTMLElement | null>(null);
+  let descExpanded = $state(false);
+  let inLibrary = $state(false);
+  let isPlanLoading = $state(false);
+  let epRangeIndex = $state(0);
+  let lightboxUrl = $state<string | null>(null);
+  let planTimer: number | undefined;
+
+  const displayTitle = $derived(
+    player.shikiArt?.english || player.shikiArt?.name || player.release?.title || player.title || 'Anime'
+  );
+
+  const subTitle = $derived.by(() => {
+    const romaji = player.shikiArt?.name;
+    const ru = player.shikiArt?.russian;
+    if (romaji && romaji !== displayTitle) return romaji;
+    if (ru && ru !== displayTitle) return ru;
+    return '';
+  });
+
+  const posterUrl = $derived(
+    player.shikiArt?.posterOriginal ||
+      player.shikiArt?.posterMain ||
+      player.release?.poster ||
+      ''
+  );
+
+  const backdropUrl = $derived(
+    player.shikiArt?.screenshots[0] ||
+      player.release?.banner ||
+      posterUrl
+  );
+
+  const score = $derived(
+    player.shikiArt?.score && player.shikiArt.score > 0
+      ? Number(player.shikiArt.score.toFixed(1))
+      : undefined
+  );
+
+  const metaTags = $derived.by(() => {
+    const tags = buildMetaTags(player.shikiArt ?? undefined);
+    if (tags.length > 0) return tags;
+    const epCount = player.release?.episodes.length ?? 0;
+    return epCount > 0 ? [`${epCount} ep`] : [];
+  });
+
+  const fullDescription = $derived(
+    player.shikiArt?.description?.trim() || ''
+  );
+
+  const isLongDescription = $derived(fullDescription.length > 290);
+
+  const episodes = $derived(player.release?.episodes ?? []);
+
+  const currentEpisode = $derived(episodes[player.episodeIndex] ?? null);
+
+  const hasNext = $derived(
+    Boolean(player.release && player.episodeIndex + 1 < episodes.length)
+  );
+
+  const episodeRanges = $derived.by(() => {
+    if (episodes.length <= EP_PAGE_SIZE) return [];
+    const ranges: Array<{ label: string; start: number; end: number }> = [];
+    for (let start = 0; start < episodes.length; start += EP_PAGE_SIZE) {
+      const end = Math.min(start + EP_PAGE_SIZE, episodes.length);
+      const firstOrd = episodes[start]?.ordinal ?? start + 1;
+      const lastOrd = episodes[end - 1]?.ordinal ?? end;
+      ranges.push({ label: `${firstOrd}–${lastOrd}`, start, end });
+    }
+    return ranges;
+  });
+
+  const visibleEpisodes = $derived.by(() => {
+    if (episodeRanges.length === 0) {
+      return episodes.map((ep, idx) => ({ ep, idx }));
+    }
+    const range = episodeRanges[epRangeIndex] ?? episodeRanges[0];
+    return episodes.slice(range.start, range.end).map((ep, offset) => ({
+      ep,
+      idx: range.start + offset
+    }));
+  });
+
+  const galleryShots = $derived((player.shikiArt?.screenshots ?? []).slice(0, 6));
+
+  $effect(() => {
+    // Keep active episode range synced when auto-advancing to the next episode.
+    if (episodes.length > EP_PAGE_SIZE) {
+      epRangeIndex = Math.floor(player.episodeIndex / EP_PAGE_SIZE);
+    } else {
+      epRangeIndex = 0;
+    }
+  });
+
+  $effect(() => () => {
+    window.clearTimeout(planTimer);
+  });
+
+  function formatDuration(sec: number): string {
+    if (!sec || sec <= 0) return '';
+    const mins = Math.round(sec / 60);
+    return mins > 0 ? `${mins}m` : `${sec}s`;
+  }
+
+  function scrollToPlayer() {
+    playerSectionEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function handleChooseEpisode(index: number) {
+    selectEpisode(index);
+    scrollToPlayer();
+  }
+
+  function handlePlanToggle() {
+    window.clearTimeout(planTimer);
+    isPlanLoading = true;
+    planTimer = window.setTimeout(() => {
+      inLibrary = !inLibrary;
+      isPlanLoading = false;
+    }, 280);
+  }
+
+  function handleWindowKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && lightboxUrl) {
+      lightboxUrl = null;
+    }
+  }
+</script>
+
+<svelte:window onkeydown={handleWindowKeydown} />
+
+<div class="anime-page">
+  <!-- Spacious asymmetrical cinema showcase hero -->
+  <div class="anime-hero-bg">
+    {#if backdropUrl}
+      <img src={backdropUrl} alt="" aria-hidden="true" class="backdrop-img" decoding="async" />
+    {/if}
+    <div class="backdrop-dim" aria-hidden="true"></div>
+    <div class="backdrop-fade" aria-hidden="true"></div>
+
+    <div class="anime-top-inner">
+      <div class="anime-overview">
+        <div class="overview-meta-col">
+          {#if subTitle}
+            <span class="top-origin-title">{subTitle}</span>
+          {/if}
+          <h1 class="anime-title">{displayTitle}</h1>
+
+          {#if score || metaTags.length > 0}
+            <div class="anime-meta-line">
+              <MetaLine {score} tags={metaTags} />
+            </div>
+          {/if}
+
+          {#if fullDescription}
+            <div class="desc-block">
+              <p class="anime-description" class:is-clamped={isLongDescription && !descExpanded}>
+                {fullDescription}
+              </p>
+              {#if isLongDescription}
+                <button
+                  type="button"
+                  class="desc-toggle"
+                  onclick={() => { descExpanded = !descExpanded; }}
+                >
+                  {descExpanded ? 'Show less' : 'Read more'}
+                </button>
+              {/if}
+            </div>
+          {/if}
+
+          <div class="overview-actions">
+            <MainButton loading={player.loading} onclick={scrollToPlayer}>
+              {#snippet icon()}
+                <Play size={16} fill="currentColor" strokeWidth={0} />
+              {/snippet}
+              Watch Ep {currentEpisode?.ordinal ?? 1}
+            </MainButton>
+
+            <SecondButton loading={isPlanLoading} onclick={handlePlanToggle}>
+              {#snippet icon()}
+                {#if inLibrary}
+                  <Check size={16} strokeWidth={2.2} />
+                {:else}
+                  <Bookmark size={16} strokeWidth={2} />
+                {/if}
+              {/snippet}
+              {inLibrary ? 'In Plan to Watch' : 'Plan to Watch'}
+            </SecondButton>
+
+            <button
+              type="button"
+              class="back-btn"
+              onclick={goBack}
+              aria-label="Go back"
+              title="Go back"
+            >
+              <ArrowLeft size={16} strokeWidth={2} />
+              <span>Back</span>
+            </button>
+          </div>
+        </div>
+
+        {#if posterUrl}
+          <div class="showcase-art">
+            <div class="poster-glow" aria-hidden="true">
+              <LayerBlur src={posterUrl} blur={72} opacity={0.54} scale={1.24} offsetY={0} />
+            </div>
+            <div class="poster-wrap">
+              <img src={posterUrl} alt={displayTitle} class="poster-img" decoding="async" />
+              <div class="poster-edge-vignette" aria-hidden="true"></div>
+            </div>
+          </div>
+        {/if}
+      </div>
+    </div>
+  </div>
+
+  <!-- Full-bleed edge-to-edge player section (no side padding, no border-radius) -->
+  <section class="player-section" bind:this={playerSectionEl} aria-label="Video player">
+    <div class="player-stage">
+      {#if player.loading}
+        <div class="stage-state" transition:fade={{ duration: 180 }}>
+          <div class="spinner"></div>
+          <span>Loading HLS 1080p stream...</span>
+        </div>
+      {:else if player.error}
+        <div class="stage-state stage-error">
+          <p class="error-text">{player.error}</p>
+          <MainButton onclick={retryWatch}>
+            {#snippet icon()}
+              <RefreshCw size={15} strokeWidth={2} />
+            {/snippet}
+            Retry
+          </MainButton>
+        </div>
+      {:else if currentEpisode}
+        <HlsPlayer
+          sources={episodeSources(currentEpisode)}
+          poster={currentEpisode.preview || backdropUrl}
+          title={`Episode ${currentEpisode.ordinal}`}
+          subtitle=""
+          autoplay={player.autoplay}
+          preferMaxQuality={true}
+          opening={currentEpisode.opening}
+          ending={currentEpisode.ending}
+          {hasNext}
+          onnext={nextEpisode}
+        />
+      {:else}
+        <div class="stage-state">
+          <span>Select a title with Watch to begin playback.</span>
+        </div>
+      {/if}
+    </div>
+  </section>
+
+  <!-- Episode picker & frames gallery -->
+  <div class="anime-body">
+
+    {#if episodes.length > 0}
+      <section class="episodes-section" aria-label="Episodes">
+        <div class="section-head">
+          <div class="section-head-left">
+            <h2 class="section-heading">Episodes</h2>
+            <span class="section-count">{episodes.length}</span>
+          </div>
+
+          {#if episodeRanges.length > 1}
+            <div class="range-tabs" role="tablist" aria-label="Episode ranges">
+              {#each episodeRanges as range, i (range.label)}
+                <button
+                  type="button"
+                  class="range-pill"
+                  class:is-active={epRangeIndex === i}
+                  onclick={() => { epRangeIndex = i; }}
+                >
+                  {range.label}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        <div class="episodes-grid">
+          {#each visibleEpisodes as entry (entry.ep.id)}
+            {@const ep = entry.ep}
+            {@const isCurrent = entry.idx === player.episodeIndex}
+            <button
+              type="button"
+              class="ep-card"
+              class:is-active={isCurrent}
+              onclick={() => handleChooseEpisode(entry.idx)}
+            >
+              <div class="ep-thumb-wrap">
+                {#if ep.preview || backdropUrl}
+                  <img
+                    src={ep.preview || backdropUrl}
+                    alt="Episode {ep.ordinal}"
+                    class="ep-thumb"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                {/if}
+                <div class="ep-thumb-fade"></div>
+                <span class="ep-badge">EP {ep.ordinal}</span>
+                {#if ep.duration > 0}
+                  <span class="ep-duration">{formatDuration(ep.duration)}</span>
+                {/if}
+              </div>
+
+              <div class="ep-meta">
+                <span class="ep-name">
+                  {ep.name || `Episode ${ep.ordinal}`}
+                </span>
+              </div>
+            </button>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
+    {#if galleryShots.length > 0}
+      <section class="frames-section" aria-label="Frames">
+        <div class="section-head">
+          <h2 class="section-heading">Frames</h2>
+        </div>
+
+        <div class="frames-grid">
+          {#each galleryShots as shot, i (shot)}
+            <button
+              type="button"
+              class="frame-card"
+              onclick={() => { lightboxUrl = shot; }}
+              aria-label="Open frame {i + 1}"
+            >
+              <img src={shot} alt="{displayTitle} frame {i + 1}" class="frame-img" loading="lazy" decoding="async" />
+            </button>
+          {/each}
+        </div>
+      </section>
+    {/if}
+  </div>
+</div>
+
+{#if lightboxUrl}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="lightbox-backdrop"
+    transition:fade={{ duration: 180, easing: cubicOut }}
+    onclick={(e) => {
+      if (e.target === e.currentTarget) {
+        lightboxUrl = null;
+      }
+    }}
+  >
+    <button
+      type="button"
+      class="lightbox-close"
+      aria-label="Close frame preview"
+      onclick={() => { lightboxUrl = null; }}
+    >
+      <X size={20} strokeWidth={2} />
+    </button>
+    <img
+      src={lightboxUrl}
+      alt={displayTitle}
+      class="lightbox-img"
+      transition:scale={{ start: 0.96, duration: 200, easing: cubicOut }}
+    />
+  </div>
+{/if}
+
+<style>
+  .anime-page {
+    width: 100%;
+    min-height: 100%;
+    background: #0c0c0c;
+    color: #ffffff;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 84px;
+    box-sizing: border-box;
+  }
+
+  .anime-hero-bg {
+    position: relative;
+    width: 100%;
+    min-height: clamp(500px, 68vh, 650px);
+    margin-top: -72px;
+    padding-top: 72px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .backdrop-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 22%;
+    opacity: 0.56;
+    filter: saturate(1.04);
+    pointer-events: none;
+    user-select: none;
+    z-index: 0;
+  }
+
+  .backdrop-dim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      rgba(12, 12, 12, 0.9) 0%,
+      rgba(12, 12, 12, 0.56) 52%,
+      rgba(12, 12, 12, 0.44) 100%
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .backdrop-fade {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      rgba(12, 12, 12, 0.42) 0%,
+      rgba(12, 12, 12, 0.22) 38%,
+      rgba(12, 12, 12, 0.78) 78%,
+      #0c0c0c 100%
+    );
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .anime-top-inner {
+    position: relative;
+    z-index: 3;
+    flex: 1 1 auto;
+    padding: 28px var(--page-pad-x) 36px var(--page-pad-x);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
+
+  .top-origin-title {
+    margin-bottom: 12px;
+    font-family: 'PP Monument Extended', system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.42);
+    user-select: none;
+  }
+
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 44px;
+    padding: 0 14px;
+    border: none;
+    outline: none;
+    border-radius: 999px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.36);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s var(--ease-out), color 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+  }
+
+  .back-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.92);
+    transform: translateX(-2px);
+  }
+
+  .anime-overview {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 48px;
+    margin-top: auto;
+  }
+
+  .overview-meta-col {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1 1 auto;
+    max-width: 780px;
+  }
+
+  .anime-title {
+    margin: 0;
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: clamp(36px, 4.6vw, 66px);
+    font-weight: 700;
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    color: #ffffff;
+  }
+
+  .anime-meta-line {
+    margin-top: 16px;
+  }
+
+  .desc-block {
+    margin-top: 16px;
+    max-width: 740px;
+  }
+
+  .anime-description {
+    margin: 0;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 18px;
+    line-height: 1.44;
+    color: rgba(255, 255, 255, 0.68);
+  }
+
+  .anime-description.is-clamped {
+    display: -webkit-box;
+    line-clamp: 3;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .desc-toggle {
+    margin-top: 8px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.65);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    cursor: pointer;
+    transition: color 0.16s ease;
+  }
+
+  .desc-toggle:hover {
+    color: #ffffff;
+  }
+
+  .overview-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 22px;
+  }
+
+  /* Atmospheric borderless poster showcase on right side of hero */
+  .showcase-art {
+    position: relative;
+    width: clamp(280px, 24vw, 350px);
+    flex-shrink: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+  }
+
+  .poster-glow {
+    position: absolute;
+    inset: -32px;
+    pointer-events: none;
+    overflow: hidden;
+    -webkit-mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 1) 38%, rgba(0, 0, 0, 0) 74%);
+    mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 1) 38%, rgba(0, 0, 0, 0) 74%);
+  }
+
+  .poster-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    z-index: 2;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, #000 10%, #000 58%, transparent 100%);
+    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, #000 10%, #000 58%, transparent 100%);
+  }
+
+  .poster-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    user-select: none;
+    pointer-events: none;
+  }
+
+  .poster-edge-vignette {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      88% 84% at 52% 42%,
+      rgba(12, 12, 12, 0) 50%,
+      rgba(12, 12, 12, 0.42) 76%,
+      rgba(12, 12, 12, 0.92) 100%
+    );
+    pointer-events: none;
+  }
+
+  /* Full-width edge-to-edge HLS Player Section (zero horizontal padding, zero radius) */
+  .player-section {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .player-stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 0;
+    clip-path: none;
+    overflow: hidden;
+    background: #070709;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .player-stage :global(.hls-player) {
+    border-radius: 0;
+  }
+
+  .anime-body {
+    padding: 44px var(--page-pad-x) 0 var(--page-pad-x);
+    display: flex;
+    flex-direction: column;
+    gap: 44px;
+  }
+
+  .stage-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 24px;
+    text-align: center;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 15px;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .error-text {
+    margin: 0;
+    color: #f87171;
+  }
+
+  .spinner {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2.5px solid rgba(255, 255, 255, 0.14);
+    border-top-color: #ffffff;
+    animation: spin 0.75s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Episodes Section */
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+
+  .section-head-left {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .section-heading {
+    margin: 0;
+    font-family: 'PP Monument Extended', system-ui, sans-serif;
+    font-size: 24px;
+    font-weight: 900;
+    color: #e4e4e7;
+    letter-spacing: -0.01em;
+  }
+
+  .section-count {
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.42);
+  }
+
+  .range-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .range-pill {
+    height: 30px;
+    padding: 0 12px;
+    border: none;
+    outline: none;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.6);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background-color 0.18s var(--ease-out), color 0.18s var(--ease-out);
+  }
+
+  .range-pill:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+  }
+
+  .range-pill.is-active {
+    background: #ffffff;
+    color: #0c0c0c;
+    font-weight: 600;
+  }
+
+  .episodes-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  @media (max-width: 1180px) {
+    .episodes-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 820px) {
+    .episodes-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .anime-overview {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .showcase-art {
+      width: 210px;
+    }
+
+    .poster-wrap {
+      width: 100%;
+    }
+  }
+
+  .ep-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    border: none;
+    outline: none;
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    clip-path: inset(0 round var(--radius-card));
+    background: #121215;
+    cursor: pointer;
+    text-align: left;
+    transition: transform 0.24s var(--ease-out), background-color 0.24s var(--ease-out);
+  }
+
+  .ep-card:hover {
+    transform: translateY(-2px);
+    background: #18181c;
+  }
+
+  .ep-card.is-active {
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .ep-thumb-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: #0d0d10;
+  }
+
+  .ep-thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.45s var(--ease-out), filter 0.3s var(--ease-out);
+  }
+
+  .ep-card:hover .ep-thumb {
+    transform: scale(1.04);
+    filter: brightness(1.08);
+  }
+
+  .ep-thumb-fade {
+    position: absolute;
+    left: -1px;
+    right: -1px;
+    top: 0;
+    bottom: -2px;
+    background: linear-gradient(180deg, rgba(18, 18, 21, 0) 35%, rgba(18, 18, 21, 0.85) 100%);
+    pointer-events: none;
+  }
+
+  .ep-badge {
+    position: absolute;
+    left: 10px;
+    bottom: 8px;
+    font-family: 'PP Monument Extended', system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.92);
+    letter-spacing: 0.04em;
+  }
+
+  .ep-card.is-active .ep-badge {
+    color: #ffffff;
+  }
+
+  .ep-duration {
+    position: absolute;
+    right: 10px;
+    bottom: 8px;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  .ep-meta {
+    padding: 10px 12px 12px 12px;
+  }
+
+  .ep-name {
+    display: block;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: rgba(255, 255, 255, 0.78);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ep-card.is-active .ep-name {
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  /* Frames Gallery */
+  .frames-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  @media (max-width: 960px) {
+    .frames-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .frame-card {
+    padding: 0;
+    border: none;
+    outline: none;
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    clip-path: inset(0 round var(--radius-card));
+    aspect-ratio: 16 / 9;
+    background: #101012;
+    cursor: pointer;
+  }
+
+  .frame-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.45s var(--ease-out), filter 0.3s var(--ease-out);
+  }
+
+  .frame-card:hover .frame-img {
+    transform: scale(1.04);
+    filter: brightness(1.08);
+  }
+
+  .lightbox-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    background: rgba(6, 6, 8, 0.88);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 36px;
+  }
+
+  .lightbox-close {
+    position: absolute;
+    top: 24px;
+    right: 28px;
+    width: 40px;
+    height: 40px;
+    border: none;
+    outline: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .lightbox-img {
+    max-width: 92vw;
+    max-height: 86vh;
+    border-radius: var(--radius-card);
+    object-fit: contain;
+    display: block;
+  }
+</style>
