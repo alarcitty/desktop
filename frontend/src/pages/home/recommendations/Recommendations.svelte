@@ -2,55 +2,26 @@
   import { onMount } from 'svelte';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import LayerBlur from '../../../marlakit/blur/LayerBlur.svelte';
-  import { ensureShikimoriArtwork } from '../../../api/anime';
+  import { getCachedHomeFeeds, loadHomeFeeds, type HomeRecommendationItem } from '../../../api/anime';
+  import { openWatch } from '../../../app/player.svelte';
 
-  interface RecItem {
-    id: string;
-    shikiId: number;
-    poster: string;
-  }
-
-  let items = $state<RecItem[]>([
-    {
-      id: 'rec-1',
-      shikiId: 52198,
-      poster: 'https://shikimori.io/uploads/poster/animes/52198/85bd1b1c1919611ca9fbf46d2d404558.jpeg'
-    },
-    {
-      id: 'rec-2',
-      shikiId: 57334,
-      poster: 'https://shikimori.io/uploads/poster/animes/57334/17926e9e162dcf37b3e4533561ff712d.jpeg'
-    },
-    {
-      id: 'rec-3',
-      shikiId: 48736,
-      poster: 'https://shikimori.io/uploads/poster/animes/48736/536021070760d16f823b485bc5b021a6.jpeg'
-    },
-    {
-      id: 'rec-4',
-      shikiId: 52299,
-      poster: 'https://shikimori.io/uploads/poster/animes/52299/9a1ee4e32c72ab99b76e84bbe49f7e87.jpeg'
-    },
-    {
-      id: 'rec-5',
-      shikiId: 54744,
-      poster: 'https://shikimori.io/uploads/poster/animes/54744/de6fc036f101d94a4f738be3f0415d2c.jpeg'
-    }
-  ]);
+  let items = $state<HomeRecommendationItem[]>(getCachedHomeFeeds()?.recommendations ?? []);
 
   onMount(async () => {
-    const map = await ensureShikimoriArtwork(items.map((r) => r.shikiId));
-    items = items.map((r) => {
-      const shiki = map.get(r.shikiId);
-      if (!shiki) {
-        return r;
-      }
-      return {
-        ...r,
-        poster: shiki.posterOriginal || shiki.posterMain || r.poster
-      };
-    });
+    const feeds = await loadHomeFeeds();
+    if (feeds.recommendations.length > 0) {
+      items = feeds.recommendations;
+    }
   });
+
+  function handleRecClick(item: HomeRecommendationItem) {
+    void openWatch({
+      title: item.title,
+      shikiId: item.shikiId,
+      releaseAlias: item.releaseAlias,
+      searchQueries: item.searchQueries
+    });
+  }
 </script>
 
 <section class="recommendations-section">
@@ -69,12 +40,15 @@
   <!-- Full-width 5-poster panorama strip -->
   <div class="recommendations-strip">
     {#each items as item (item.id)}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="rec-card">
-        <img src={item.poster} alt={item.id} class="card-img" loading="lazy" decoding="async" />
+      <button
+        type="button"
+        class="rec-card"
+        aria-label={item.title}
+        onclick={() => handleRecClick(item)}
+      >
+        <img src={item.poster} alt={item.title} class="card-img" loading="lazy" decoding="async" />
         <div class="card-overlay"></div>
-      </div>
+      </button>
     {/each}
   </div>
 
@@ -171,6 +145,10 @@
     position: relative;
     flex: 1 1 0;
     height: 589px;
+    padding: 0;
+    border: none;
+    outline: none;
+    background: #0d0d10;
     overflow: hidden;
     box-sizing: border-box;
     cursor: pointer;

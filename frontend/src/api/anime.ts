@@ -45,24 +45,54 @@ export interface PlayableRelease {
   fallbackNote?: string;
 }
 
-// Track known titles used across Home, Releases, Recommendations, and Library.
-export const FEATURED_SHIKI_IDS = [
-  54492, // The Apothecary Diaries
-  39535, // Mushoku Tensei
-  34572, // Black Clover
-  52991, // Frieren: Beyond Journey's End
-  43523, // Tsukimichi: Moonlit Fantasy
-  54744, // Alya Sometimes Hides Her Feelings in Russian
-  52198, // Kaguya-sama: Love Is War - First Kiss
-  37999, // Kaguya-sama S1
-  57334, // Dan Da Dan
-  48736, // My Dress-Up Darling
-  52299  // Solo Leveling
-] as const;
+export interface HomeSpotlightItem {
+  shikiId: number;
+  title: string;
+  releaseAlias?: string;
+  searchQueries: string[];
+  bg: string;
+  previews: string[];
+  poster: string;
+  score: number;
+  metaTags: string[];
+  description: string;
+}
+
+export interface HomeReleaseItem {
+  id: string;
+  shikiId?: number;
+  releaseAlias: string;
+  searchQueries: string[];
+  title: string;
+  titleLines: string[];
+  description: string;
+  poster: string;
+  score?: number;
+  tags: string[];
+}
+
+export interface HomeRecommendationItem {
+  id: string;
+  shikiId?: number;
+  releaseAlias?: string;
+  searchQueries: string[];
+  title: string;
+  poster: string;
+  score?: number;
+  tags: string[];
+}
+
+export interface HomeFeeds {
+  spotlight: HomeSpotlightItem[];
+  releases: HomeReleaseItem[];
+  recommendations: HomeRecommendationItem[];
+}
 
 const shikiCache = new Map<number, ShikiArtwork>();
 let batchPromise: Promise<void> | null = null;
 let backendAvailable: boolean | null = null;
+let homeFeedsCache: HomeFeeds | null = null;
+let homeFeedsPromise: Promise<HomeFeeds> | null = null;
 
 function cleanBBCode(raw: string | null | undefined): string {
   if (!raw) return '';
@@ -165,8 +195,33 @@ interface ShikiGqlNode {
   screenshots?: Array<{ originalUrl?: string }>;
 }
 
+function mapShikiNode(item: ShikiGqlNode): ShikiArtwork | null {
+  const numId = Number(item.id);
+  if (!Number.isFinite(numId) || numId <= 0) return null;
+  return {
+    id: numId,
+    name: item.name,
+    russian: item.russian ?? '',
+    english: item.english ?? '',
+    description: cleanBBCode(item.description),
+    score: item.score ?? 0,
+    year: item.airedOn?.year ?? undefined,
+    status: item.status ?? undefined,
+    episodes: item.episodes ?? undefined,
+    episodesAired: item.episodesAired ?? undefined,
+    genres: (item.genres ?? [])
+      .map((g) => g.name ?? '')
+      .filter(Boolean),
+    posterOriginal: resolveShikiUrl(item.poster?.originalUrl),
+    posterMain: resolveShikiUrl(item.poster?.main2xUrl || item.poster?.mainUrl || item.poster?.originalUrl),
+    screenshots: (item.screenshots ?? [])
+      .map((s) => resolveShikiUrl(s.originalUrl))
+      .filter(Boolean)
+  };
+}
+
 // Fetches Shikimori posters, screenshots (banners), and cleaned descriptions in a single batch call.
-export async function ensureShikimoriArtwork(ids: readonly number[] = FEATURED_SHIKI_IDS): Promise<Map<number, ShikiArtwork>> {
+export async function ensureShikimoriArtwork(ids: readonly number[]): Promise<Map<number, ShikiArtwork>> {
   while (true) {
     const missing = ids.filter((id) => id > 0 && !shikiCache.has(id));
     if (missing.length === 0) {
@@ -197,7 +252,7 @@ export async function ensureShikimoriArtwork(ids: readonly number[] = FEATURED_S
             screenshots { originalUrl }
           }
         }`;
-        const unique = Array.from(new Set([...FEATURED_SHIKI_IDS, ...missing]));
+        const unique = Array.from(new Set(missing));
         const body = JSON.stringify({
           query,
           variables: { ids: unique.join(','), limit: unique.length }
@@ -212,28 +267,10 @@ export async function ensureShikimoriArtwork(ids: readonly number[] = FEATURED_S
           8000
         );
         for (const item of payload.data?.animes ?? []) {
-          const numId = Number(item.id);
-          if (!Number.isFinite(numId) || numId <= 0) continue;
-          shikiCache.set(numId, {
-            id: numId,
-            name: item.name,
-            russian: item.russian ?? '',
-            english: item.english ?? '',
-            description: cleanBBCode(item.description),
-            score: item.score ?? 0,
-            year: item.airedOn?.year ?? undefined,
-            status: item.status ?? undefined,
-            episodes: item.episodes ?? undefined,
-            episodesAired: item.episodesAired ?? undefined,
-            genres: (item.genres ?? [])
-              .map((g) => g.name ?? '')
-              .filter(Boolean),
-            posterOriginal: resolveShikiUrl(item.poster?.originalUrl),
-            posterMain: resolveShikiUrl(item.poster?.main2xUrl || item.poster?.mainUrl || item.poster?.originalUrl),
-            screenshots: (item.screenshots ?? [])
-              .map((s) => resolveShikiUrl(s.originalUrl))
-              .filter(Boolean)
-          });
+          const mapped = mapShikiNode(item);
+          if (mapped) {
+            shikiCache.set(mapped.id, mapped);
+          }
         }
       } finally {
         batchPromise = null;
@@ -354,7 +391,9 @@ export interface WatchTarget {
 
 // Resolves a playable HLS release (prefers Go backend when running, falls back to AniLiberty + Shikimori).
 export async function resolvePlayableRelease(target: WatchTarget): Promise<PlayableRelease> {
-  await ensureShikimoriArtwork(target.shikiId ? [target.shikiId] : FEATURED_SHIKI_IDS).catch(() => {});
+  if (target.shikiId) {
+    await ensureShikimoriArtwork([target.shikiId]).catch(() => {});
+  }
   const shikiArt = target.shikiId ? shikiCache.get(target.shikiId) : undefined;
 
   if (target.releaseAlias) {
@@ -406,4 +445,293 @@ export function episodeSources(ep: PlayableEpisode): HlsSources {
     hls_720: ep.hls_720,
     hls_480: ep.hls_480
   };
+}
+
+interface RawLibFeedItem {
+  id: number;
+  alias: string;
+  year?: number | null;
+  episodes_total?: number | null;
+  description?: string | null;
+  is_blocked_by_copyrights?: boolean;
+  name?: { main?: string | null; english?: string | null } | null;
+  shikimori?: { id?: number | null; rating?: number | null } | null;
+  mal?: { rating?: number | null } | null;
+  poster?: {
+    src?: string | null;
+    preview?: string | null;
+    optimized?: { src?: string | null } | null;
+  } | null;
+  genres?: Array<{ name?: string | null }> | null;
+  latest_episode?: { ordinal?: number | null } | null;
+}
+
+function franchiseKey(rawTitle: string): string {
+  return rawTitle
+    .toLowerCase()
+    .replace(/\b(\d+(st|nd|rd|th)\s+season|season\s+\d+|part\s+\d+|cour\s+\d+|arc)\b/gi, '')
+    .replace(/\b(ii|iii|iv|v)\b$/gi, '')
+    .replace(/[^a-z0-9а-яё]+/gi, ' ')
+    .trim();
+}
+
+function splitTitleLines(title: string): string[] {
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 1 || title.length <= 13) return [title];
+
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= 16 || current.length === 0) {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = word;
+      if (lines.length === 2) {
+        const restIndex = words.indexOf(word);
+        const remaining = words.slice(restIndex).join(' ');
+        lines.push(remaining);
+        return lines;
+      }
+    }
+  }
+  if (current) lines.push(current);
+  return lines.slice(0, 3);
+}
+
+function mapShikiToSpotlight(art: ShikiArtwork, releaseAlias?: string): HomeSpotlightItem {
+  const shots = art.screenshots;
+  const previews =
+    shots.length >= 4
+      ? shots.slice(1, 4)
+      : shots.length >= 3
+        ? shots.slice(0, 3)
+        : [shots[0] ?? art.posterOriginal, shots[1] ?? shots[0] ?? art.posterOriginal, shots[2] ?? shots[0] ?? art.posterOriginal];
+
+  return {
+    shikiId: art.id,
+    title: art.english || art.name || art.russian || 'Anime',
+    releaseAlias,
+    searchQueries: [art.name, art.english, art.russian].filter(Boolean),
+    bg: shots[0] ?? art.posterOriginal ?? '',
+    previews,
+    poster: art.posterOriginal || art.posterMain || shots[0] || '',
+    score: art.score > 0 ? Number(art.score.toFixed(1)) : 0,
+    metaTags: buildMetaTags(art),
+    description: truncateDescription(art.description, 330)
+  };
+}
+
+export function getCachedHomeFeeds(): HomeFeeds | null {
+  return homeFeedsCache;
+}
+
+// Loads live Spotlight, latest AniLiberty New Releases, and Recommendations without hardcoded lists.
+export async function loadHomeFeeds(): Promise<HomeFeeds> {
+  if (homeFeedsCache) {
+    return homeFeedsCache;
+  }
+  if (homeFeedsPromise) {
+    return homeFeedsPromise;
+  }
+
+  homeFeedsPromise = (async () => {
+    const shikiQuery = `{
+      ongoing: animes(order: popularity, status: "ongoing", kind: "tv", limit: 18, censored: false) {
+        id name russian english description score status episodes episodesAired
+        airedOn { year } genres { name }
+        poster { originalUrl main2xUrl mainUrl }
+        screenshots { originalUrl }
+      }
+      ranked: animes(order: ranked, kind: "tv", limit: 24, censored: false) {
+        id name russian english description score status episodes episodesAired
+        airedOn { year } genres { name }
+        poster { originalUrl main2xUrl mainUrl }
+        screenshots { originalUrl }
+      }
+    }`;
+
+    const [latestRes, recRes, shikiRes] = await Promise.allSettled([
+      fetchJsonWithTimeout<RawLibFeedItem[]>(
+        `${ANILIBERTY_BASE}/anime/releases/latest?limit=14`,
+        undefined,
+        7000
+      ),
+      fetchJsonWithTimeout<RawLibFeedItem[]>(
+        `${ANILIBERTY_BASE}/anime/releases/recommended?limit=12`,
+        undefined,
+        7000
+      ),
+      fetchJsonWithTimeout<{ data?: { ongoing?: ShikiGqlNode[]; ranked?: ShikiGqlNode[] } }>(
+        SHIKI_GRAPHQL,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: shikiQuery })
+        },
+        8500
+      )
+    ]);
+
+    const latestRaw = latestRes.status === 'fulfilled' && Array.isArray(latestRes.value) ? latestRes.value : [];
+    const recRaw = recRes.status === 'fulfilled' && Array.isArray(recRes.value) ? recRes.value : [];
+    const ongoingNodes = shikiRes.status === 'fulfilled' ? shikiRes.value.data?.ongoing ?? [] : [];
+    const rankedNodes = shikiRes.status === 'fulfilled' ? shikiRes.value.data?.ranked ?? [] : [];
+
+    const ongoingArts: ShikiArtwork[] = [];
+    for (const node of ongoingNodes) {
+      const mapped = mapShikiNode(node);
+      if (mapped) {
+        shikiCache.set(mapped.id, mapped);
+        ongoingArts.push(mapped);
+      }
+    }
+
+    const rankedArts: ShikiArtwork[] = [];
+    for (const node of rankedNodes) {
+      const mapped = mapShikiNode(node);
+      if (mapped) {
+        shikiCache.set(mapped.id, mapped);
+        rankedArts.push(mapped);
+      }
+    }
+
+    const aliasByShikiId = new Map<number, string>();
+    for (const item of [...latestRaw, ...recRaw]) {
+      const sid = item.shikimori?.id;
+      if (sid && item.alias && !aliasByShikiId.has(sid)) {
+        aliasByShikiId.set(sid, item.alias);
+      }
+    }
+
+    const libShikiIds = [...latestRaw.slice(0, 8), ...recRaw.slice(0, 8)]
+      .map((item) => item.shikimori?.id ?? 0)
+      .filter((id) => id > 0 && !shikiCache.has(id));
+    if (libShikiIds.length > 0) {
+      await ensureShikimoriArtwork(libShikiIds).catch(() => {});
+    }
+
+    const usedShikiIds = new Set<number>();
+    const usedFranchises = new Set<string>();
+
+    // 1. Spotlight (4 modern popular titles with rich 16:9 screenshots + poster)
+    const spotlight: HomeSpotlightItem[] = [];
+    const spotlightCandidates = [
+      ...ongoingArts.filter((a) => (a.year ?? 0) >= 2022 && a.screenshots.length >= 3 && a.posterOriginal),
+      ...rankedArts.filter((a) => a.screenshots.length >= 3 && a.posterOriginal)
+    ];
+    for (const art of spotlightCandidates) {
+      if (spotlight.length >= 4) break;
+      const key = franchiseKey(art.english || art.name);
+      if (usedShikiIds.has(art.id) || (key && usedFranchises.has(key))) continue;
+      usedShikiIds.add(art.id);
+      if (key) usedFranchises.add(key);
+      spotlight.push(mapShikiToSpotlight(art, aliasByShikiId.get(art.id)));
+    }
+
+    // 2. New Releases (4 live latest releases from AniLiberty, enriched with Shikimori metadata)
+    const releases: HomeReleaseItem[] = [];
+    const seenAliases = new Set<string>();
+    for (const r of latestRaw) {
+      if (releases.length >= 4) break;
+      if (!r.alias || seenAliases.has(r.alias) || r.is_blocked_by_copyrights) continue;
+      const shiki = r.shikimori?.id ? shikiCache.get(r.shikimori.id) : undefined;
+      const poster = shiki?.posterOriginal || resolveLibUrl(r.poster?.src || r.poster?.optimized?.src || r.poster?.preview);
+      if (!poster) continue;
+
+      seenAliases.add(r.alias);
+      const title = shiki?.english || r.name?.english || r.name?.main || 'Anime';
+      const rawScore = shiki?.score && shiki.score > 0 ? shiki.score : (r.shikimori?.rating || r.mal?.rating || 0);
+      const epCount = r.episodes_total || r.latest_episode?.ordinal || undefined;
+      const libTags = [
+        r.year ? String(r.year) : '',
+        epCount ? `${epCount} ep` : '',
+        ...(r.genres ?? []).slice(0, 3).map((g) => g.name ?? '').filter(Boolean)
+      ].filter(Boolean);
+      const tags = shiki ? buildMetaTags(shiki) : libTags;
+      const descSource = shiki?.description || cleanBBCode(r.description);
+
+      if (r.shikimori?.id) usedShikiIds.add(r.shikimori.id);
+      const fKey = franchiseKey(title);
+      if (fKey) usedFranchises.add(fKey);
+
+      releases.push({
+        id: r.alias,
+        shikiId: r.shikimori?.id ?? undefined,
+        releaseAlias: r.alias,
+        searchQueries: [r.name?.english ?? '', r.name?.main ?? '', shiki?.name ?? ''].filter(Boolean),
+        title,
+        titleLines: splitTitleLines(title),
+        description: truncateDescription(descSource, 155),
+        poster,
+        score: rawScore > 0 ? Number(rawScore.toFixed(1)) : undefined,
+        tags: tags.length > 0 ? tags : libTags
+      });
+    }
+
+    // 3. Recommendations (5 distinct high-rated posters from AniLiberty recommended + Shikimori ranked)
+    const recommendations: HomeRecommendationItem[] = [];
+    for (const r of recRaw) {
+      if (recommendations.length >= 3) break;
+      if (!r.alias || seenAliases.has(r.alias) || r.is_blocked_by_copyrights) continue;
+      const sid = r.shikimori?.id ?? undefined;
+      if (sid && usedShikiIds.has(sid)) continue;
+      if ((r.year ?? 0) < 2018) continue;
+      const shiki = sid ? shikiCache.get(sid) : undefined;
+      const poster = shiki?.posterOriginal || resolveLibUrl(r.poster?.src || r.poster?.optimized?.src);
+      if (!poster) continue;
+
+      const title = shiki?.english || r.name?.english || r.name?.main || 'Anime';
+      const fKey = franchiseKey(title);
+      if (fKey && usedFranchises.has(fKey)) continue;
+
+      seenAliases.add(r.alias);
+      if (sid) usedShikiIds.add(sid);
+      if (fKey) usedFranchises.add(fKey);
+      const rawScore = shiki?.score && shiki.score > 0 ? shiki.score : (r.shikimori?.rating || r.mal?.rating || 0);
+
+      recommendations.push({
+        id: r.alias,
+        shikiId: sid,
+        releaseAlias: r.alias,
+        searchQueries: [r.name?.english ?? '', r.name?.main ?? '', shiki?.name ?? ''].filter(Boolean),
+        title,
+        poster,
+        score: rawScore > 0 ? Number(rawScore.toFixed(1)) : undefined,
+        tags: shiki ? buildMetaTags(shiki) : []
+      });
+    }
+
+    for (const art of rankedArts) {
+      if (recommendations.length >= 5) break;
+      if (!art.posterOriginal || usedShikiIds.has(art.id)) continue;
+      const title = art.english || art.name || art.russian || 'Anime';
+      const fKey = franchiseKey(title);
+      if (fKey && usedFranchises.has(fKey)) continue;
+
+      usedShikiIds.add(art.id);
+      if (fKey) usedFranchises.add(fKey);
+      recommendations.push({
+        id: `shiki-${art.id}`,
+        shikiId: art.id,
+        releaseAlias: aliasByShikiId.get(art.id),
+        searchQueries: [art.name, art.english, art.russian].filter(Boolean),
+        title,
+        poster: art.posterOriginal || art.posterMain,
+        score: art.score > 0 ? Number(art.score.toFixed(1)) : undefined,
+        tags: buildMetaTags(art)
+      });
+    }
+
+    const result: HomeFeeds = { spotlight, releases, recommendations };
+    if (spotlight.length > 0 || releases.length > 0 || recommendations.length > 0) {
+      homeFeedsCache = result;
+    }
+    return result;
+  })().finally(() => {
+    homeFeedsPromise = null;
+  });
+
+  return homeFeedsPromise;
 }

@@ -9,98 +9,18 @@
   import SecondButton from '../../../marlakit/button/SecondButton.svelte';
   import MetaLine from '../../../marlakit/meta/MetaLine.svelte';
   import LayerBlur from '../../../marlakit/blur/LayerBlur.svelte';
-  import { buildMetaTags, ensureShikimoriArtwork, getCachedArtwork, truncateDescription } from '../../../api/anime';
+  import { getCachedHomeFeeds, loadHomeFeeds, type HomeSpotlightItem } from '../../../api/anime';
   import { openWatch, player } from '../../../app/player.svelte';
 
   interface Props {
     onselectbg?: (url: string) => void;
   }
 
-  interface SpotlightEntry {
-    shikiId: number;
-    title: string;
-    releaseAlias?: string;
-    searchQueries: string[];
-    bg: string;
-    previews: string[];
-    poster: string;
-    score: number;
-    metaTags: string[];
-    description: string;
-  }
-
-  const HERO_DESC_LIMIT = 330;
   const SPOTLIGHT_INTERVAL_MS = 8500;
-
-  const INITIAL_SPOTLIGHT: SpotlightEntry[] = [
-    {
-      shikiId: 54492,
-      title: 'The Apothecary Diaries',
-      searchQueries: ['Kusuriya no Hitorigoto', 'Монолог фармацевта'],
-      bg: 'https://shikimori.io/system/screenshots/original/c69350821cad77321b3363bdd5e1e9b0f77066c0.jpg?1697914448',
-      previews: [
-        'https://shikimori.io/system/screenshots/original/b4cb4370140e1e032c703ec363f90d5b4c643e76.jpg?1697914450',
-        'https://shikimori.io/system/screenshots/original/5fb0f642f11a77f5bf6cde0f551e098efdd3dae4.jpg?1697914451',
-        'https://shikimori.io/system/screenshots/original/6f8ae12f8e7fdf526b419530e4398e3d1a5e31d5.jpg?1697914451'
-      ],
-      poster: '',
-      score: 8.8,
-      metaTags: ['2023', '24 ep', 'Drama', 'Mystery', 'Historical'],
-      description: truncateDescription(
-        "follows Maomao, a young woman trained as an apothecary in the red-light district, who is kidnapped and forced to work as a lowly servant in the Emperor's inner palace. Possessing an eccentric obsession with poisons, medical herbs, and biological experiments, she unravels court mysteries from the shadows.",
-        HERO_DESC_LIMIT
-      )
-    },
-    {
-      shikiId: 52991,
-      title: "Frieren: Beyond Journey's End",
-      releaseAlias: 'sousou-no-frieren',
-      searchQueries: ['Sousou no Frieren'],
-      bg: 'https://shikimori.io/system/screenshots/original/c69350821cad77321b3363bdd5e1e9b0f77066c0.jpg?1697914448',
-      previews: [],
-      poster: 'https://shikimori.io/uploads/poster/animes/52991/dc841cc9fce2aa1e9907a4b61c5d1d92.jpeg',
-      score: 9.3,
-      metaTags: ['2023', '28 ep', 'Adventure', 'Drama', 'Fantasy'],
-      description: truncateDescription(
-        'After a ten-year quest to defeat the Demon King alongside her comrades, the elven mage Frieren embarks on a quiet new journey across the continent to truly understand humanity and honor fleeting memories.',
-        HERO_DESC_LIMIT
-      )
-    },
-    {
-      shikiId: 57334,
-      title: 'Dan Da Dan',
-      releaseAlias: 'dandadan',
-      searchQueries: ['Dandadan', 'Дандадан'],
-      bg: 'https://shikimori.io/system/screenshots/original/c69350821cad77321b3363bdd5e1e9b0f77066c0.jpg?1697914448',
-      previews: [],
-      poster: 'https://shikimori.io/uploads/poster/animes/57334/17926e9e162dcf37b3e4533561ff712d.jpeg',
-      score: 8.5,
-      metaTags: ['2024', '12 ep', 'Action', 'Comedy', 'Sci-Fi'],
-      description: truncateDescription(
-        'Momo believes in ghosts but not aliens; Okarun believes in aliens but not ghosts. Their bet to prove each other wrong plunges both teens into a chaotic battle against occult curses and extraterrestrial threats.',
-        HERO_DESC_LIMIT
-      )
-    },
-    {
-      shikiId: 43523,
-      title: 'Tsukimichi: Moonlit Fantasy',
-      releaseAlias: 'tsuki-ga-michibiku-isekai-douchuu',
-      searchQueries: ['Tsuki ga Michibiku Isekai Douchuu', 'Лунное путешествие'],
-      bg: 'https://shikimori.io/system/screenshots/original/c69350821cad77321b3363bdd5e1e9b0f77066c0.jpg?1697914448',
-      previews: [],
-      poster: 'https://shikimori.io/uploads/poster/animes/43523/9f56a98052f05ad81a43452ecacf657d.jpeg',
-      score: 7.7,
-      metaTags: ['2021', '12 ep', 'Action', 'Adventure', 'Fantasy'],
-      description: truncateDescription(
-        'Makoto Misumi is transported to another world to be a hero, only to be cast away to the edge of the wasteland by a vain goddess. Surviving with absurd magical strength, he builds a bustling sanctuary for outcasts.',
-        HERO_DESC_LIMIT
-      )
-    }
-  ];
 
   let { onselectbg }: Props = $props();
 
-  let spotlight = $state<SpotlightEntry[]>(INITIAL_SPOTLIGHT);
+  let spotlight = $state<HomeSpotlightItem[]>(getCachedHomeFeeds()?.spotlight ?? []);
   let activeIndex = $state(0);
   let isPaused = $state(false);
   let isWatchLoading = $state(false);
@@ -108,36 +28,7 @@
   let planTimer: number | undefined;
   let cycleTimer: number | undefined;
 
-  let activeHero = $derived(spotlight[activeIndex] ?? spotlight[0]);
-
-  function hydrateEntry(entry: SpotlightEntry, art: ReturnType<typeof getCachedArtwork>): SpotlightEntry
-  {
-    if (!art)
-    {
-      return entry;
-    }
-    const shots = art.screenshots;
-    const bg = shots[0] ?? entry.bg;
-    const previews =
-      shots.length >= 4
-        ? shots.slice(1, 4)
-        : shots.length >= 3
-          ? shots.slice(0, 3)
-          : shots.length > 0
-            ? [shots[0], shots[1] ?? shots[0], shots[2] ?? shots[0]]
-            : entry.previews;
-    const nextTags = buildMetaTags(art);
-    return {
-      ...entry,
-      title: art.english || art.name || entry.title,
-      bg,
-      previews,
-      poster: art.posterOriginal || art.posterMain || shots[0] || entry.poster,
-      score: art.score > 0 ? Number(art.score.toFixed(1)) : entry.score,
-      metaTags: nextTags.length > 0 ? nextTags : entry.metaTags,
-      description: art.description ? truncateDescription(art.description, HERO_DESC_LIMIT) : entry.description
-    };
-  }
+  let activeHero = $derived(spotlight[activeIndex] ?? spotlight[0] ?? null);
 
   function applySpotlightIndex(index: number)
   {
@@ -180,26 +71,27 @@
 
   onMount(async () =>
   {
-    const ids = INITIAL_SPOTLIGHT.map((item) => item.shikiId);
-    const cachedPass = INITIAL_SPOTLIGHT.map((item) => hydrateEntry(item, getCachedArtwork(item.shikiId)));
-    spotlight = cachedPass;
-    if (cachedPass[activeIndex]?.bg)
+    if (spotlight.length > 0 && spotlight[activeIndex]?.bg)
     {
-      onselectbg?.(cachedPass[activeIndex].bg);
+      onselectbg?.(spotlight[activeIndex].bg);
     }
     startAutoCycle();
 
-    const map = await ensureShikimoriArtwork(ids);
-    const hydrated = INITIAL_SPOTLIGHT.map((item) => hydrateEntry(item, map.get(item.shikiId)));
-    spotlight = hydrated;
-    if (hydrated[activeIndex]?.bg)
+    const feeds = await loadHomeFeeds();
+    if (feeds.spotlight.length > 0)
     {
-      onselectbg?.(hydrated[activeIndex].bg);
+      spotlight = feeds.spotlight;
+      activeIndex = 0;
+      if (feeds.spotlight[0]?.bg)
+      {
+        onselectbg?.(feeds.spotlight[0].bg);
+      }
     }
   });
 
   async function handleWatchClick()
   {
+    if (!activeHero) return;
     const target = activeHero;
     isWatchLoading = true;
     try
@@ -244,85 +136,89 @@
 >
   <!-- 3-screenshot horizontal gallery strip -->
   <div class="preview-strip">
-    {#key activeHero.shikiId}
-      <div class="preview-set" transition:fade={{ duration: 280, easing: cubicOut }}>
-        {#if activeHero.previews.length >= 3}
-          <img src={activeHero.previews[0]} alt="{activeHero.title} preview 1" class="preview-img img-1" decoding="async" />
-          <img src={activeHero.previews[1]} alt="{activeHero.title} preview 2" class="preview-img img-2" decoding="async" />
-          <img src={activeHero.previews[2]} alt="{activeHero.title} preview 3" class="preview-img img-3" decoding="async" />
-        {/if}
-      </div>
-    {/key}
+    {#if activeHero}
+      {#key activeHero.shikiId}
+        <div class="preview-set" transition:fade={{ duration: 280, easing: cubicOut }}>
+          {#if activeHero.previews.length >= 3}
+            <img src={activeHero.previews[0]} alt="{activeHero.title} preview 1" class="preview-img img-1" decoding="async" />
+            <img src={activeHero.previews[1]} alt="{activeHero.title} preview 2" class="preview-img img-2" decoding="async" />
+            <img src={activeHero.previews[2]} alt="{activeHero.title} preview 3" class="preview-img img-3" decoding="async" />
+          {/if}
+        </div>
+      {/key}
+    {/if}
   </div>
 
   <!-- Hero title + symmetric two-column body -->
   <div class="hero-content">
-    <h1 class="hero-title">{activeHero.title}</h1>
+    {#if activeHero}
+      <h1 class="hero-title">{activeHero.title}</h1>
 
-    <div class="hero-body">
-      <div class="hero-main-col">
-        <div class="hero-meta">
-          <MetaLine score={activeHero.score} tags={activeHero.metaTags} />
+      <div class="hero-body">
+        <div class="hero-main-col">
+          <div class="hero-meta">
+            <MetaLine score={activeHero.score} tags={activeHero.metaTags} />
+          </div>
+          <p class="hero-description">{activeHero.description}</p>
+
+          <!-- Action buttons with icons -->
+          <div class="hero-actions">
+            <MainButton loading={isWatchLoading || player.loading} onclick={handleWatchClick}>
+              {#snippet icon()}
+                <Play size={16} fill="currentColor" strokeWidth={0} />
+              {/snippet}
+              Watch
+            </MainButton>
+
+            <SecondButton loading={isPlanLoading} onclick={handlePlanClick}>
+              {#snippet icon()}
+                <Bookmark size={16} strokeWidth={2} />
+              {/snippet}
+              Plan to Watch
+            </SecondButton>
+          </div>
         </div>
-        <p class="hero-description">{activeHero.description}</p>
 
-        <!-- Action buttons with icons -->
-        <div class="hero-actions">
-          <MainButton loading={isWatchLoading || player.loading} onclick={handleWatchClick}>
-            {#snippet icon()}
-              <Play size={16} fill="currentColor" strokeWidth={0} />
-            {/snippet}
-            Watch
-          </MainButton>
+        <!-- Bottom-right Mila-native panorama accordion strip -->
+        <aside class="hero-strip-wrap" aria-label="Featured spotlight switcher">
+          <div class="hero-strip-blur" aria-hidden="true">
+            {#key activeHero.shikiId}
+              {#if activeHero.poster}
+                <div class="strip-blur-layer" transition:fade={{ duration: 420, easing: cubicOut }}>
+                  <LayerBlur src={activeHero.poster} blur={46} opacity={0.32} scale={1.1} offsetY={0} />
+                </div>
+              {/if}
+            {/key}
+          </div>
 
-          <SecondButton loading={isPlanLoading} onclick={handlePlanClick}>
-            {#snippet icon()}
-              <Bookmark size={16} strokeWidth={2} />
-            {/snippet}
-            Plan to Watch
-          </SecondButton>
-        </div>
+          <div class="hero-strip">
+            {#each spotlight as item, idx (item.shikiId)}
+              <button
+                type="button"
+                class="strip-card"
+                class:is-active={idx === activeIndex}
+                aria-label={item.title}
+                onclick={() => applySpotlightIndex(idx)}
+              >
+                {#if item.poster}
+                  <img src={item.poster} alt={item.title} class="strip-card-img" decoding="async" />
+                {/if}
+                <div class="strip-card-overlay"></div>
+                <div class="strip-card-bottom-fade"></div>
+
+                {#if idx === activeIndex}
+                  <span
+                    class="strip-progress"
+                    class:is-paused={isPaused}
+                    style="animation-duration: {SPOTLIGHT_INTERVAL_MS}ms;"
+                  ></span>
+                {/if}
+              </button>
+            {/each}
+          </div>
+        </aside>
       </div>
-
-      <!-- Bottom-right Mila-native panorama accordion strip -->
-      <aside class="hero-strip-wrap" aria-label="Featured spotlight switcher">
-        <div class="hero-strip-blur" aria-hidden="true">
-          {#key activeHero.shikiId}
-            {#if activeHero.poster}
-              <div class="strip-blur-layer" transition:fade={{ duration: 420, easing: cubicOut }}>
-                <LayerBlur src={activeHero.poster} blur={46} opacity={0.32} scale={1.1} offsetY={0} />
-              </div>
-            {/if}
-          {/key}
-        </div>
-
-        <div class="hero-strip">
-          {#each spotlight as item, idx (item.shikiId)}
-            <button
-              type="button"
-              class="strip-card"
-              class:is-active={idx === activeIndex}
-              aria-label={item.title}
-              onclick={() => applySpotlightIndex(idx)}
-            >
-              {#if item.poster}
-                <img src={item.poster} alt={item.title} class="strip-card-img" decoding="async" />
-              {/if}
-              <div class="strip-card-overlay"></div>
-              <div class="strip-card-bottom-fade"></div>
-
-              {#if idx === activeIndex}
-                <span
-                  class="strip-progress"
-                  class:is-paused={isPaused}
-                  style="animation-duration: {SPOTLIGHT_INTERVAL_MS}ms;"
-                ></span>
-              {/if}
-            </button>
-          {/each}
-        </div>
-      </aside>
-    </div>
+    {/if}
   </div>
 
   <!-- Bottom scroll indicator chevron -->

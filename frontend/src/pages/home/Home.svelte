@@ -5,21 +5,17 @@
   import Hero from './hero/Hero.svelte';
   import Releases from './releases/Releases.svelte';
   import Recommendations from './recommendations/Recommendations.svelte';
-  import { ensureShikimoriArtwork, FEATURED_SHIKI_IDS, getCachedArtwork } from '../../api/anime';
+  import { getCachedHomeFeeds, loadHomeFeeds } from '../../api/anime';
 
-  const HERO_SHIKI_ID = 54492;
-  const FALLBACK_BG =
-    'https://shikimori.io/system/screenshots/original/c69350821cad77321b3363bdd5e1e9b0f77066c0.jpg?1697914448';
-
-  let bgImage = $state(getCachedArtwork(HERO_SHIKI_ID)?.screenshots[0] ?? FALLBACK_BG);
+  let bgImage = $state(getCachedHomeFeeds()?.spotlight[0]?.bg ?? '');
 
   onMount(async () =>
   {
-    const map = await ensureShikimoriArtwork(FEATURED_SHIKI_IDS);
-    const shot = map.get(HERO_SHIKI_ID)?.screenshots[0];
-    if (shot && bgImage === FALLBACK_BG)
+    const feeds = await loadHomeFeeds();
+    const firstBg = feeds.spotlight[0]?.bg;
+    if (firstBg && !bgImage)
     {
-      bgImage = shot;
+      bgImage = firstBg;
     }
   });
 </script>
@@ -27,13 +23,15 @@
 <main class="main-wrapper">
   <!-- Hero background wrapper containing the poster and all overlays -->
   <div class="hero-bg-wrapper">
-    {#key bgImage}
-      <div
-        class="hero-bg-image"
-        style="background-image: url('{bgImage}');"
-        transition:fade={{ duration: 420, easing: cubicOut }}
-      ></div>
-    {/key}
+    {#if bgImage}
+      {#key bgImage}
+        <div
+          class="hero-bg-image"
+          style="background-image: url('{bgImage}');"
+          transition:fade={{ duration: 420, easing: cubicOut }}
+        ></div>
+      {/key}
+    {/if}
 
     <!-- 1. 60% base dark dimming -->
     <div class="bg-dark-overlay"></div>

@@ -8,77 +8,10 @@
   import SecondButton from '../../../marlakit/button/SecondButton.svelte';
   import LayerBlur from '../../../marlakit/blur/LayerBlur.svelte';
   import MetaLine from '../../../marlakit/meta/MetaLine.svelte';
-  import { buildMetaTags, ensureShikimoriArtwork, truncateDescription } from '../../../api/anime';
+  import { getCachedHomeFeeds, loadHomeFeeds, type HomeReleaseItem } from '../../../api/anime';
   import { openWatch } from '../../../app/player.svelte';
 
-  const RELEASE_DESC_LIMIT = 155;
-
-  interface ReleaseItem {
-    id: string;
-    shikiId: number;
-    releaseAlias?: string;
-    searchQueries?: string[];
-    title: string;
-    titleLines: string[];
-    description: string;
-    poster: string;
-    score?: number;
-    tags: string[];
-  }
-
-  let releases = $state<ReleaseItem[]>([
-    {
-      id: 'mushoku',
-      shikiId: 39535,
-      searchQueries: ['Mushoku Tensei', 'Реинкарнация безработного'],
-      title: 'Mushoku Tensei: Jobless Reincarnation',
-      titleLines: ['Mushoku', 'Tensei: Jobless', 'Reincarnation'],
-      description:
-        'A 34-year-old unemployed recluse is killed after saving strangers from a speeding truck and reincarnated in a magical fantasy world as an infant named Rudeus Greyrat. Retaining his memories and regrets from his past life, he vows to overcome his past trauma and live his new life to the fullest without regrets.',
-      poster: 'https://shikimori.io/uploads/poster/animes/39535/f66d91c3fdc65449f4bb3568e4d36fec.jpeg',
-      score: 8.4,
-      tags: ['2021', '11 ep', 'Adventure', 'Drama', 'Fantasy']
-    },
-    {
-      id: 'black-clover',
-      shikiId: 34572,
-      releaseAlias: 'black-clover-special',
-      searchQueries: ['Black Clover', 'Чёрный клевер'],
-      title: 'Black Clover',
-      titleLines: ['Black', 'Clover', 'Sword of the King'],
-      description:
-        'In a world where magic is everything, Asta, a boy born without magic, aims to become the Wizard King to overcome adversity and prove his power to the entire kingdom.',
-      poster: 'https://shikimori.io/uploads/poster/animes/34572/d4c5bf9cac831c03fc5ebed2676b7b10.jpeg',
-      score: 8.1,
-      tags: ['2017', '170 ep', 'Action', 'Comedy', 'Fantasy']
-    },
-    {
-      id: 'frieren',
-      shikiId: 52991,
-      releaseAlias: 'sousou-no-frieren',
-      searchQueries: ['Sousou no Frieren', 'Провожающая в последний путь Фрирен'],
-      title: "Frieren: Beyond Journey's End",
-      titleLines: ['Frieren:', "Beyond Journey's", 'End'],
-      description:
-        "An elf mage reflects on life and mortality as she embarks on a journey to fulfill her former party's wishes after defeating the Demon King and wandering through centuries.",
-      poster: 'https://shikimori.io/uploads/poster/animes/52991/dc841cc9fce2aa1e9907a4b61c5d1d92.jpeg',
-      score: 9.3,
-      tags: ['2023', '28 ep', 'Adventure', 'Drama', 'Fantasy']
-    },
-    {
-      id: 'tsukimichi',
-      shikiId: 43523,
-      releaseAlias: 'tsuki-ga-michibiku-isekai-douchuu',
-      searchQueries: ['Tsuki ga Michibiku Isekai Douchuu', 'Лунное путешествие'],
-      title: 'Tsukimichi: Moonlit Fantasy',
-      titleLines: ['Tsukimichi:', 'Moonlit', 'Fantasy'],
-      description:
-        'Makoto Misumi is transported to another world to be a hero, only to be cast away by the goddess for not meeting her standards of beauty, surviving in the wasteland.',
-      poster: 'https://shikimori.io/uploads/poster/animes/43523/9f56a98052f05ad81a43452ecacf657d.jpeg',
-      score: 7.7,
-      tags: ['2021', '12 ep', 'Action', 'Adventure', 'Fantasy']
-    }
-  ]);
+  let releases = $state<HomeReleaseItem[]>(getCachedHomeFeeds()?.releases ?? []);
 
   let activeIndex = $state(0);
   let isWatchLoading = $state(false);
@@ -90,21 +23,13 @@
   });
 
   onMount(async () => {
-    const map = await ensureShikimoriArtwork(releases.map((r) => r.shikiId));
-    releases = releases.map((r) => {
-      const shiki = map.get(r.shikiId);
-      if (!shiki) {
-        return r;
+    const feeds = await loadHomeFeeds();
+    if (feeds.releases.length > 0) {
+      releases = feeds.releases;
+      if (activeIndex >= releases.length) {
+        activeIndex = 0;
       }
-      const nextTags = buildMetaTags(shiki);
-      return {
-        ...r,
-        poster: shiki.posterOriginal || shiki.posterMain || r.poster,
-        description: shiki.description ? truncateDescription(shiki.description, RELEASE_DESC_LIMIT) : r.description,
-        score: shiki.score > 0 ? Number(shiki.score.toFixed(1)) : r.score,
-        tags: nextTags.length > 0 ? nextTags : r.tags
-      };
-    });
+    }
   });
 
   function setActive(index: number) {
@@ -193,12 +118,7 @@
         <div class="card-content">
           <h3 class="card-title">
             {#each item.titleLines as line, lineIndex}
-              {#if lineIndex === 1 && line.includes('Jobless')}
-                <span class="title-nowrap">{line}</span>
-              {:else}
-                {line}
-              {/if}
-              {#if lineIndex < item.titleLines.length - 1}<br />{/if}
+              {line}{#if lineIndex < item.titleLines.length - 1}<br />{/if}
             {/each}
           </h3>
 
@@ -433,12 +353,12 @@
     pointer-events: auto;
   }
 
-  /* Big title: exact 64px, PP Monument Extended Black, #DADADA */
+  /* Big title: PP Monument Extended Black, #DADADA */
   .card-title {
     margin: 0 0 16px 0;
     padding: 0;
     font-family: 'PP Monument Extended', sans-serif;
-    font-size: 64px;
+    font-size: clamp(38px, 4.2vw, 60px);
     font-weight: 900;
     color: #DADADA;
     line-height: 1.05;
@@ -454,10 +374,6 @@
     transform: translateY(0);
     transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.16s,
                 transform 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.16s;
-  }
-
-  .title-nowrap {
-    white-space: nowrap;
   }
 
   .card-meta {

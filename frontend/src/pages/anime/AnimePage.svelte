@@ -328,17 +328,20 @@
                     decoding="async"
                   />
                 {/if}
-                <div class="ep-thumb-fade"></div>
-                <span class="ep-badge">EP {ep.ordinal}</span>
-                {#if ep.duration > 0}
-                  <span class="ep-duration">{formatDuration(ep.duration)}</span>
-                {/if}
-              </div>
-
-              <div class="ep-meta">
-                <span class="ep-name">
-                  {ep.name || `Episode ${ep.ordinal}`}
-                </span>
+                <div class="ep-thumb-fade" aria-hidden="true"></div>
+                <div class="ep-overlay-bottom">
+                  <div class="ep-title-row">
+                    {#if ep.name}
+                      <span class="ep-num">EP {ep.ordinal}</span>
+                      <span class="ep-name">{ep.name}</span>
+                    {:else}
+                      <span class="ep-num">Episode {ep.ordinal}</span>
+                    {/if}
+                  </div>
+                  {#if ep.duration > 0}
+                    <span class="ep-duration">{formatDuration(ep.duration)}</span>
+                  {/if}
+                </div>
               </div>
             </button>
           {/each}
@@ -789,27 +792,21 @@
 
   .ep-card {
     position: relative;
-    display: flex;
-    flex-direction: column;
+    display: block;
     padding: 0;
     border: none;
     outline: none;
     border-radius: var(--radius-card);
     overflow: hidden;
     clip-path: inset(0 round var(--radius-card));
-    background: #121215;
+    background: #0d0d10;
     cursor: pointer;
     text-align: left;
-    transition: transform 0.24s var(--ease-out), background-color 0.24s var(--ease-out);
+    transition: transform 0.24s var(--ease-out);
   }
 
   .ep-card:hover {
     transform: translateY(-2px);
-    background: #18181c;
-  }
-
-  .ep-card.is-active {
-    background: rgba(255, 255, 255, 0.12);
   }
 
   .ep-thumb-wrap {
@@ -835,57 +832,69 @@
 
   .ep-thumb-fade {
     position: absolute;
-    left: -1px;
-    right: -1px;
-    top: 0;
-    bottom: -2px;
-    background: linear-gradient(180deg, rgba(18, 18, 21, 0) 35%, rgba(18, 18, 21, 0.85) 100%);
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      rgba(8, 8, 10, 0.16) 0%,
+      rgba(8, 8, 10, 0.22) 45%,
+      rgba(8, 8, 10, 0.78) 78%,
+      rgba(8, 8, 10, 0.94) 100%
+    );
     pointer-events: none;
   }
 
-  .ep-badge {
+  .ep-overlay-bottom {
     position: absolute;
-    left: 10px;
-    bottom: 8px;
-    font-family: 'PP Monument Extended', system-ui, sans-serif;
-    font-size: 11px;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.92);
-    letter-spacing: 0.04em;
+    left: 12px;
+    right: 12px;
+    bottom: 10px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
   }
 
-  .ep-card.is-active .ep-badge {
+  .ep-title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .ep-num {
+    flex-shrink: 0;
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
     color: #ffffff;
   }
 
-  .ep-duration {
-    position: absolute;
-    right: 10px;
-    bottom: 8px;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.62);
-  }
-
-  .ep-meta {
-    padding: 10px 12px 12px 12px;
-  }
-
   .ep-name {
-    display: block;
+    min-width: 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 400;
     line-height: 1.3;
-    color: rgba(255, 255, 255, 0.78);
+    color: rgba(255, 255, 255, 0.74);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .ep-card.is-active .ep-name {
-    color: #ffffff;
-    font-weight: 600;
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .ep-duration {
+    flex-shrink: 0;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.56);
+    font-variant-numeric: tabular-nums;
   }
 
   /* Frames Gallery */

@@ -11,6 +11,8 @@
   import SkipForward from '@lucide/svelte/icons/skip-forward';
   import Check from '@lucide/svelte/icons/check';
   import { untrack } from 'svelte';
+  import { fly, scale } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
 
   import {
     createMaxQualityHlsConfig,
@@ -528,8 +530,9 @@
       class="center-play"
       aria-label="Play"
       onclick={togglePlay}
+      transition:scale={{ start: 0.72, duration: 200, easing: cubicOut }}
     >
-      <Play size={28} fill="currentColor" strokeWidth={0} />
+      <Play size={54} fill="currentColor" strokeWidth={0} />
     </button>
   {/if}
 
@@ -543,10 +546,12 @@
     <button
       type="button"
       class="skip-pill"
+      class:raised={controlsVisible || !playing}
       onclick={() => seekTo(skipTarget.to)}
+      transition:fly={{ y: 16, duration: 260, easing: cubicOut }}
     >
       <span>{skipTarget.label}</span>
-      <SkipForward size={15} strokeWidth={2} />
+      <SkipForward size={14} strokeWidth={2.1} class="skip-arrow" />
     </button>
   {/if}
 
@@ -819,15 +824,13 @@
 
   .quality-badge {
     flex-shrink: 0;
-    padding: 5px 10px;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.12);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    color: #ffffff;
+    padding: 0;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
     font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    font-weight: 700;
+    letter-spacing: 0.04em;
   }
 
   .center-overlay,
@@ -839,25 +842,26 @@
   }
 
   .center-play {
-    width: 68px;
-    height: 68px;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    background: rgba(16, 16, 16, 0.65);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    color: #ffffff;
+    padding: 12px;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.94);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding-left: 3px;
     cursor: pointer;
-    transition: transform 0.18s var(--ease-out, ease), background-color 0.18s ease;
+    filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.72));
+    transition: transform 0.22s var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)), color 0.18s ease, opacity 0.18s ease;
   }
 
   .center-play:hover {
-    transform: translate(-50%, -50%) scale(1.06);
-    background: rgba(255, 255, 255, 0.2);
+    transform: translate(-50%, -50%) scale(1.12);
+    color: #ffffff;
+  }
+
+  .center-play:active {
+    transform: translate(-50%, -50%) scale(0.92);
   }
 
   .loader-ring {
@@ -882,38 +886,56 @@
     transform: translate(-50%, -50%);
     padding: 12px 18px;
     border-radius: 12px;
-    background: rgba(18, 18, 18, 0.88);
-    border: 1px solid rgba(255, 90, 90, 0.4);
+    background: rgba(28, 14, 16, 0.9);
+    border: none;
     color: #ffb4b4;
     font-size: 14px;
   }
 
   .skip-pill {
     position: absolute;
-    right: 24px;
-    bottom: 92px;
+    left: 24px;
+    bottom: 24px;
     z-index: 4;
-    height: 38px;
-    padding: 0 16px;
+    height: 36px;
+    padding: 0 14px;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    background: rgba(18, 18, 18, 0.72);
+    border: none;
+    outline: none;
+    background: rgba(14, 14, 16, 0.54);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    color: #ffffff;
-    font-family: inherit;
+    color: rgba(255, 255, 255, 0.92);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
     font-weight: 500;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
     cursor: pointer;
-    transition: background-color 0.16s ease, transform 0.16s ease;
+    transition:
+      bottom 0.25s var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)),
+      background-color 0.2s ease,
+      color 0.2s ease,
+      transform 0.2s var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+  }
+
+  .skip-pill.raised {
+    bottom: 84px;
+  }
+
+  .skip-pill :global(.skip-arrow) {
+    transition: transform 0.2s var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
   }
 
   .skip-pill:hover {
     background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
     transform: translateY(-1px);
+  }
+
+  .skip-pill:hover :global(.skip-arrow) {
+    transform: translateX(2px);
   }
 
   .controls-dock {
@@ -1062,24 +1084,25 @@
   }
 
   .chip-btn {
-    height: 30px;
-    padding: 0 10px;
+    height: 32px;
+    padding: 0 8px;
     border: none;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.08);
-    color: #ffffff;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.88);
     font-family: inherit;
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
     display: inline-flex;
     align-items: center;
     gap: 6px;
     cursor: pointer;
-    transition: background-color 0.15s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .chip-btn:hover {
-    background: rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
   }
 
   .popover-menu {
@@ -1089,10 +1112,11 @@
     min-width: 112px;
     padding: 6px;
     border-radius: 12px;
-    background: rgba(18, 18, 18, 0.92);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(16, 16, 18, 0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: none;
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.65);
     display: flex;
     flex-direction: column;
     gap: 2px;
