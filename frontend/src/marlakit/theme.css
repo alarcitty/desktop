@@ -1,0 +1,32 @@
+/* catppuccin mocha green palette */
+:root {
+  --marlakit-green: #a6e3a1;
+  --marlakit-teal: #94e2d5;
+  --marlakit-sky: #89dceb;
+  --marlakit-yellow: #f9e2af;
+  --marlakit-peach: #fab387;
+  --marlakit-red: #f38ba8;
+
+  --marlakit-crust: #11111b;
+  --marlakit-mantle: #181825;
+  --marlakit-base: #1e1e2e;
+  --marlakit-surface0: #313244;
+  --marlakit-surface1: #45475a;
+  --marlakit-surface2: #585b70;
+
+  --marlakit-text: #cdd6f4;
+  --marlakit-subtext: #a6adc8;
+
+  --marlakit-radius-sm: 6px;
+  --marlakit-radius-md: 10px;
+  --marlakit-radius-lg: 14px;
+  --marlakit-transition: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* shared layout / motion tokens used by header and pages */
+  --page-pad-x: 40px;
+  --radius-card: 16px;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --hover-dur: 0.3s;
+  --text-muted: #8d8d8d;
+  --text-dim: #5f5f5f;
+}

@@ -1,0 +1,74 @@
+package mila
+
+import (
+	"context"
+	"fmt"
+	"runtime"
+	"time"
+
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"mila/internal/logger"
+	"mila/internal/screen"
+)
+
+type Mila struct {
+	ctx context.Context
+	log *logger.Logger
+}
+
+// make_unique mila instance
+func New() *Mila {
+	return &Mila{
+		log: logger.Make("mila"),
+	}
+}
+
+// wails startup hook
+func (m *Mila) Startup(ctx context.Context) {
+	m.ctx = ctx
+	m.log.Info("runtime.init", "go_os", runtime.GOOS, "arch", runtime.GOARCH, "cpus", runtime.NumCPU())
+
+	screens, err := wailsRuntime.ScreenGetAll(ctx)
+	if err == nil && len(screens) > 0 {
+		for i, s := range screens {
+			if s.IsCurrent || s.IsPrimary {
+				sw := s.Size.Width
+				sh := s.Size.Height
+				if sw == 0 || sh == 0 {
+					sw = s.Width
+					sh = s.Height
+				}
+				if sw > 0 && sh > 0 {
+					// 3/4 of screen size
+					w := (sw * 3) / 4
+					h := (sh * 3) / 4
+					wailsRuntime.WindowSetSize(ctx, w, h)
+					wailsRuntime.WindowSetMinSize(ctx, 858, 651)
+					wailsRuntime.WindowCenter(ctx)
+
+					m.log.Ok("display.ready",
+						"index", i,
+						"screen", fmt.Sprintf("%dx%d", sw, sh),
+						"window", fmt.Sprintf("%dx%d", w, h),
+						"radius", 15,
+					)
+				}
+				break
+			}
+		}
+	} else {
+		m.log.Warn("display.fallback", "screens", len(screens), "err", err)
+	}
+
+	// clear dwm blur to achieve pure transparent corners
+	go func() {
+		for i := 0; i < 15; i++ {
+			if screen.ClearWindowBlur("milaWindow", "mila") {
+				m.log.Ok("window.blur_cleared", "attempt", i+1)
+				return
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+	}()
+}
