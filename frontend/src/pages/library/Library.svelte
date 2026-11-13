@@ -625,7 +625,8 @@
     aspect-ratio: 1 / 1;
     border-radius: var(--radius-card);
     overflow: hidden;
-    background: #121212;
+    clip-path: inset(0 round var(--radius-card));
+    background: #070707;
     contain: layout style;
     isolation: isolate;
     transform: translate3d(0, 0, 0);
@@ -650,7 +651,6 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    border-radius: inherit;
     object-fit: cover;
     user-select: none;
     pointer-events: none;
@@ -664,8 +664,7 @@
 
   .tile-overlay {
     position: absolute;
-    inset: 0;
-    border-radius: inherit;
+    inset: -1px;
     background: linear-gradient(
       180deg,
       rgba(7, 7, 7, 0.06) 0%,
@@ -683,8 +682,7 @@
 
   .tile-hover-dim {
     position: absolute;
-    inset: 0;
-    border-radius: inherit;
+    inset: -1px;
     background: linear-gradient(
       180deg,
       rgba(7, 7, 7, 0.78) 0%,
