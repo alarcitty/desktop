@@ -8,6 +8,7 @@
   import MainButton from '../../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../../marlakit/button/SecondButton.svelte';
   import MetaLine from '../../../marlakit/meta/MetaLine.svelte';
+  import LayerBlur from '../../../marlakit/blur/LayerBlur.svelte';
   import { buildMetaTags, ensureShikimoriArtwork, getCachedArtwork, truncateDescription } from '../../../api/anime';
   import { openWatch, player } from '../../../app/player.svelte';
 
@@ -18,7 +19,6 @@
   interface SpotlightEntry {
     shikiId: number;
     title: string;
-    shortTitle: string;
     releaseAlias?: string;
     searchQueries: string[];
     bg: string;
@@ -36,7 +36,6 @@
     {
       shikiId: 54492,
       title: 'The Apothecary Diaries',
-      shortTitle: 'Apothecary',
       searchQueries: ['Kusuriya no Hitorigoto', 'Монолог фармацевта'],
       bg: 'https://shikimori.io/system/screenshots/original/c69350821cad77321b3363bdd5e1e9b0f77066c0.jpg?1697914448',
       previews: [
@@ -55,12 +54,11 @@
     {
       shikiId: 52991,
       title: "Frieren: Beyond Journey's End",
-      shortTitle: 'Frieren',
       releaseAlias: 'sousou-no-frieren',
       searchQueries: ['Sousou no Frieren'],
       bg: 'https://shikimori.io/system/screenshots/original/c69350821cad77321b3363bdd5e1e9b0f77066c0.jpg?1697914448',
       previews: [],
-      poster: '',
+      poster: 'https://shikimori.io/uploads/poster/animes/52991/dc841cc9fce2aa1e9907a4b61c5d1d92.jpeg',
       score: 9.3,
       metaTags: ['2023', '28 ep', 'Adventure', 'Drama', 'Fantasy'],
       description: truncateDescription(
@@ -71,16 +69,30 @@
     {
       shikiId: 57334,
       title: 'Dan Da Dan',
-      shortTitle: 'Dan Da Dan',
       releaseAlias: 'dandadan',
       searchQueries: ['Dandadan', 'Дандадан'],
       bg: 'https://shikimori.io/system/screenshots/original/c69350821cad77321b3363bdd5e1e9b0f77066c0.jpg?1697914448',
       previews: [],
-      poster: '',
+      poster: 'https://shikimori.io/uploads/poster/animes/57334/17926e9e162dcf37b3e4533561ff712d.jpeg',
       score: 8.5,
       metaTags: ['2024', '12 ep', 'Action', 'Comedy', 'Sci-Fi'],
       description: truncateDescription(
         'Momo believes in ghosts but not aliens; Okarun believes in aliens but not ghosts. Their bet to prove each other wrong plunges both teens into a chaotic battle against occult curses and extraterrestrial threats.',
+        HERO_DESC_LIMIT
+      )
+    },
+    {
+      shikiId: 43523,
+      title: 'Tsukimichi: Moonlit Fantasy',
+      releaseAlias: 'tsuki-ga-michibiku-isekai-douchuu',
+      searchQueries: ['Tsuki ga Michibiku Isekai Douchuu', 'Лунное путешествие'],
+      bg: 'https://shikimori.io/system/screenshots/original/c69350821cad77321b3363bdd5e1e9b0f77066c0.jpg?1697914448',
+      previews: [],
+      poster: 'https://shikimori.io/uploads/poster/animes/43523/9f56a98052f05ad81a43452ecacf657d.jpeg',
+      score: 7.7,
+      metaTags: ['2021', '12 ep', 'Action', 'Adventure', 'Fantasy'],
+      description: truncateDescription(
+        'Makoto Misumi is transported to another world to be a hero, only to be cast away to the edge of the wasteland by a vain goddess. Surviving with absurd magical strength, he builds a bustling sanctuary for outcasts.',
         HERO_DESC_LIMIT
       )
     }
@@ -272,29 +284,43 @@
         </div>
       </div>
 
-      <!-- Bottom-right horizontal poster switcher -->
-      <aside class="poster-dock" aria-label="Featured spotlight switcher">
-        {#each spotlight as item, idx (item.shikiId)}
-          <button
-            type="button"
-            class="poster-card"
-            class:is-active={idx === activeIndex}
-            aria-label={item.title}
-            onclick={() => applySpotlightIndex(idx)}
-          >
-            {#if item.poster}
-              <img src={item.poster} alt={item.title} class="poster-card-img" decoding="async" />
+      <!-- Bottom-right Mila-native panorama accordion strip -->
+      <aside class="hero-strip-wrap" aria-label="Featured spotlight switcher">
+        <div class="hero-strip-blur" aria-hidden="true">
+          {#key activeHero.shikiId}
+            {#if activeHero.poster}
+              <div class="strip-blur-layer" transition:fade={{ duration: 420, easing: cubicOut }}>
+                <LayerBlur src={activeHero.poster} blur={46} opacity={0.32} scale={1.1} offsetY={0} />
+              </div>
             {/if}
-            <div class="poster-card-scrim"></div>
-            <div class="poster-card-caption">
-              <span class="poster-card-score">★ {item.score.toFixed(1)}</span>
-              <span class="poster-card-title">{item.shortTitle}</span>
-            </div>
-            {#if idx === activeIndex}
-              <span class="poster-progress" class:is-paused={isPaused} style="animation-duration: {SPOTLIGHT_INTERVAL_MS}ms;"></span>
-            {/if}
-          </button>
-        {/each}
+          {/key}
+        </div>
+
+        <div class="hero-strip">
+          {#each spotlight as item, idx (item.shikiId)}
+            <button
+              type="button"
+              class="strip-card"
+              class:is-active={idx === activeIndex}
+              aria-label={item.title}
+              onclick={() => applySpotlightIndex(idx)}
+            >
+              {#if item.poster}
+                <img src={item.poster} alt={item.title} class="strip-card-img" decoding="async" />
+              {/if}
+              <div class="strip-card-overlay"></div>
+              <div class="strip-card-bottom-fade"></div>
+
+              {#if idx === activeIndex}
+                <span
+                  class="strip-progress"
+                  class:is-paused={isPaused}
+                  style="animation-duration: {SPOTLIGHT_INTERVAL_MS}ms;"
+                ></span>
+              {/if}
+            </button>
+          {/each}
+        </div>
       </aside>
     </div>
   </div>
@@ -427,102 +453,109 @@
     margin-top: 16px;
   }
 
-  /* Bottom-right horizontal poster switcher */
-  .poster-dock {
-    display: flex;
-    align-items: flex-end;
-    gap: 12px;
+  /* Bottom-right Mila-native panorama accordion strip (gap: 0, edge-to-edge posters inside rounded clip) */
+  .hero-strip-wrap {
+    position: relative;
+    width: clamp(340px, 31vw, 430px);
+    height: 158px;
     flex-shrink: 0;
   }
 
-  .poster-card {
+  .hero-strip-blur {
+    position: absolute;
+    inset: -16px;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+    border-radius: calc(var(--radius-card) + 12px);
+    -webkit-mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 1) 42%, rgba(0, 0, 0, 0) 76%);
+    mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 1) 42%, rgba(0, 0, 0, 0) 76%);
+  }
+
+  .strip-blur-layer {
+    position: absolute;
+    inset: 0;
+  }
+
+  .hero-strip {
     position: relative;
-    width: 112px;
-    height: 158px;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    clip-path: inset(0 round var(--radius-card));
+    background: #101012;
+  }
+
+  .strip-card {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    height: 100%;
     padding: 0;
     border: none;
     outline: none;
-    border-radius: 14px;
-    overflow: hidden;
-    clip-path: inset(0 round 14px);
-    background: rgba(255, 255, 255, 0.05);
+    background: transparent;
     cursor: pointer;
-    text-align: left;
-    flex-shrink: 0;
-    opacity: 0.56;
-    filter: brightness(0.84) saturate(0.85);
-    transform: scale(0.97);
-    transition:
-      opacity 0.24s var(--ease-out),
-      filter 0.24s var(--ease-out),
-      transform 0.28s var(--ease-out),
-      box-shadow 0.28s var(--ease-out);
+    overflow: hidden;
+    will-change: flex-grow;
+    contain: layout paint;
+    transition: flex-grow 0.65s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  .poster-card:hover {
-    opacity: 0.92;
-    filter: brightness(1) saturate(1);
-    transform: translateY(-3px) scale(1);
+  .strip-card.is-active {
+    flex: 2.35 1 0;
+    cursor: default;
   }
 
-  .poster-card.is-active {
-    opacity: 1;
-    filter: brightness(1) saturate(1);
-    transform: translateY(-4px) scale(1);
-    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.6);
-  }
-
-  .poster-card-img {
+  .strip-card-img {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: center 20%;
+    object-position: center 22%;
     display: block;
     pointer-events: none;
     user-select: none;
+    transition: transform 0.45s var(--ease-out);
   }
 
-  .poster-card-scrim {
+  .strip-card:not(.is-active):hover .strip-card-img {
+    transform: scale(1.04);
+  }
+
+  .strip-card-overlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, rgba(10, 10, 12, 0) 42%, rgba(8, 8, 10, 0.92) 100%);
+    background: rgba(8, 8, 10, 0.56);
     pointer-events: none;
+    transition: background-color 0.35s var(--ease-out);
   }
 
-  .poster-card-caption {
+  .strip-card:not(.is-active):hover .strip-card-overlay {
+    background: rgba(8, 8, 10, 0.28);
+  }
+
+  .strip-card.is-active .strip-card-overlay {
+    background: rgba(8, 8, 10, 0.08);
+  }
+
+  .strip-card-bottom-fade {
     position: absolute;
-    left: 9px;
-    right: 9px;
-    bottom: 9px;
-    z-index: 2;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 46%;
+    background: linear-gradient(180deg, rgba(8, 8, 10, 0) 0%, rgba(8, 8, 10, 0.65) 100%);
     pointer-events: none;
   }
 
-  .poster-card-score {
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 11px;
-    font-weight: 600;
-    color: #f5c451;
-    line-height: 1.1;
-  }
-
-  .poster-card-title {
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 11px;
-    font-weight: 700;
-    color: #f4f4f6;
-    line-height: 1.18;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .poster-progress {
+  .strip-progress {
     position: absolute;
     left: 0;
     bottom: 0;
@@ -537,7 +570,7 @@
     pointer-events: none;
   }
 
-  .poster-progress.is-paused {
+  .strip-progress.is-paused {
     animation-play-state: paused;
   }
 
@@ -557,7 +590,7 @@
       gap: 20px;
     }
 
-    .poster-dock {
+    .hero-strip-wrap {
       width: 100%;
     }
   }
