@@ -3,6 +3,7 @@
   import ScrollArea from '../marlakit/scroll/ScrollArea.svelte';
   import PageHost from './PageHost.svelte';
   import SearchPopup from '../section/search/SearchPopup.svelte';
+  import PlayerModal from '../section/player/PlayerModal.svelte';
   import { router } from './router.svelte';
 
   let scrollArea = $state<ReturnType<typeof ScrollArea> | null>(null);
@@ -32,6 +33,7 @@
 
   <!-- global popups (above everything) -->
   <SearchPopup />
+  <PlayerModal />
 </div>
 
 <style>

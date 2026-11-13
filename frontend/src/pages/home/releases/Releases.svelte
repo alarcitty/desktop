@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import Play from '@lucide/svelte/icons/play';
   import Bookmark from '@lucide/svelte/icons/bookmark';
@@ -6,61 +7,90 @@
   import MainButton from '../../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../../marlakit/button/SecondButton.svelte';
   import LayerBlur from '../../../marlakit/blur/LayerBlur.svelte';
+  import { ensureShikimoriArtwork, truncateDescription } from '../../../api/anime';
+  import { openWatch } from '../../../app/player.svelte';
 
-  import poster1 from '../../../assets/releases/v48_451.png';
-  import poster2 from '../../../assets/releases/v48_453.png';
-  import poster3 from '../../../assets/releases/v48_455.png';
-  import poster4 from '../../../assets/releases/v48_457.png';
+  const RELEASE_DESC_LIMIT = 155;
 
   interface ReleaseItem {
     id: string;
+    shikiId: number;
+    releaseAlias?: string;
+    searchQueries?: string[];
+    title: string;
     titleLines: string[];
     description: string;
     poster: string;
-    isCard4?: boolean;
   }
 
-  const releases: ReleaseItem[] = [
+  let releases = $state<ReleaseItem[]>([
     {
       id: 'mushoku',
+      shikiId: 39535,
+      searchQueries: ['Mushoku Tensei', 'Реинкарнация безработного'],
+      title: 'Mushoku Tensei: Jobless Reincarnation',
       titleLines: ['Mushoku', 'Tensei: Jobless', 'Reincarnation'],
       description:
         'A 34-year-old unemployed recluse is killed after saving strangers from a speeding truck and reincarnated in a magical fantasy world as an infant named Rudeus Greyrat. Retaining his memories and regrets from his past life, he vows to overcome his past trauma and live his new life to the fullest without regrets.',
-      poster: poster1
+      poster: 'https://shikimori.io/uploads/poster/animes/39535/f66d91c3fdc65449f4bb3568e4d36fec.jpeg'
     },
     {
       id: 'black-clover',
+      shikiId: 34572,
+      releaseAlias: 'black-clover-special',
+      searchQueries: ['Black Clover', 'Чёрный клевер'],
+      title: 'Black Clover',
       titleLines: ['Black', 'Clover', 'Sword of the King'],
       description:
         'In a world where magic is everything, Asta, a boy born without magic, aims to become the Wizard King to overcome adversity and prove his power to the entire kingdom.',
-      poster: poster2
+      poster: 'https://shikimori.io/uploads/poster/animes/34572/d4c5bf9cac831c03fc5ebed2676b7b10.jpeg'
     },
     {
       id: 'frieren',
+      shikiId: 52991,
+      releaseAlias: 'sousou-no-frieren',
+      searchQueries: ['Sousou no Frieren', 'Провожающая в последний путь Фрирен'],
+      title: "Frieren: Beyond Journey's End",
       titleLines: ['Frieren:', "Beyond Journey's", 'End'],
       description:
         "An elf mage reflects on life and mortality as she embarks on a journey to fulfill her former party's wishes after defeating the Demon King and wandering through centuries.",
-      poster: poster3
+      poster: 'https://shikimori.io/uploads/poster/animes/52991/dc841cc9fce2aa1e9907a4b61c5d1d92.jpeg'
     },
     {
       id: 'tsukimichi',
+      shikiId: 43523,
+      releaseAlias: 'tsuki-ga-michibiku-isekai-douchuu',
+      searchQueries: ['Tsuki ga Michibiku Isekai Douchuu', 'Лунное путешествие'],
+      title: 'Tsukimichi: Moonlit Fantasy',
       titleLines: ['Tsukimichi:', 'Moonlit', 'Fantasy'],
       description:
         'Makoto Misumi is transported to another world to be a hero, only to be cast away by the goddess for not meeting her standards of beauty, surviving in the wasteland.',
-      poster: poster4,
-      isCard4: true
+      poster: 'https://shikimori.io/uploads/poster/animes/43523/9f56a98052f05ad81a43452ecacf657d.jpeg'
     }
-  ];
+  ]);
 
   let activeIndex = $state(0);
   let isWatchLoading = $state(false);
   let isPlanLoading = $state(false);
-  let watchTimer: number | undefined;
   let planTimer: number | undefined;
 
   $effect(() => () => {
-    window.clearTimeout(watchTimer);
     window.clearTimeout(planTimer);
+  });
+
+  onMount(async () => {
+    const map = await ensureShikimoriArtwork(releases.map((r) => r.shikiId));
+    releases = releases.map((r) => {
+      const shiki = map.get(r.shikiId);
+      if (!shiki) {
+        return r;
+      }
+      return {
+        ...r,
+        poster: shiki.posterOriginal || shiki.posterMain || r.poster,
+        description: shiki.description ? truncateDescription(shiki.description, RELEASE_DESC_LIMIT) : r.description
+      };
+    });
   });
 
   function setActive(index: number) {
@@ -69,13 +99,23 @@
     }
   }
 
-  function handleWatchClick(e: MouseEvent) {
+  async function handleWatchClick(e: MouseEvent) {
     e.stopPropagation();
-    window.clearTimeout(watchTimer);
+    const item = releases[activeIndex];
+    if (!item) {
+      return;
+    }
     isWatchLoading = true;
-    watchTimer = window.setTimeout(() => {
+    try {
+      await openWatch({
+        title: item.title,
+        shikiId: item.shikiId,
+        releaseAlias: item.releaseAlias,
+        searchQueries: item.searchQueries
+      });
+    } finally {
       isWatchLoading = false;
-    }, 2000);
+    }
   }
 
   function handlePlanClick(e: MouseEvent) {
@@ -98,7 +138,6 @@
       <div
         class="blur-layer"
         class:is-active={activeIndex === index}
-        class:blur-card-4={item.isCard4}
       >
         <LayerBlur
           src={item.poster}
@@ -125,7 +164,6 @@
           src={item.poster}
           alt={item.id}
           class="card-img"
-          class:card-4-img={item.isCard4}
           loading="lazy"
           decoding="async"
         />
@@ -253,12 +291,6 @@
     opacity: 1;
   }
 
-  .blur-card-4 :global(.blur-img) {
-    width: 170% !important;
-    max-width: none !important;
-    object-position: left center !important;
-  }
-
   /* 4 banners strip: edge-to-edge, 100% width, 0 gap, exact height 524px */
   .releases-strip {
     position: absolute;
@@ -315,13 +347,6 @@
     user-select: none;
     pointer-events: none;
     z-index: 0;
-  }
-
-  /* Zoom Tsukimichi to completely cut off 'Magic Repo Man' from the right */
-  .card-4-img {
-    width: 170% !important;
-    max-width: none !important;
-    object-position: left center !important;
   }
 
   /* Active card dark gradients */

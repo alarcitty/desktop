@@ -4,6 +4,7 @@
   import MorphPopup from '../../marlakit/popup/MorphPopup.svelte';
   import Input from '../../marlakit/input/Input.svelte';
   import { search, closeSearch, finishSearchClose, getSearchAnchorRect } from '../../app/search.svelte';
+  import { openWatch } from '../../app/player.svelte';
   import { catalog, type AnimeEntry } from '../../data/catalog';
 
   const ROW_H = 68;
@@ -57,8 +58,13 @@
     {
       return;
     }
-    // TODO: open the anime page once it exists
     closeSearch();
+    void openWatch({
+      title: aItem.title,
+      shikiId: aItem.shikiId,
+      releaseAlias: aItem.releaseAlias,
+      searchQueries: aItem.searchQueries
+    });
   }
 
   function handleKeydown(e: KeyboardEvent)

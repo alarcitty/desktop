@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@lucide/svelte": "^1.70.0",
+    "hls.js": "^1.7.4",
     "lucide-svelte": "^1.0.1"
   }
 }

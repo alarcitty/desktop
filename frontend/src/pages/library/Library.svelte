@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { fly } from 'svelte/transition';
   import { cubicIn, cubicOut } from 'svelte/easing';
   import LayoutList from '@lucide/svelte/icons/layout-list';
@@ -7,44 +8,54 @@
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
+  import { ensureShikimoriArtwork, truncateDescription } from '../../api/anime';
+  import { openWatch } from '../../app/player.svelte';
 
-  import alya from '../../assets/library/alya.png';
-  import blackClover from '../../assets/library/black-clover.png';
-  import tsukimichi from '../../assets/library/tsukimichi.png';
+  const LIBRARY_DESC_LIMIT = 270;
 
   interface LibraryItem
   {
     id: string;
+    shikiId: number;
+    releaseAlias?: string;
+    searchQueries?: string[];
     title: string;
     description: string;
     poster: string;
     posterPosition?: string;
   }
 
-  const items: LibraryItem[] = [
+  let items = $state<LibraryItem[]>([
     {
       id: 'alya',
+      shikiId: 54744,
+      searchQueries: ['Tokidoki Bosotto', 'Аля иногда кокетничает'],
       title: 'Alya Sometimes Hides Her Feelings in Russian',
       description:
         'The story centers on Alisa Mikhailovna "Alya" Kujou, a stunning and brilliant student who acts cold and distant to everyone, and her unmotivated seatmate, Masachika Kuze. To hide her true feelings of embarrassment, affection, or frustration, Alya frequently mutters sweet.',
-      poster: alya
+      poster: 'https://shikimori.io/uploads/poster/animes/54744/de6fc036f101d94a4f738be3f0415d2c.jpeg'
     },
     {
       id: 'black-clover',
+      shikiId: 34572,
+      releaseAlias: 'black-clover-special',
+      searchQueries: ['Black Clover', 'Чёрный клевер'],
       title: 'Black Clover',
       description:
         'is a popular fantasy anime about two orphans, Asta and Yuno, who grew up together and strive to become the Wizard King. In a world where magic is everything, Yuno is a prodigy born with a rare grimoire, while Asta is the only person completely devoid of magical power. Refusing to give up, Asta obtains a mysterious five-leaf clover grimoire that grants him Anti-Magic.',
-      poster: blackClover
+      poster: 'https://shikimori.io/uploads/poster/animes/34572/d4c5bf9cac831c03fc5ebed2676b7b10.jpeg'
     },
     {
       id: 'tsukimichi',
+      shikiId: 43523,
+      releaseAlias: 'tsuki-ga-michibiku-isekai-douchuu',
+      searchQueries: ['Tsuki ga Michibiku Isekai Douchuu', 'Лунное путешествие'],
       title: 'Tsukimichi: Moonlit Fantasy',
       description:
         'follows Makoto Misumi, an ordinary high schooler summoned to another world as a hero, only to be cast away by the goddess for his lack of beauty. Stripped of his title and sent to a barren wasteland, he discovers an overwhelming power of his own and slowly gathers allies among the monsters and outcasts of the new world.',
-      poster: tsukimichi,
-      posterPosition: 'left center'
+      poster: 'https://shikimori.io/uploads/poster/animes/43523/9f56a98052f05ad81a43452ecacf657d.jpeg'
     }
-  ];
+  ]);
 
   const tabs = ['Likes', 'watch later', 'favorites'];
   const TAB_GAP = 22;
@@ -63,7 +74,6 @@
   let viewMode = $state<'list' | 'grid'>('list');
   let hasToggledView = $state(false);
   let loadingId = $state<string | null>(null);
-  let loadingTimer: number | undefined;
 
   let tabLayout = $derived.by(() =>
   {
@@ -108,6 +118,24 @@
     tabsReady = true;
   }
 
+  onMount(async () =>
+  {
+    const map = await ensureShikimoriArtwork(items.map((item) => item.shikiId));
+    items = items.map((item) =>
+    {
+      const shiki = map.get(item.shikiId);
+      if (!shiki)
+      {
+        return item;
+      }
+      return {
+        ...item,
+        poster: shiki.posterOriginal || shiki.posterMain || item.poster,
+        description: shiki.description ? truncateDescription(shiki.description, LIBRARY_DESC_LIMIT) : item.description
+      };
+    });
+  });
+
   $effect(() =>
   {
     measureTabs();
@@ -117,7 +145,6 @@
     fonts?.addEventListener('loadingdone', onFonts);
     return () =>
     {
-      window.clearTimeout(loadingTimer);
       fonts?.removeEventListener('loadingdone', onFonts);
     };
   });
@@ -152,14 +179,27 @@
     };
   }
 
-  function handleWatch(aId: string)
+  async function handleWatch(aId: string)
   {
-    window.clearTimeout(loadingTimer);
+    const item = items.find((x) => x.id === aId);
+    if (!item)
+    {
+      return;
+    }
     loadingId = aId;
-    loadingTimer = window.setTimeout(() =>
+    try
+    {
+      await openWatch({
+        title: item.title,
+        shikiId: item.shikiId,
+        releaseAlias: item.releaseAlias,
+        searchQueries: item.searchQueries
+      });
+    }
+    finally
     {
       loadingId = null;
-    }, 2000);
+    }
   }
 </script>
 

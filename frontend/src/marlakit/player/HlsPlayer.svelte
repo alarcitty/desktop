@@ -1,0 +1,1128 @@
+<script lang="ts">
+  import Hls, { type ErrorData } from 'hls.js';
+  import Play from '@lucide/svelte/icons/play';
+  import Pause from '@lucide/svelte/icons/pause';
+  import Volume2 from '@lucide/svelte/icons/volume-2';
+  import VolumeX from '@lucide/svelte/icons/volume-x';
+  import Maximize from '@lucide/svelte/icons/maximize';
+  import Minimize from '@lucide/svelte/icons/minimize';
+  import PictureInPicture2 from '@lucide/svelte/icons/picture-in-picture-2';
+  import Settings from '@lucide/svelte/icons/settings';
+  import SkipForward from '@lucide/svelte/icons/skip-forward';
+  import Check from '@lucide/svelte/icons/check';
+  import { untrack } from 'svelte';
+
+  import {
+    createMaxQualityHlsConfig,
+    formatQualityLabel,
+    resolveHlsSource
+  } from './hlsConfig';
+  import type { HlsSources, QualityLevelOption, SkipRange } from './types';
+
+  interface Props {
+    src?: string;
+    sources?: HlsSources | null;
+    poster?: string;
+    title?: string;
+    subtitle?: string;
+    autoplay?: boolean;
+    preferMaxQuality?: boolean;
+    opening?: SkipRange | null;
+    ending?: SkipRange | null;
+    hasNext?: boolean;
+    onnext?: () => void;
+    onended?: () => void;
+    onerror?: (message: string) => void;
+    class?: string;
+  }
+
+  let {
+    src = '',
+    sources = null,
+    poster = '',
+    title = '',
+    subtitle = '',
+    autoplay = false,
+    preferMaxQuality = true,
+    opening = null,
+    ending = null,
+    hasNext = false,
+    onnext,
+    onended,
+    onerror,
+    class: className = ''
+  }: Props = $props();
+
+  const VOLUME_KEY = 'mila.player.volume';
+  const MUTED_KEY = 'mila.player.muted';
+  const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+  let rootEl = $state<HTMLDivElement | null>(null);
+  let videoEl = $state<HTMLVideoElement | null>(null);
+  let seekEl = $state<HTMLDivElement | null>(null);
+
+  let hls: Hls | null = null;
+  let playing = $state(false);
+  let buffering = $state(false);
+  let currentTime = $state(0);
+  let duration = $state(0);
+  let bufferedEnd = $state(0);
+
+  let volume = $state(readSavedVolume());
+  let muted = $state(readSavedMuted());
+  let playbackRate = $state(1);
+
+  let isFullscreen = $state(false);
+  let controlsVisible = $state(true);
+  let activeMenu = $state<'none' | 'quality' | 'speed'>('none');
+  let errorText = $state('');
+
+  let levels = $state<QualityLevelOption[]>([]);
+  let selectedLevel = $state(-1); // -1 = Auto ABR, >=0 = pinned level index
+  let activeLevelIndex = $state(-1);
+
+  let hoverTime = $state<number | null>(null);
+  let hoverPct = $state(0);
+  let draggingSeek = $state(false);
+  let hideTimer: number | undefined;
+  let networkRetries = 0;
+
+  function readSavedVolume(): number {
+    if (typeof localStorage === 'undefined') return 1;
+    const raw = Number(localStorage.getItem(VOLUME_KEY));
+    return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 1;
+  }
+
+  function readSavedMuted(): boolean {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(MUTED_KEY) === '1';
+  }
+
+  const progressPct = $derived(duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0);
+  const bufferedPct = $derived(duration > 0 ? Math.min(100, (bufferedEnd / duration) * 100) : 0);
+
+  const activeQualityLabel = $derived.by(() => {
+    const found = levels.find((l) => l.index === activeLevelIndex);
+    if (found) return found.label;
+    if (levels.length > 0 && selectedLevel >= 0) {
+      const pinned = levels.find((l) => l.index === selectedLevel);
+      if (pinned) return pinned.label;
+    }
+    return 'HD';
+  });
+
+  const skipTarget = $derived.by(() => {
+    if (
+      opening?.start != null &&
+      opening?.stop != null &&
+      currentTime >= opening.start &&
+      currentTime < opening.stop - 1
+    ) {
+      return { label: 'Skip Opening', to: opening.stop };
+    }
+    if (
+      ending?.start != null &&
+      ending?.stop != null &&
+      currentTime >= ending.start &&
+      currentTime < ending.stop - 1
+    ) {
+      return { label: 'Skip Ending', to: ending.stop };
+    }
+    return null;
+  });
+
+  function scheduleHideControls() {
+    window.clearTimeout(hideTimer);
+    controlsVisible = true;
+    if (!playing || activeMenu !== 'none') return;
+    hideTimer = window.setTimeout(() => {
+      controlsVisible = false;
+    }, 2400);
+  }
+
+  function destroyHls() {
+    if (hls) {
+      hls.destroy();
+      hls = null;
+    }
+  }
+
+  function pickHighestLevelIndex(rawLevels: Array<{ height: number; bitrate: number }>): number {
+    let bestIdx = 0;
+    let bestHeight = -1;
+    let bestBitrate = -1;
+    for (let i = 0; i < rawLevels.length; i++) {
+      const h = rawLevels[i].height || 0;
+      const b = rawLevels[i].bitrate || 0;
+      if (h > bestHeight || (h === bestHeight && b > bestBitrate)) {
+        bestHeight = h;
+        bestBitrate = b;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  }
+
+  // Attach and configure hls.js whenever source props change.
+  $effect(() => {
+    const video = videoEl;
+    const directSrc = src;
+    const epSources = sources;
+    const shouldAutoplay = autoplay;
+    const lockMax = preferMaxQuality;
+
+    if (!video) return;
+
+    const resolved = resolveHlsSource(directSrc, epSources);
+    errorText = '';
+    levels = [];
+    selectedLevel = -1;
+    activeLevelIndex = -1;
+    currentTime = 0;
+    duration = 0;
+    bufferedEnd = 0;
+    networkRetries = 0;
+
+    if (!resolved) {
+      destroyHls();
+      video.removeAttribute('src');
+      return;
+    }
+
+    untrack(() => {
+      video.volume = volume;
+      video.muted = muted;
+      video.playbackRate = playbackRate;
+    });
+
+    if (Hls.isSupported()) {
+      destroyHls();
+      const instance = new Hls(createMaxQualityHlsConfig());
+      hls = instance;
+      buffering = true;
+
+      instance.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
+        const mapped: QualityLevelOption[] = data.levels.map((lvl, idx) => ({
+          index: idx,
+          height: lvl.height || 0,
+          bitrate: lvl.bitrate || 0,
+          label: formatQualityLabel(lvl.height || 0, lvl.bitrate)
+        }));
+
+        // Sort highest resolution first for the quality selector UI.
+        mapped.sort((a, b) => b.height - a.height || b.bitrate - a.bitrate);
+        levels = mapped;
+
+        if (data.levels.length > 0) {
+          const maxIdx = pickHighestLevelIndex(data.levels);
+          instance.startLevel = maxIdx;
+          if (lockMax) {
+            // Lock onto highest quality (e.g. 1080p) so playback never degrades unless switched.
+            instance.currentLevel = maxIdx;
+            selectedLevel = maxIdx;
+          } else {
+            instance.currentLevel = -1;
+            selectedLevel = -1;
+          }
+          activeLevelIndex = maxIdx;
+        }
+
+        if (shouldAutoplay) {
+          void video.play().catch(() => {});
+        }
+      });
+
+      instance.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+        activeLevelIndex = data.level;
+      });
+
+      instance.on(Hls.Events.ERROR, (_event, data: ErrorData) => {
+        if (!data.fatal) return;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < 3) {
+          networkRetries += 1;
+          instance.startLoad();
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          instance.recoverMediaError();
+          return;
+        }
+        errorText = 'Playback error: failed to load HLS stream';
+        buffering = false;
+        onerror?.(errorText);
+      });
+
+      instance.loadSource(resolved.url);
+      instance.attachMedia(video);
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      destroyHls();
+      video.src = resolved.url;
+      if (shouldAutoplay) {
+        void video.play().catch(() => {});
+      }
+    } else {
+      errorText = 'HLS playback is not supported in this environment';
+      onerror?.(errorText);
+    }
+
+    return () => {
+      window.clearTimeout(hideTimer);
+      destroyHls();
+      resolved.revoke?.();
+    };
+  });
+
+  $effect(() => {
+    function onFsChange() {
+      isFullscreen = document.fullscreenElement === rootEl;
+    }
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  });
+
+  function togglePlay() {
+    if (!videoEl) return;
+    if (videoEl.paused) {
+      void videoEl.play().catch(() => {});
+    } else {
+      videoEl.pause();
+    }
+    scheduleHideControls();
+  }
+
+  function seekTo(seconds: number) {
+    if (!videoEl || !Number.isFinite(duration) || duration <= 0) return;
+    const clamped = Math.max(0, Math.min(duration, seconds));
+    videoEl.currentTime = clamped;
+    currentTime = clamped;
+    scheduleHideControls();
+  }
+
+  function setQuality(levelIdx: number) {
+    selectedLevel = levelIdx;
+    if (hls) {
+      hls.currentLevel = levelIdx;
+      if (levelIdx >= 0) {
+        activeLevelIndex = levelIdx;
+      }
+    }
+    activeMenu = 'none';
+    scheduleHideControls();
+  }
+
+  function setSpeed(rate: number) {
+    playbackRate = rate;
+    if (videoEl) {
+      videoEl.playbackRate = rate;
+    }
+    activeMenu = 'none';
+    scheduleHideControls();
+  }
+
+  function setVolume(val: number) {
+    const clamped = Math.max(0, Math.min(1, val));
+    volume = clamped;
+    muted = clamped === 0;
+    if (videoEl) {
+      videoEl.volume = clamped;
+      videoEl.muted = muted;
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(VOLUME_KEY, String(clamped));
+      localStorage.setItem(MUTED_KEY, muted ? '1' : '0');
+    }
+  }
+
+  function toggleMute() {
+    muted = !muted;
+    if (!muted && volume === 0) {
+      volume = 0.5;
+    }
+    if (videoEl) {
+      videoEl.muted = muted;
+      videoEl.volume = volume;
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(MUTED_KEY, muted ? '1' : '0');
+    }
+    scheduleHideControls();
+  }
+
+  async function toggleFullscreen() {
+    if (!rootEl) return;
+    if (document.fullscreenElement === rootEl) {
+      await document.exitFullscreen().catch(() => {});
+    } else {
+      await rootEl.requestFullscreen().catch(() => {});
+    }
+    scheduleHideControls();
+  }
+
+  async function togglePiP() {
+    if (!videoEl || !document.pictureInPictureEnabled) return;
+    if (document.pictureInPictureElement === videoEl) {
+      await document.exitPictureInPicture().catch(() => {});
+    } else {
+      await videoEl.requestPictureInPicture().catch(() => {});
+    }
+  }
+
+  function seekFromPointer(clientX: number) {
+    if (!seekEl || duration <= 0) return;
+    const rect = seekEl.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    hoverPct = ratio * 100;
+    hoverTime = ratio * duration;
+    if (draggingSeek) {
+      seekTo(hoverTime);
+    }
+  }
+
+  function handleSeekPointerDown(e: PointerEvent) {
+    if (!seekEl) return;
+    draggingSeek = true;
+    seekEl.setPointerCapture(e.pointerId);
+    seekFromPointer(e.clientX);
+  }
+
+  function handleSeekPointerUp(e: PointerEvent) {
+    if (!draggingSeek || !seekEl) return;
+    seekFromPointer(e.clientX);
+    draggingSeek = false;
+    seekEl.releasePointerCapture(e.pointerId);
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    switch (e.key) {
+      case ' ':
+      case 'k':
+      case 'K':
+        e.preventDefault();
+        togglePlay();
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        seekTo(currentTime - 5);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        seekTo(currentTime + 5);
+        break;
+      case 'j':
+      case 'J':
+        e.preventDefault();
+        seekTo(currentTime - 10);
+        break;
+      case 'l':
+      case 'L':
+        e.preventDefault();
+        seekTo(currentTime + 10);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setVolume(volume + 0.05);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        setVolume(volume - 0.05);
+        break;
+      case 'm':
+      case 'M':
+        e.preventDefault();
+        toggleMute();
+        break;
+      case 'f':
+      case 'F':
+        e.preventDefault();
+        void toggleFullscreen();
+        break;
+      case 'Escape':
+        activeMenu = 'none';
+        break;
+    }
+  }
+
+  function updateBuffered() {
+    if (!videoEl || videoEl.buffered.length === 0) {
+      bufferedEnd = 0;
+      return;
+    }
+    bufferedEnd = videoEl.buffered.end(videoEl.buffered.length - 1);
+  }
+
+  function formatTime(sec: number): string {
+    if (!Number.isFinite(sec) || sec < 0) return '0:00';
+    const whole = Math.floor(sec);
+    const h = Math.floor(whole / 3600);
+    const m = Math.floor((whole % 3600) / 60);
+    const s = whole % 60;
+    const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+    const ss = String(s).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+</script>
+
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div
+  bind:this={rootEl}
+  class="hls-player {className}"
+  class:controls-hidden={!controlsVisible && playing}
+  tabindex="0"
+  role="region"
+  aria-label={title || 'Video player'}
+  onmousemove={scheduleHideControls}
+  onmouseleave={() => {
+    if (playing && activeMenu === 'none') controlsVisible = false;
+  }}
+  onkeydown={handleKeydown}
+>
+  <!-- svelte-ignore a11y_media_has_caption -->
+  <video
+    bind:this={videoEl}
+    class="hls-video"
+    {poster}
+    playsinline
+    onclick={() => {
+      if (activeMenu !== 'none') {
+        activeMenu = 'none';
+        return;
+      }
+      togglePlay();
+    }}
+    ondblclick={() => void toggleFullscreen()}
+    onplay={() => {
+      playing = true;
+      buffering = false;
+      scheduleHideControls();
+    }}
+    onpause={() => {
+      playing = false;
+      controlsVisible = true;
+      window.clearTimeout(hideTimer);
+    }}
+    onwaiting={() => (buffering = true)}
+    oncanplay={() => (buffering = false)}
+    onplaying={() => (buffering = false)}
+    ontimeupdate={() => {
+      if (!draggingSeek && videoEl) currentTime = videoEl.currentTime;
+    }}
+    ondurationchange={() => {
+      if (videoEl) duration = videoEl.duration || 0;
+    }}
+    onprogress={updateBuffered}
+    onended={() => {
+      playing = false;
+      controlsVisible = true;
+      onended?.();
+    }}
+  ></video>
+
+  {#if buffering}
+    <div class="center-overlay" aria-hidden="true">
+      <div class="loader-ring"></div>
+    </div>
+  {:else if !playing && !errorText}
+    <button
+      type="button"
+      class="center-play"
+      aria-label="Play"
+      onclick={togglePlay}
+    >
+      <Play size={28} fill="currentColor" strokeWidth={0} />
+    </button>
+  {/if}
+
+  {#if errorText}
+    <div class="error-banner" role="alert">
+      <span>{errorText}</span>
+    </div>
+  {/if}
+
+  {#if skipTarget}
+    <button
+      type="button"
+      class="skip-pill"
+      onclick={() => seekTo(skipTarget.to)}
+    >
+      <span>{skipTarget.label}</span>
+      <SkipForward size={15} strokeWidth={2} />
+    </button>
+  {/if}
+
+  {#if title || subtitle}
+    <div class="top-bar" class:visible={controlsVisible || !playing}>
+      <div class="title-stack">
+        {#if title}
+          <span class="player-title">{title}</span>
+        {/if}
+        {#if subtitle}
+          <span class="player-subtitle">{subtitle}</span>
+        {/if}
+      </div>
+      <span class="quality-badge">{activeQualityLabel}</span>
+    </div>
+  {/if}
+
+  <div class="controls-dock" class:visible={controlsVisible || !playing}>
+    <!-- Timeline -->
+    <div
+      bind:this={seekEl}
+      class="seek-track"
+      role="slider"
+      tabindex="0"
+      aria-label="Seek timeline"
+      aria-valuemin={0}
+      aria-valuemax={duration}
+      aria-valuenow={currentTime}
+      onpointerdown={handleSeekPointerDown}
+      onpointermove={(e) => seekFromPointer(e.clientX)}
+      onpointerup={handleSeekPointerUp}
+      onpointerleave={() => {
+        if (!draggingSeek) hoverTime = null;
+      }}
+    >
+      {#if hoverTime !== null}
+        <div class="seek-tooltip" style:left="{hoverPct}%">
+          {formatTime(hoverTime)}
+        </div>
+      {/if}
+      <div class="seek-rail">
+        <div class="seek-buffered" style:width="{bufferedPct}%"></div>
+        <div class="seek-fill" style:width="{progressPct}%"></div>
+      </div>
+      <div class="seek-thumb" style:left="{progressPct}%"></div>
+    </div>
+
+    <div class="controls-row">
+      <div class="controls-left">
+        <button
+          type="button"
+          class="icon-btn"
+          aria-label={playing ? 'Pause' : 'Play'}
+          onclick={togglePlay}
+        >
+          {#if playing}
+            <Pause size={18} fill="currentColor" strokeWidth={0} />
+          {:else}
+            <Play size={18} fill="currentColor" strokeWidth={0} />
+          {/if}
+        </button>
+
+        {#if hasNext}
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label="Next episode"
+            onclick={() => onnext?.()}
+          >
+            <SkipForward size={18} strokeWidth={1.8} />
+          </button>
+        {/if}
+
+        <div class="volume-group">
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label={muted ? 'Unmute' : 'Mute'}
+            onclick={toggleMute}
+          >
+            {#if muted || volume === 0}
+              <VolumeX size={18} strokeWidth={1.8} />
+            {:else}
+              <Volume2 size={18} strokeWidth={1.8} />
+            {/if}
+          </button>
+          <input
+            type="range"
+            class="volume-slider"
+            min="0"
+            max="1"
+            step="0.02"
+            value={muted ? 0 : volume}
+            aria-label="Volume"
+            oninput={(e) => setVolume(Number((e.currentTarget as HTMLInputElement).value))}
+          />
+        </div>
+
+        <span class="time-readout">
+          {formatTime(currentTime)} <span class="time-sep">/</span> {formatTime(duration)}
+        </span>
+      </div>
+
+      <div class="controls-right">
+        <!-- Playback speed -->
+        <div class="menu-wrap">
+          <button
+            type="button"
+            class="chip-btn"
+            onclick={() => (activeMenu = activeMenu === 'speed' ? 'none' : 'speed')}
+          >
+            {playbackRate}x
+          </button>
+          {#if activeMenu === 'speed'}
+            <div class="popover-menu">
+              {#each SPEED_OPTIONS as rate}
+                <button
+                  type="button"
+                  class="popover-item"
+                  class:active={playbackRate === rate}
+                  onclick={() => setSpeed(rate)}
+                >
+                  <span>{rate}x</span>
+                  {#if playbackRate === rate}
+                    <Check size={14} strokeWidth={2.2} />
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        <!-- Quality selector (defaults to highest fixed resolution) -->
+        {#if levels.length > 0}
+          <div class="menu-wrap">
+            <button
+              type="button"
+              class="chip-btn"
+              onclick={() => (activeMenu = activeMenu === 'quality' ? 'none' : 'quality')}
+            >
+              <Settings size={14} strokeWidth={1.9} />
+              <span>{selectedLevel === -1 ? `Auto (${activeQualityLabel})` : activeQualityLabel}</span>
+            </button>
+            {#if activeMenu === 'quality'}
+              <div class="popover-menu">
+                {#each levels as lvl}
+                  <button
+                    type="button"
+                    class="popover-item"
+                    class:active={selectedLevel === lvl.index}
+                    onclick={() => setQuality(lvl.index)}
+                  >
+                    <span>{lvl.label}</span>
+                    {#if selectedLevel === lvl.index}
+                      <Check size={14} strokeWidth={2.2} />
+                    {/if}
+                  </button>
+                {/each}
+                {#if levels.length > 1}
+                  <button
+                    type="button"
+                    class="popover-item"
+                    class:active={selectedLevel === -1}
+                    onclick={() => setQuality(-1)}
+                  >
+                    <span>Auto</span>
+                    {#if selectedLevel === -1}
+                      <Check size={14} strokeWidth={2.2} />
+                    {/if}
+                  </button>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        <button
+          type="button"
+          class="icon-btn"
+          aria-label="Picture in picture"
+          onclick={() => void togglePiP()}
+        >
+          <PictureInPicture2 size={18} strokeWidth={1.8} />
+        </button>
+
+        <button
+          type="button"
+          class="icon-btn"
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          onclick={() => void toggleFullscreen()}
+        >
+          {#if isFullscreen}
+            <Minimize size={18} strokeWidth={1.8} />
+          {:else}
+            <Maximize size={18} strokeWidth={1.8} />
+          {/if}
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .hls-player {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 16 / 9;
+    background: #070707;
+    border-radius: var(--radius-card, 16px);
+    overflow: hidden;
+    outline: none;
+    user-select: none;
+    font-family: 'Medeo Sans', 'Medeo Sans Display', system-ui, sans-serif;
+  }
+
+  .hls-player.controls-hidden {
+    cursor: none;
+  }
+
+  .hls-video {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain;
+    background: #000000;
+  }
+
+  .top-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 20px 24px 36px;
+    background: linear-gradient(180deg, rgba(7, 7, 7, 0.82) 0%, rgba(7, 7, 7, 0) 100%);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s var(--ease-out, ease);
+  }
+
+  .top-bar.visible {
+    opacity: 1;
+  }
+
+  .title-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .player-title {
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .player-subtitle {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .quality-badge {
+    flex-shrink: 0;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .center-overlay,
+  .center-play {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .center-play {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(16, 16, 16, 0.65);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: 3px;
+    cursor: pointer;
+    transition: transform 0.18s var(--ease-out, ease), background-color 0.18s ease;
+  }
+
+  .center-play:hover {
+    transform: translate(-50%, -50%) scale(1.06);
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .loader-ring {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.18);
+    border-top-color: #ffffff;
+    animation: hls-spin 0.75s linear infinite;
+  }
+
+  @keyframes hls-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .error-banner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 12px 18px;
+    border-radius: 12px;
+    background: rgba(18, 18, 18, 0.88);
+    border: 1px solid rgba(255, 90, 90, 0.4);
+    color: #ffb4b4;
+    font-size: 14px;
+  }
+
+  .skip-pill {
+    position: absolute;
+    right: 24px;
+    bottom: 92px;
+    z-index: 4;
+    height: 38px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(18, 18, 18, 0.72);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: background-color 0.16s ease, transform 0.16s ease;
+  }
+
+  .skip-pill:hover {
+    background: rgba(255, 255, 255, 0.18);
+    transform: translateY(-1px);
+  }
+
+  .controls-dock {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 36px 20px 16px;
+    background: linear-gradient(0deg, rgba(7, 7, 7, 0.9) 0%, rgba(7, 7, 7, 0) 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s var(--ease-out, ease);
+  }
+
+  .controls-dock.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .seek-track {
+    position: relative;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    touch-action: none;
+  }
+
+  .seek-rail {
+    position: relative;
+    width: 100%;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    overflow: hidden;
+    transition: height 0.15s ease;
+  }
+
+  .seek-track:hover .seek-rail {
+    height: 6px;
+  }
+
+  .seek-buffered {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .seek-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: #ffffff;
+  }
+
+  .seek-thumb {
+    position: absolute;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #ffffff;
+    transform: translate(-50%, -50%) scale(0);
+    transition: transform 0.15s ease;
+    pointer-events: none;
+  }
+
+  .seek-track:hover .seek-thumb {
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  .seek-tooltip {
+    position: absolute;
+    bottom: 22px;
+    transform: translateX(-50%);
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(16, 16, 16, 0.9);
+    color: #ffffff;
+    font-size: 12px;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  .controls-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .controls-left,
+  .controls-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .icon-btn {
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.88);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .icon-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+  }
+
+  .volume-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .volume-slider {
+    width: 72px;
+    height: 4px;
+    accent-color: #ffffff;
+    cursor: pointer;
+  }
+
+  .time-readout {
+    margin-left: 6px;
+    font-size: 13px;
+    color: #ffffff;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .time-sep {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .menu-wrap {
+    position: relative;
+  }
+
+  .chip-btn {
+    height: 30px;
+    padding: 0 10px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+
+  .chip-btn:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .popover-menu {
+    position: absolute;
+    right: 0;
+    bottom: 40px;
+    min-width: 112px;
+    padding: 6px;
+    border-radius: 12px;
+    background: rgba(18, 18, 18, 0.92);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 10;
+  }
+
+  .popover-item {
+    width: 100%;
+    height: 30px;
+    padding: 0 10px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.78);
+    font-family: inherit;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    cursor: pointer;
+  }
+
+  .popover-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+  }
+
+  .popover-item.active {
+    color: #ffffff;
+    font-weight: 600;
+  }
+</style>

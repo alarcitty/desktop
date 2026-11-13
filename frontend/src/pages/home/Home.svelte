@@ -1,8 +1,25 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Hero from './hero/Hero.svelte';
   import Releases from './releases/Releases.svelte';
   import Recommendations from './recommendations/Recommendations.svelte';
-  import bgImage from '../../assets/main_bg.png';
+  import { ensureShikimoriArtwork, FEATURED_SHIKI_IDS, getCachedArtwork } from '../../api/anime';
+
+  const HERO_SHIKI_ID = 54492;
+  const FALLBACK_BG =
+    'https://shikimori.io/system/screenshots/original/c69350821cad77321b3363bdd5e1e9b0f77066c0.jpg?1697914448';
+
+  let bgImage = $state(getCachedArtwork(HERO_SHIKI_ID)?.screenshots[0] ?? FALLBACK_BG);
+
+  onMount(async () =>
+  {
+    const map = await ensureShikimoriArtwork(FEATURED_SHIKI_IDS);
+    const shot = map.get(HERO_SHIKI_ID)?.screenshots[0];
+    if (shot)
+    {
+      bgImage = shot;
+    }
+  });
 </script>
 
 <main class="main-wrapper">

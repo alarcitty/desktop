@@ -1,20 +1,56 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import LayerBlur from '../../../marlakit/blur/LayerBlur.svelte';
+  import { ensureShikimoriArtwork } from '../../../api/anime';
 
-  import rec1 from '../../../assets/recommendations/v49_566.png';
-  import rec2 from '../../../assets/recommendations/v49_569.png';
-  import rec3 from '../../../assets/recommendations/v49_572.png';
-  import rec4 from '../../../assets/recommendations/v49_575.png';
-  import rec5 from '../../../assets/recommendations/v49_578.png';
+  interface RecItem {
+    id: string;
+    shikiId: number;
+    poster: string;
+  }
 
-  const items = [
-    { id: 'rec-1', poster: rec1 },
-    { id: 'rec-2', poster: rec2 },
-    { id: 'rec-3', poster: rec3 },
-    { id: 'rec-4', poster: rec4 },
-    { id: 'rec-5', poster: rec5 }
-  ];
+  let items = $state<RecItem[]>([
+    {
+      id: 'rec-1',
+      shikiId: 52198,
+      poster: 'https://shikimori.io/uploads/poster/animes/52198/85bd1b1c1919611ca9fbf46d2d404558.jpeg'
+    },
+    {
+      id: 'rec-2',
+      shikiId: 57334,
+      poster: 'https://shikimori.io/uploads/poster/animes/57334/17926e9e162dcf37b3e4533561ff712d.jpeg'
+    },
+    {
+      id: 'rec-3',
+      shikiId: 48736,
+      poster: 'https://shikimori.io/uploads/poster/animes/48736/536021070760d16f823b485bc5b021a6.jpeg'
+    },
+    {
+      id: 'rec-4',
+      shikiId: 52299,
+      poster: 'https://shikimori.io/uploads/poster/animes/52299/9a1ee4e32c72ab99b76e84bbe49f7e87.jpeg'
+    },
+    {
+      id: 'rec-5',
+      shikiId: 54744,
+      poster: 'https://shikimori.io/uploads/poster/animes/54744/de6fc036f101d94a4f738be3f0415d2c.jpeg'
+    }
+  ]);
+
+  onMount(async () => {
+    const map = await ensureShikimoriArtwork(items.map((r) => r.shikiId));
+    items = items.map((r) => {
+      const shiki = map.get(r.shikiId);
+      if (!shiki) {
+        return r;
+      }
+      return {
+        ...r,
+        poster: shiki.posterOriginal || shiki.posterMain || r.poster
+      };
+    });
+  });
 </script>
 
 <section class="recommendations-section">

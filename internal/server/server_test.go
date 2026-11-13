@@ -20,6 +20,22 @@ func TestServerRoutesAndValidation(t *testing.T) {
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 1, "alias": "test-anime", "name": map[string]any{"main": "Тест"}},
 			})
+		case "/anime/releases/test-anime":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":    1,
+				"alias": "test-anime",
+				"name":  map[string]any{"main": "Тест"},
+				"episodes": []map[string]any{
+					{
+						"id":       "ep-1",
+						"ordinal":  1,
+						"duration": 1400,
+						"hls_1080": "https://cdn.example/1080.m3u8",
+						"hls_720":  "https://cdn.example/720.m3u8",
+						"hls_480":  "https://cdn.example/480.m3u8",
+					},
+				},
+			})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -67,5 +83,16 @@ func TestServerRoutesAndValidation(t *testing.T) {
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/anime/releases/unknown", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 on unknown release, got %d", rec.Code)
+	}
+
+	// Master HLS playlist -> 200 with 1080p first
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/anime/releases/test-anime/episodes/1/master.m3u8", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on master.m3u8, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if body == "" || body[:7] != "#EXTM3U" {
+		t.Fatalf("unexpected master playlist body: %q", body)
 	}
 }

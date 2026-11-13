@@ -44,6 +44,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/anime/catalog", s.handleCatalog)
 	s.mux.HandleFunc("GET /api/v1/anime/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/v1/anime/releases/{id}", s.handleRelease)
+	s.mux.HandleFunc("GET /api/v1/anime/releases/{id}/episodes/{ordinal}/master.m3u8", s.handleEpisodeMasterPlaylist)
 	s.mux.HandleFunc("GET /api/v1/anime/schedule/now", s.handleScheduleNow)
 	s.mux.HandleFunc("GET /api/v1/anime/schedule/week", s.handleScheduleWeek)
 	s.mux.HandleFunc("GET /api/v1/anime/genres", s.handleGenres)
@@ -116,6 +117,65 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeData(w, http.StatusOK, detail)
+}
+
+func (s *Server) handleEpisodeMasterPlaylist(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	rawOrd := strings.TrimSpace(r.PathValue("ordinal"))
+	if id == "" || rawOrd == "" {
+		writeError(w, http.StatusBadRequest, "missing release id or episode ordinal")
+		return
+	}
+	ordinal, err := strconv.ParseFloat(rawOrd, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid episode ordinal")
+		return
+	}
+
+	detail, err := s.anime.GetRelease(r.Context(), id)
+	if err != nil {
+		s.writeUpstreamError(w, err)
+		return
+	}
+
+	var matched *anime.Episode
+	for i := range detail.Episodes {
+		if detail.Episodes[i].Ordinal == ordinal {
+			matched = &detail.Episodes[i]
+			break
+		}
+	}
+	if matched == nil {
+		writeError(w, http.StatusNotFound, "episode not found")
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n")
+	if matched.HLS1080 != "" {
+		b.WriteString("#EXT-X-STREAM-INF:BANDWIDTH=8000000,RESOLUTION=1920x1080,NAME=\"1080p\"\n")
+		b.WriteString(matched.HLS1080)
+		b.WriteByte('\n')
+	}
+	if matched.HLS720 != "" {
+		b.WriteString("#EXT-X-STREAM-INF:BANDWIDTH=3500000,RESOLUTION=1280x720,NAME=\"720p\"\n")
+		b.WriteString(matched.HLS720)
+		b.WriteByte('\n')
+	}
+	if matched.HLS480 != "" {
+		b.WriteString("#EXT-X-STREAM-INF:BANDWIDTH=1500000,RESOLUTION=854x480,NAME=\"480p\"\n")
+		b.WriteString(matched.HLS480)
+		b.WriteByte('\n')
+	}
+	if b.Len() <= len("#EXTM3U\n#EXT-X-VERSION:3\n") {
+		writeError(w, http.StatusNotFound, "no HLS streams available for episode")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=120")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(b.String()))
 }
 
 func (s *Server) handleScheduleNow(w http.ResponseWriter, r *http.Request) {

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	defaultBaseURL     = "https://shikimori.one"
+	defaultBaseURL     = "https://shikimori.io"
 	defaultUserAgent   = "mila-desktop/1.0"
 	defaultCacheTTL    = 6 * time.Hour
 	defaultSearchTTL   = 15 * time.Minute
