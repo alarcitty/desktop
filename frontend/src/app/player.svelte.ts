@@ -1,7 +1,9 @@
 import {
   ensureShikimoriArtwork,
   getCachedArtwork,
+  loadFranchiseSeasons,
   resolvePlayableRelease,
+  type AnimeSeasonEntry,
   type PlayableRelease,
   type ShikiArtwork,
   type WatchTarget
@@ -15,6 +17,7 @@ export const player = $state<{
   target: WatchTarget | null;
   shikiArt: ShikiArtwork | null;
   release: PlayableRelease | null;
+  seasons: AnimeSeasonEntry[];
   episodeIndex: number;
   autoplay: boolean;
 }>({
@@ -24,14 +27,14 @@ export const player = $state<{
   target: null,
   shikiArt: null,
   release: null,
+  seasons: [],
   episodeIndex: 0,
   autoplay: true
 });
 
 let activeRequestToken = 0;
 
-export async function openWatch(target: WatchTarget): Promise<void> {
-  const token = ++activeRequestToken;
+async function loadTargetIntoPlayer(token: number, target: WatchTarget): Promise<PlayableRelease | null> {
   player.loading = true;
   player.error = '';
   player.title = target.title;
@@ -40,8 +43,6 @@ export async function openWatch(target: WatchTarget): Promise<void> {
   player.release = null;
   player.episodeIndex = 0;
   player.autoplay = true;
-
-  navigate('anime');
 
   if (target.shikiId && !player.shikiArt) {
     ensureShikimoriArtwork([target.shikiId])
@@ -57,13 +58,15 @@ export async function openWatch(target: WatchTarget): Promise<void> {
 
   try {
     const rel = await resolvePlayableRelease(target);
-    if (token !== activeRequestToken) return;
+    if (token !== activeRequestToken) return null;
     player.release = rel;
     player.title = player.shikiArt?.english || player.shikiArt?.name || rel.title || target.title;
     player.episodeIndex = 0;
+    return rel;
   } catch (err) {
-    if (token !== activeRequestToken) return;
+    if (token !== activeRequestToken) return null;
     player.error = err instanceof Error ? err.message : 'Failed to load stream';
+    return null;
   } finally {
     if (token === activeRequestToken) {
       player.loading = false;
@@ -71,9 +74,50 @@ export async function openWatch(target: WatchTarget): Promise<void> {
   }
 }
 
+export async function openWatch(target: WatchTarget): Promise<void> {
+  const token = ++activeRequestToken;
+  player.seasons = [];
+  navigate('anime');
+
+  const rel = await loadTargetIntoPlayer(token, target);
+  if (!rel || token !== activeRequestToken) return;
+
+  loadFranchiseSeasons(rel.id)
+    .then((seasons) => {
+      if (token === activeRequestToken) {
+        player.seasons = seasons;
+      }
+    })
+    .catch(() => {});
+}
+
+export async function switchSeason(season: AnimeSeasonEntry): Promise<void> {
+  if (player.release && (player.release.id === season.id || player.release.alias === season.alias)) {
+    return;
+  }
+  const token = ++activeRequestToken;
+  const target: WatchTarget = {
+    title: season.titleEnglish || season.title,
+    shikiId: season.shikiId,
+    releaseAlias: season.alias,
+    searchQueries: [season.titleEnglish ?? '', season.title].filter(Boolean)
+  };
+  await loadTargetIntoPlayer(token, target);
+}
+
 export async function retryWatch(): Promise<void> {
   if (!player.target) return;
-  await openWatch(player.target);
+  const token = ++activeRequestToken;
+  const rel = await loadTargetIntoPlayer(token, player.target);
+  if (rel && token === activeRequestToken && player.seasons.length === 0) {
+    loadFranchiseSeasons(rel.id)
+      .then((seasons) => {
+        if (token === activeRequestToken) {
+          player.seasons = seasons;
+        }
+      })
+      .catch(() => {});
+  }
 }
 
 export function selectEpisode(index: number): void {
@@ -95,5 +139,6 @@ export function resetPlayer(): void {
   activeRequestToken += 1;
   player.loading = false;
   player.release = null;
+  player.seasons = [];
   player.error = '';
 }

@@ -19,7 +19,8 @@
     nextEpisode,
     player,
     retryWatch,
-    selectEpisode
+    selectEpisode,
+    switchSeason
   } from '../../app/player.svelte';
 
   const EP_PAGE_SIZE = 16;
@@ -30,6 +31,7 @@
   let isPlanLoading = $state(false);
   let epRangeIndex = $state(0);
   let lightboxUrl = $state<string | null>(null);
+  let failedThumbs = $state<Record<string, boolean>>({});
   let planTimer: number | undefined;
 
   const displayTitle = $derived(
@@ -108,6 +110,11 @@
   });
 
   const galleryShots = $derived((player.shikiArt?.screenshots ?? []).slice(0, 6));
+
+  $effect(() => {
+    void player.release?.id;
+    failedThumbs = {};
+  });
 
   $effect(() => {
     // Keep active episode range synced when auto-advancing to the next episode.
@@ -239,6 +246,29 @@
           </div>
         {/if}
       </div>
+
+      {#if player.seasons.length > 1}
+        <nav class="seasons-bar" aria-label="Seasons">
+          {#each player.seasons as season (season.id)}
+            {@const isActive = player.release
+              ? player.release.id === season.id || player.release.alias === season.alias
+              : player.target?.releaseAlias === season.alias ||
+                (player.target?.shikiId != null && player.target.shikiId === season.shikiId)}
+            <button
+              type="button"
+              class="season-tab"
+              class:active={isActive}
+              aria-current={isActive ? 'page' : undefined}
+              onclick={() => void switchSeason(season)}
+            >
+              <span>{season.shortLabel}</span>
+              {#if season.year}
+                <span class="season-year">{season.year}</span>
+              {/if}
+            </button>
+          {/each}
+        </nav>
+      {/if}
     </div>
   </div>
 
@@ -319,14 +349,21 @@
               onclick={() => handleChooseEpisode(entry.idx)}
             >
               <div class="ep-thumb-wrap">
-                {#if ep.preview || backdropUrl}
+                {#if ep.preview && !failedThumbs[ep.id]}
                   <img
-                    src={ep.preview || backdropUrl}
+                    src={ep.preview}
                     alt="Episode {ep.ordinal}"
                     class="ep-thumb"
                     loading="lazy"
                     decoding="async"
+                    onerror={() => {
+                      failedThumbs = { ...failedThumbs, [ep.id]: true };
+                    }}
                   />
+                {:else}
+                  <div class="ep-thumb-fallback" aria-hidden="true">
+                    <Play size={20} fill="currentColor" strokeWidth={0} />
+                  </div>
                 {/if}
                 <div class="ep-thumb-fade" aria-hidden="true"></div>
                 <div class="ep-overlay-bottom">
@@ -584,6 +621,59 @@
     margin-top: 22px;
   }
 
+  .seasons-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 24px;
+  }
+
+  .season-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 0;
+    border-radius: 10px;
+    padding: 9px 15px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.72);
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    transition:
+      background 180ms var(--ease-out),
+      color 180ms var(--ease-out),
+      transform 180ms var(--ease-out);
+  }
+
+  .season-tab:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+  }
+
+  .season-tab:active {
+    transform: scale(0.97);
+  }
+
+  .season-tab.active {
+    background: #ffffff;
+    color: #0a0a0c;
+    font-weight: 600;
+  }
+
+  .season-year {
+    font-size: 12px;
+    font-weight: 500;
+    opacity: 0.56;
+  }
+
+  .season-tab.active .season-year {
+    opacity: 0.65;
+  }
+
   /* Atmospheric borderless poster showcase on right side of hero */
   .showcase-art {
     position: relative;
@@ -828,6 +918,21 @@
   .ep-card:hover .ep-thumb {
     transform: scale(1.04);
     filter: brightness(1.08);
+  }
+
+  .ep-thumb-fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.24);
+    background: radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.06) 0%, rgba(13, 13, 16, 0.96) 75%);
+    transition: color 0.25s var(--ease-out);
+  }
+
+  .ep-card:hover .ep-thumb-fallback {
+    color: rgba(255, 255, 255, 0.55);
   }
 
   .ep-thumb-fade {

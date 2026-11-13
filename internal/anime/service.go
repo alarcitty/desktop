@@ -355,7 +355,14 @@ func mapEpisode(ep *aniliberty.Episode) Episode {
 		out.Name = *ep.NameEnglish
 	}
 	if ep.Preview != nil {
-		out.Preview = firstNonEmpty(optimizedSrc(ep.Preview), ep.Preview.Src, ep.Preview.Preview)
+		out.Preview = firstNonEmpty(
+			optimizedPreview(ep.Preview),
+			optimizedSrc(ep.Preview),
+			ep.Preview.Preview,
+			ep.Preview.Src,
+			optimizedThumb(ep.Preview),
+			ep.Preview.Thumbnail,
+		)
 	}
 	if ep.HLS480 != nil {
 		out.HLS480 = *ep.HLS480

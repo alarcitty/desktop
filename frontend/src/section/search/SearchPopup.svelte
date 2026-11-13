@@ -5,6 +5,7 @@
   import Input from '../../marlakit/input/Input.svelte';
   import { search, closeSearch, finishSearchClose, getSearchAnchorRect } from '../../app/search.svelte';
   import { openWatch } from '../../app/player.svelte';
+  import { searchGroupedAnime, type SearchGroupItem } from '../../api/anime';
   import { catalog, type AnimeEntry } from '../../data/catalog';
 
   const ROW_H = 68;
@@ -13,15 +14,96 @@
   const EMPTY_H = 64;
 
   let selected = $state(0);
+  let remoteResults = $state<SearchGroupItem[]>([]);
+  let searching = $state(false);
+  let remoteQuery = $state('');
+  let searchSeq = 0;
+
+  function toSearchItem(a: AnimeEntry): SearchGroupItem {
+    return {
+      id: `local-${a.id}`,
+      title: a.title,
+      year: a.year,
+      poster: a.poster,
+      posterPosition: a.posterPosition,
+      shikiId: a.shikiId,
+      releaseAlias: a.releaseAlias,
+      searchQueries: a.searchQueries ?? [a.title],
+      seasonCount: 1
+    };
+  }
+
+  $effect(() => {
+    const isOpen = search.open;
+    const rawQ = search.query.trim();
+    const normQ = rawQ.toLowerCase();
+
+    if (!isOpen || normQ.length < 2) {
+      searchSeq += 1;
+      remoteResults = [];
+      remoteQuery = '';
+      searching = false;
+      return;
+    }
+
+    const seq = ++searchSeq;
+    searching = true;
+    const timer = setTimeout(() => {
+      searchGroupedAnime(rawQ)
+        .then((items) => {
+          if (seq !== searchSeq) return;
+          remoteResults = items;
+          remoteQuery = normQ;
+        })
+        .catch(() => {
+          if (seq !== searchSeq) return;
+          remoteResults = [];
+          remoteQuery = normQ;
+        })
+        .finally(() => {
+          if (seq === searchSeq) {
+            searching = false;
+          }
+        });
+    }, 200);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  });
 
   const results = $derived.by(() =>
   {
     const q = search.query.trim().toLowerCase();
     if (!q)
     {
-      return [] as AnimeEntry[];
+      return [] as SearchGroupItem[];
     }
-    return catalog.filter((a) => a.title.toLowerCase().includes(q));
+
+    const localMatches = catalog
+      .filter((a) =>
+        a.title.toLowerCase().includes(q) ||
+        a.searchQueries?.some((sq) => sq.toLowerCase().includes(q))
+      )
+      .map(toSearchItem);
+
+    if (remoteQuery !== q || remoteResults.length === 0)
+    {
+      return localMatches;
+    }
+
+    const seenShiki = new Set(remoteResults.map((r) => r.shikiId).filter(Boolean));
+    const seenAliases = new Set(remoteResults.map((r) => r.releaseAlias).filter(Boolean));
+    const merged: SearchGroupItem[] = [...remoteResults];
+    for (const localItem of localMatches)
+    {
+      if (localItem.shikiId && seenShiki.has(localItem.shikiId)) continue;
+      if (localItem.releaseAlias && seenAliases.has(localItem.releaseAlias)) continue;
+      const localLow = localItem.title.toLowerCase();
+      if (merged.some((m) => m.title.toLowerCase() === localLow)) continue;
+      merged.push(localItem);
+    }
+    return merged;
   });
 
   const listHeight = $derived(
@@ -52,7 +134,7 @@
     }
   }
 
-  function pick(aItem: AnimeEntry | undefined)
+  function pick(aItem: SearchGroupItem | undefined)
   {
     if (!aItem)
     {
@@ -132,7 +214,9 @@
                   />
                   <span class="meta">
                     <span class="name">{item.title}</span>
-                    <span class="sub">Anime · {item.year}</span>
+                    <span class="sub">
+                      {item.year ? `Anime · ${item.year}` : 'Anime'}{item.seasonCount > 1 ? ` · ${item.seasonCount} seasons` : ''}
+                    </span>
                   </span>
                 </button>
               </li>
@@ -140,7 +224,11 @@
           </ul>
         {:else}
           <div class="empty">
-            {search.query.trim() ? `Nothing found for “${search.query.trim()}”` : 'Start typing to search anime'}
+            {#if search.query.trim()}
+              {searching ? `Searching “${search.query.trim()}”…` : `Nothing found for “${search.query.trim()}”`}
+            {:else}
+              Start typing to search anime
+            {/if}
           </div>
         {/if}
       </div>
