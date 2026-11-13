@@ -9,10 +9,8 @@
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
-  import { buildMetaTags, ensureShikimoriArtwork, truncateDescription } from '../../api/anime';
+  import { buildMetaTags, ensureShikimoriArtwork } from '../../api/anime';
   import { openWatch } from '../../app/player.svelte';
-
-  const LIBRARY_DESC_LIMIT = 270;
 
   interface LibraryItem
   {
@@ -43,7 +41,6 @@
     {
       id: 'black-clover',
       shikiId: 34572,
-      releaseAlias: 'black-clover-special',
       searchQueries: ['Black Clover', 'Чёрный клевер'],
       title: 'Black Clover',
       description:
@@ -141,7 +138,7 @@
       return {
         ...item,
         poster: shiki.posterOriginal || shiki.posterMain || item.poster,
-        description: shiki.description ? truncateDescription(shiki.description, LIBRARY_DESC_LIMIT) : item.description,
+        description: shiki.description ? shiki.description : item.description,
         score: shiki.score > 0 ? Number(shiki.score.toFixed(1)) : item.score,
         tags: nextTags.length > 0 ? nextTags : item.tags
       };
@@ -771,16 +768,20 @@
     z-index: 2;
     flex: 1 1 auto;
     min-height: 0;
-    margin: 18px 18px 4px 18px;
-    padding: 0;
+    margin: 18px 16px 4px 18px;
+    padding: 0 2px 22px 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 15px;
     font-weight: 400;
     line-height: 1.4;
-    color: rgba(255, 255, 255, 0.62);
-    overflow: hidden;
-    -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 52%, rgba(0, 0, 0, 0) 96%);
-    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 52%, rgba(0, 0, 0, 0) 96%);
+    color: rgba(255, 255, 255, 0.72);
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 66%, rgba(0, 0, 0, 0) 98%);
+    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 66%, rgba(0, 0, 0, 0) 98%);
     opacity: 0;
     transform: translate3d(0, -6px, 0);
     pointer-events: none;
@@ -789,9 +790,14 @@
       transform 0.28s var(--ease-out);
   }
 
+  .tile-description::-webkit-scrollbar {
+    display: none;
+  }
+
   .library-tile:hover .tile-description,
   .library-tile:focus-within .tile-description {
     opacity: 1;
+    pointer-events: auto;
     transform: translate3d(0, 0, 0);
   }
 

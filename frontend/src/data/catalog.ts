@@ -30,7 +30,6 @@ export const catalog: AnimeEntry[] = [
   {
     id: 'black-clover',
     shikiId: 34572,
-    releaseAlias: 'black-clover-special',
     searchQueries: ['Black Clover', 'Чёрный клевер'],
     title: 'Black Clover',
     year: 2017,

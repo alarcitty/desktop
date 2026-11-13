@@ -119,9 +119,26 @@
     }, 2000);
   }
 
-  function scrollBelowHero()
+  function scrollBelowHero(e: MouseEvent)
   {
-    window.scrollTo({
+    const btn = e.currentTarget as HTMLElement | null;
+    const viewport = btn?.closest('.scroll-viewport') as HTMLElement | null;
+    const releases = document.querySelector('.releases-section');
+    if (viewport && releases instanceof HTMLElement)
+    {
+      const targetTop = viewport.scrollTop + releases.getBoundingClientRect().top - 42;
+      viewport.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior: 'smooth'
+      });
+      return;
+    }
+    if (releases instanceof HTMLElement)
+    {
+      releases.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    viewport?.scrollBy({
       top: Math.round(window.innerHeight * 0.88),
       behavior: 'smooth'
     });
@@ -292,13 +309,13 @@
   }
 
   .hero-title {
-    margin: 0;
-    padding: 0;
+    margin: 0 0 -0.08em 0;
+    padding: 0 0 0.08em 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
     font-size: clamp(34px, 4.4vw, 68px);
     font-weight: 700;
     color: #ffffff;
-    line-height: 1.02;
+    line-height: 1.16;
     letter-spacing: -0.02em;
     user-select: none;
     white-space: nowrap;

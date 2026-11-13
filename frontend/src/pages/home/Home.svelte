@@ -72,7 +72,7 @@
   .hero-bg-wrapper {
     position: relative;
     width: 100%;
-    min-height: 125vh;
+    min-height: 112vh;
     margin-top: -72px;
     padding-top: 72px;
     background-color: #0c0c0c;

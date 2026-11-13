@@ -62,7 +62,7 @@
     position: relative;
     height: 43px;
     padding: 0 26px;
-    background: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.96);
     color: #111111;
     border: none;
     outline: none;

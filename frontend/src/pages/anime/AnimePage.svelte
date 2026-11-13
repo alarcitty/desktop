@@ -13,7 +13,7 @@
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import HlsPlayer from '../../marlakit/player/HlsPlayer.svelte';
-  import { buildMetaTags, episodeSources } from '../../api/anime';
+  import { buildMetaTags, episodeSources, type AnimeSeasonEntry } from '../../api/anime';
   import { goBack } from '../../app/router.svelte';
   import {
     nextEpisode,
@@ -67,9 +67,53 @@
 
   const metaTags = $derived.by(() => {
     const tags = buildMetaTags(player.shikiArt ?? undefined);
-    if (tags.length > 0) return tags;
     const epCount = player.release?.episodes.length ?? 0;
+    if (tags.length > 0) {
+      if (
+        epCount > 0 &&
+        player.shikiArt?.status !== 'ongoing' &&
+        player.shikiArt?.episodes &&
+        player.shikiArt.episodes !== epCount
+      ) {
+        return tags.map((tag) => (/^\d+ ep$/.test(tag) ? `${epCount} ep` : tag));
+      }
+      return tags;
+    }
     return epCount > 0 ? [`${epCount} ep`] : [];
+  });
+
+  function formatSingleSeasonLabel(typeLabel?: string): string {
+    switch ((typeLabel ?? '').toUpperCase()) {
+      case 'MOVIE':
+        return 'Movie';
+      case 'OVA':
+        return 'OVA';
+      case 'SPECIAL':
+        return 'Special';
+      default:
+        return 'Season 1';
+    }
+  }
+
+  const displaySeasons = $derived.by((): AnimeSeasonEntry[] => {
+    if (player.seasons.length > 0) {
+      return player.seasons;
+    }
+    if (!player.release) {
+      return [];
+    }
+    return [
+      {
+        id: player.release.id,
+        alias: player.release.alias,
+        shikiId: player.shikiArt?.id,
+        title: displayTitle,
+        shortLabel: formatSingleSeasonLabel(player.release.typeLabel),
+        year: player.release.year ?? player.shikiArt?.year,
+        episodesTotal: player.release.episodes.length,
+        poster: posterUrl
+      }
+    ];
   });
 
   const fullDescription = $derived(
@@ -247,19 +291,23 @@
         {/if}
       </div>
 
-      {#if player.seasons.length > 1}
+      {#if displaySeasons.length > 0}
         <nav class="seasons-bar" aria-label="Seasons">
-          {#each player.seasons as season (season.id)}
+          {#each displaySeasons as season (season.id)}
             {@const isActive = player.release
               ? player.release.id === season.id || player.release.alias === season.alias
               : player.target?.releaseAlias === season.alias ||
                 (player.target?.shikiId != null && player.target.shikiId === season.shikiId)}
+            {@const isInteractive = displaySeasons.length > 1 && !isActive}
             <button
               type="button"
               class="season-tab"
               class:active={isActive}
+              class:is-static={displaySeasons.length === 1}
               aria-current={isActive ? 'page' : undefined}
-              onclick={() => void switchSeason(season)}
+              onclick={() => {
+                if (isInteractive) void switchSeason(season);
+              }}
             >
               <span>{season.shortLabel}</span>
               {#if season.year}
@@ -659,9 +707,21 @@
   }
 
   .season-tab.active {
-    background: #ffffff;
-    color: #0a0a0c;
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
     font-weight: 600;
+  }
+
+  .season-tab.is-static {
+    cursor: default;
+  }
+
+  .season-tab.is-static:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .season-tab.is-static:active {
+    transform: none;
   }
 
   .season-year {
@@ -888,15 +948,16 @@
     outline: none;
     border-radius: var(--radius-card);
     overflow: hidden;
-    clip-path: inset(0 round var(--radius-card));
-    background: #0d0d10;
+    background: #08080a;
+    isolation: isolate;
+    transform: translateZ(0);
     cursor: pointer;
     text-align: left;
     transition: transform 0.24s var(--ease-out);
   }
 
   .ep-card:hover {
-    transform: translateY(-2px);
+    transform: translate3d(0, -2px, 0);
   }
 
   .ep-thumb-wrap {
@@ -904,7 +965,8 @@
     width: 100%;
     aspect-ratio: 16 / 9;
     overflow: hidden;
-    background: #0d0d10;
+    border-radius: inherit;
+    background: #08080a;
   }
 
   .ep-thumb {
@@ -912,6 +974,7 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    backface-visibility: hidden;
     transition: transform 0.45s var(--ease-out), filter 0.3s var(--ease-out);
   }
 
@@ -937,13 +1000,14 @@
 
   .ep-thumb-fade {
     position: absolute;
-    inset: 0;
+    inset: -3px;
     background: linear-gradient(
       180deg,
       rgba(8, 8, 10, 0.16) 0%,
       rgba(8, 8, 10, 0.22) 45%,
-      rgba(8, 8, 10, 0.78) 78%,
-      rgba(8, 8, 10, 0.94) 100%
+      rgba(8, 8, 10, 0.8) 78%,
+      rgba(8, 8, 10, 0.96) 94%,
+      #08080a 100%
     );
     pointer-events: none;
   }

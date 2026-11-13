@@ -39,6 +39,8 @@ export interface PlayableRelease {
   alias: string;
   title: string;
   titleEnglish?: string;
+  year?: number;
+  typeLabel?: string;
   poster?: string;
   banner?: string;
   episodes: PlayableEpisode[];
@@ -286,9 +288,26 @@ export function getCachedArtwork(id: number): ShikiArtwork | undefined {
   return shikiCache.get(id);
 }
 
+const SPECIAL_TITLE_RE = /(?:^|[^\p{L}\p{N}])(special|сп[еэ]шл|спецвыпуск|ova|recap)(?:$|[^\p{L}\p{N}])/iu;
+
+function inferReleaseTypeValue(
+  rawType?: string | null,
+  ...titles: Array<string | null | undefined>
+): string {
+  const normalized = (rawType ?? '').trim().toUpperCase();
+  if (normalized) return normalized;
+  const combined = titles.filter(Boolean).join(' ');
+  if (/(?:^|[^\p{L}\p{N}])(special|сп[еэ]шл|спецвыпуск)(?:$|[^\p{L}\p{N}])/iu.test(combined)) return 'SPECIAL';
+  if (/(?:^|[^\p{L}\p{N}])ova(?:$|[^\p{L}\p{N}])/iu.test(combined)) return 'OVA';
+  if (/(?:^|[^\p{L}\p{N}])(movie|film|фильм)(?:$|[^\p{L}\p{N}])/iu.test(combined)) return 'MOVIE';
+  return 'TV';
+}
+
 interface RawLibRelease {
   id: number;
   alias: string;
+  year?: number | null;
+  type?: { value?: string | null; description?: string | null } | null;
   shikimori?: { id?: number | null } | null;
   name?: { main?: string; english?: string; alternative?: string | null };
   poster?: { src?: string; preview?: string };
@@ -344,6 +363,8 @@ function mapLibRelease(r: RawLibRelease, shikiArt?: ShikiArtwork): PlayableRelea
     alias: r.alias,
     title: r.name?.main || shikiArt?.english || shikiArt?.name || 'Anime',
     titleEnglish: r.name?.english || shikiArt?.english,
+    year: r.year ?? undefined,
+    typeLabel: inferReleaseTypeValue(r.type?.value, r.name?.main, r.name?.english, r.alias),
     poster: shikiArt?.posterOriginal || resolveLibUrl(r.poster?.src || r.poster?.preview),
     banner: shikiArt?.screenshots[0] || shikiArt?.posterOriginal || resolveLibUrl(r.poster?.src),
     episodes
@@ -357,6 +378,8 @@ interface BackendDetailEnvelope {
     shikimori_id?: number;
     title: string;
     title_english?: string;
+    year?: number;
+    type?: string;
     poster?: { original?: string; main?: string };
     banner?: string;
     episodes?: PlayableEpisode[];
@@ -388,6 +411,13 @@ async function fetchReleaseByIdOrAlias(
           alias: env.data.alias,
           title: env.data.title,
           titleEnglish: env.data.title_english,
+          year: env.data.year,
+          typeLabel: inferReleaseTypeValue(
+            env.data.type,
+            env.data.title,
+            env.data.title_english,
+            env.data.alias
+          ),
           poster: env.data.poster?.original || env.data.poster?.main || shikiArt?.posterOriginal,
           banner: env.data.banner || shikiArt?.screenshots[0],
           episodes: env.data.episodes ?? []
@@ -489,6 +519,12 @@ function scoreReleaseCandidate(
     return -1;
   }
 
+  const candIsSpecial = candTitles.some((t) => SPECIAL_TITLE_RE.test(t));
+  const targetIsSpecial = targetTitles.some((t) => SPECIAL_TITLE_RE.test(t));
+  if (candIsSpecial && !targetIsSpecial) {
+    return -1;
+  }
+
   let best = -1;
   for (const cTitle of candTitles) {
     const cNorm = normalizeTitleText(cTitle);
@@ -519,9 +555,6 @@ function scoreReleaseCandidate(
 
       if (containment >= 0.8 && jaccard >= 0.6) {
         let score = Math.round(500 * jaccard + 100 * containment);
-        const cSpecial = /\b(special|спэшл|ova|recap)\b/i.test(cTitle);
-        const tSpecial = /\b(special|спэшл|ova|recap)\b/i.test(tTitle);
-        if (cSpecial && !tSpecial) score -= 120;
         if (shikiArt?.year && cand.year && Math.abs(shikiArt.year - cand.year) <= 1) {
           score += 20;
         }
@@ -1007,7 +1040,12 @@ function mapFranchiseSeasons(rawList: RawFranchiseReleaseNode[]): AnimeSeasonEnt
 
   return valid.map((node, index) => {
     const r = node.release!;
-    const typeVal = (r.type?.value ?? 'TV').toUpperCase();
+    const typeVal = inferReleaseTypeValue(
+      r.type?.value,
+      r.name?.main,
+      r.name?.english,
+      r.alias
+    );
     let shortLabel: string;
 
     if (typeVal === 'MOVIE') {
@@ -1111,14 +1149,18 @@ function releaseCandidateToSearchItem(
 ): SearchGroupItem {
   const seasons = franchise?.seasons ?? [];
   const rootSeason = seasons.find((s) => s.shortLabel.startsWith('Season')) ?? seasons[0];
+  const isSingleSpecialOrOva =
+    seasons.length === 1 &&
+    (rootSeason?.shortLabel === 'Special' || rootSeason?.shortLabel === 'OVA');
 
-  const baseTitle =
-    franchise?.nameEnglish ||
-    rootSeason?.titleEnglish ||
-    rootSeason?.title ||
-    r.name?.english ||
-    r.name?.main ||
-    'Anime';
+  const baseTitle = isSingleSpecialOrOva
+    ? rootSeason?.titleEnglish || rootSeason?.title || r.name?.english || r.name?.main || 'Anime'
+    : franchise?.nameEnglish ||
+      rootSeason?.titleEnglish ||
+      rootSeason?.title ||
+      r.name?.english ||
+      r.name?.main ||
+      'Anime';
   const cleanTitle = rootSeason ? stripSeasonSuffix(baseTitle) || baseTitle : baseTitle;
   const targetSeason = rootSeason ?? null;
 
