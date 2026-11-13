@@ -324,9 +324,8 @@
   <section class="player-section" bind:this={playerSectionEl} aria-label="Video player">
     <div class="player-stage">
       {#if player.loading}
-        <div class="stage-state" transition:fade={{ duration: 180 }}>
-          <div class="spinner"></div>
-          <span>Loading HLS 1080p stream...</span>
+        <div class="stage-state" role="status" aria-label="Loading" transition:fade={{ duration: 180 }}>
+          <div class="spinner" aria-hidden="true"></div>
         </div>
       {:else if player.error}
         <div class="stage-state stage-error">

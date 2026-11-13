@@ -2,6 +2,7 @@
   import Hls, { type ErrorData } from 'hls.js';
   import Play from '@lucide/svelte/icons/play';
   import Pause from '@lucide/svelte/icons/pause';
+  import Volume1 from '@lucide/svelte/icons/volume-1';
   import Volume2 from '@lucide/svelte/icons/volume-2';
   import VolumeX from '@lucide/svelte/icons/volume-x';
   import Maximize from '@lucide/svelte/icons/maximize';
@@ -62,6 +63,7 @@
   let rootEl = $state<HTMLDivElement | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
   let seekEl = $state<HTMLDivElement | null>(null);
+  let volumeEl = $state<HTMLDivElement | null>(null);
 
   let hls: Hls | null = null;
   let playing = $state(false);
@@ -86,6 +88,7 @@
   let hoverTime = $state<number | null>(null);
   let hoverPct = $state(0);
   let draggingSeek = $state(false);
+  let draggingVolume = $state(false);
   let hideTimer: number | undefined;
   let networkRetries = 0;
 
@@ -102,6 +105,7 @@
 
   const progressPct = $derived(duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0);
   const bufferedPct = $derived(duration > 0 ? Math.min(100, (bufferedEnd / duration) * 100) : 0);
+  const volumePct = $derived((muted ? 0 : volume) * 100);
 
   const activeQualityLabel = $derived.by(() => {
     const found = levels.find((l) => l.index === activeLevelIndex);
@@ -394,6 +398,40 @@
     seekEl.releasePointerCapture(e.pointerId);
   }
 
+  function volumeFromPointer(clientX: number) {
+    if (!volumeEl) return;
+    const rect = volumeEl.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    setVolume(ratio);
+  }
+
+  function handleVolumePointerDown(e: PointerEvent) {
+    if (!volumeEl) return;
+    draggingVolume = true;
+    volumeEl.setPointerCapture(e.pointerId);
+    volumeFromPointer(e.clientX);
+  }
+
+  function handleVolumePointerUp(e: PointerEvent) {
+    if (!draggingVolume || !volumeEl) return;
+    volumeFromPointer(e.clientX);
+    draggingVolume = false;
+    volumeEl.releasePointerCapture(e.pointerId);
+  }
+
+  function handleVolumeKeydown(e: KeyboardEvent) {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      e.stopPropagation();
+      setVolume((muted ? 0 : volume) - 0.05);
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopPropagation();
+      setVolume((muted ? 0 : volume) + 0.05);
+    }
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     switch (e.key) {
       case ' ':
@@ -625,7 +663,14 @@
           </button>
         {/if}
 
-        <div class="volume-group">
+        <div
+          class="volume-group"
+          class:is-dragging={draggingVolume}
+          onwheel={(e) => {
+            e.preventDefault();
+            setVolume((muted ? 0 : volume) + (e.deltaY < 0 ? 0.05 : -0.05));
+          }}
+        >
           <button
             type="button"
             class="icon-btn"
@@ -634,20 +679,33 @@
           >
             {#if muted || volume === 0}
               <VolumeX size={18} strokeWidth={1.8} />
+            {:else if volume <= 0.5}
+              <Volume1 size={18} strokeWidth={1.8} />
             {:else}
               <Volume2 size={18} strokeWidth={1.8} />
             {/if}
           </button>
-          <input
-            type="range"
-            class="volume-slider"
-            min="0"
-            max="1"
-            step="0.02"
-            value={muted ? 0 : volume}
+          <div
+            bind:this={volumeEl}
+            class="volume-track"
+            role="slider"
+            tabindex="0"
             aria-label="Volume"
-            oninput={(e) => setVolume(Number((e.currentTarget as HTMLInputElement).value))}
-          />
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(volumePct)}
+            onpointerdown={handleVolumePointerDown}
+            onpointermove={(e) => {
+              if (draggingVolume) volumeFromPointer(e.clientX);
+            }}
+            onpointerup={handleVolumePointerUp}
+            onkeydown={handleVolumeKeydown}
+          >
+            <div class="volume-rail">
+              <div class="volume-fill" style:width="{volumePct}%"></div>
+            </div>
+            <div class="volume-thumb" style:left="{volumePct}%"></div>
+          </div>
         </div>
 
         <span class="time-readout">
@@ -921,7 +979,7 @@
   }
 
   .skip-pill.raised {
-    bottom: 84px;
+    bottom: 68px;
   }
 
   .skip-pill :global(.skip-arrow) {
@@ -943,11 +1001,11 @@
     left: 0;
     right: 0;
     bottom: 0;
-    padding: 36px 20px 16px;
-    background: linear-gradient(0deg, rgba(7, 7, 7, 0.9) 0%, rgba(7, 7, 7, 0) 100%);
+    padding: 20px 20px 10px;
+    background: linear-gradient(0deg, rgba(7, 7, 7, 0.88) 0%, rgba(7, 7, 7, 0) 100%);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 4px;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.25s var(--ease-out, ease);
@@ -960,7 +1018,8 @@
 
   .seek-track {
     position: relative;
-    height: 18px;
+    width: 100%;
+    height: 12px;
     display: flex;
     align-items: center;
     cursor: pointer;
@@ -970,7 +1029,7 @@
   .seek-rail {
     position: relative;
     width: 100%;
-    height: 4px;
+    height: 3px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.18);
     overflow: hidden;
@@ -978,7 +1037,7 @@
   }
 
   .seek-track:hover .seek-rail {
-    height: 6px;
+    height: 5px;
   }
 
   .seek-buffered {
@@ -1023,6 +1082,7 @@
   }
 
   .controls-row {
+    width: 100%;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1037,8 +1097,8 @@
   }
 
   .icon-btn {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     border: none;
     border-radius: 9px;
     background: transparent;
@@ -1061,11 +1121,58 @@
     gap: 4px;
   }
 
-  .volume-slider {
-    width: 72px;
-    height: 4px;
-    accent-color: #ffffff;
+  .volume-track {
+    position: relative;
+    width: 60px;
+    height: 24px;
+    margin-right: 4px;
+    display: flex;
+    align-items: center;
     cursor: pointer;
+    touch-action: none;
+    outline: none;
+  }
+
+  .volume-rail {
+    position: relative;
+    width: 100%;
+    height: 3px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.22);
+    overflow: hidden;
+    transition: height 0.16s ease, background-color 0.16s ease;
+  }
+
+  .volume-track:hover .volume-rail,
+  .volume-group.is-dragging .volume-rail {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .volume-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 999px;
+    background: #ffffff;
+  }
+
+  .volume-thumb {
+    position: absolute;
+    top: 50%;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+    transform: translate(-50%, -50%) scale(0);
+    transition: transform 0.16s var(--ease-out, ease);
+    pointer-events: none;
+  }
+
+  .volume-track:hover .volume-thumb,
+  .volume-track:focus-visible .volume-thumb,
+  .volume-group.is-dragging .volume-thumb {
+    transform: translate(-50%, -50%) scale(1);
   }
 
   .time-readout {
@@ -1084,7 +1191,7 @@
   }
 
   .chip-btn {
-    height: 32px;
+    height: 28px;
     padding: 0 8px;
     border: none;
     border-radius: 8px;
@@ -1108,7 +1215,7 @@
   .popover-menu {
     position: absolute;
     right: 0;
-    bottom: 40px;
+    bottom: 36px;
     min-width: 112px;
     padding: 6px;
     border-radius: 12px;
