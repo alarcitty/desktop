@@ -11,6 +11,11 @@ export interface ShikiArtwork {
   english: string;
   description: string;
   score: number;
+  year?: number;
+  status?: string;
+  episodes?: number;
+  episodesAired?: number;
+  genres: string[];
   posterOriginal: string;
   posterMain: string;
   screenshots: string[];
@@ -68,6 +73,23 @@ function cleanBBCode(raw: string | null | undefined): string {
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+export function buildMetaTags(art?: {
+  year?: number;
+  episodes?: number;
+  episodesAired?: number;
+  genres?: readonly string[];
+}): string[] {
+  if (!art) return [];
+  const tags: string[] = [];
+  if (art.year && art.year > 1990) tags.push(String(art.year));
+  const ep = art.episodes || art.episodesAired;
+  if (ep && ep > 0) tags.push(`${ep} ep`);
+  for (const g of (art.genres ?? []).slice(0, 3)) {
+    if (g) tags.push(g);
+  }
+  return tags;
 }
 
 export function truncateDescription(raw: string | null | undefined, maxChars: number): string {
@@ -130,6 +152,11 @@ interface ShikiGqlNode {
   english?: string;
   description?: string;
   score?: number;
+  status?: string;
+  episodes?: number;
+  episodesAired?: number;
+  airedOn?: { year?: number | null } | null;
+  genres?: Array<{ name?: string | null }> | null;
   poster?: {
     originalUrl?: string;
     main2xUrl?: string;
@@ -140,12 +167,17 @@ interface ShikiGqlNode {
 
 // Fetches Shikimori posters, screenshots (banners), and cleaned descriptions in a single batch call.
 export async function ensureShikimoriArtwork(ids: readonly number[] = FEATURED_SHIKI_IDS): Promise<Map<number, ShikiArtwork>> {
-  const missing = ids.filter((id) => id > 0 && !shikiCache.has(id));
-  if (missing.length === 0) {
-    return shikiCache;
-  }
+  while (true) {
+    const missing = ids.filter((id) => id > 0 && !shikiCache.has(id));
+    if (missing.length === 0) {
+      return shikiCache;
+    }
 
-  if (!batchPromise) {
+    if (batchPromise) {
+      await batchPromise;
+      continue;
+    }
+
     batchPromise = (async () => {
       try {
         const query = `query($ids: String, $limit: PositiveInt) {
@@ -156,6 +188,11 @@ export async function ensureShikimoriArtwork(ids: readonly number[] = FEATURED_S
             english
             description
             score
+            status
+            episodes
+            episodesAired
+            airedOn { year }
+            genres { name }
             poster { originalUrl main2xUrl mainUrl }
             screenshots { originalUrl }
           }
@@ -184,6 +221,13 @@ export async function ensureShikimoriArtwork(ids: readonly number[] = FEATURED_S
             english: item.english ?? '',
             description: cleanBBCode(item.description),
             score: item.score ?? 0,
+            year: item.airedOn?.year ?? undefined,
+            status: item.status ?? undefined,
+            episodes: item.episodes ?? undefined,
+            episodesAired: item.episodesAired ?? undefined,
+            genres: (item.genres ?? [])
+              .map((g) => g.name ?? '')
+              .filter(Boolean),
             posterOriginal: resolveShikiUrl(item.poster?.originalUrl),
             posterMain: resolveShikiUrl(item.poster?.main2xUrl || item.poster?.mainUrl || item.poster?.originalUrl),
             screenshots: (item.screenshots ?? [])
@@ -195,10 +239,10 @@ export async function ensureShikimoriArtwork(ids: readonly number[] = FEATURED_S
         batchPromise = null;
       }
     })();
-  }
 
-  await batchPromise;
-  return shikiCache;
+    await batchPromise;
+    return shikiCache;
+  }
 }
 
 export function getCachedArtwork(id: number): ShikiArtwork | undefined {

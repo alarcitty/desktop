@@ -8,7 +8,8 @@
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
-  import { ensureShikimoriArtwork, truncateDescription } from '../../api/anime';
+  import MetaLine from '../../marlakit/meta/MetaLine.svelte';
+  import { buildMetaTags, ensureShikimoriArtwork, truncateDescription } from '../../api/anime';
   import { openWatch } from '../../app/player.svelte';
 
   const LIBRARY_DESC_LIMIT = 270;
@@ -23,6 +24,8 @@
     description: string;
     poster: string;
     posterPosition?: string;
+    score?: number;
+    tags: string[];
   }
 
   let items = $state<LibraryItem[]>([
@@ -33,7 +36,9 @@
       title: 'Alya Sometimes Hides Her Feelings in Russian',
       description:
         'The story centers on Alisa Mikhailovna "Alya" Kujou, a stunning and brilliant student who acts cold and distant to everyone, and her unmotivated seatmate, Masachika Kuze. To hide her true feelings of embarrassment, affection, or frustration, Alya frequently mutters sweet.',
-      poster: 'https://shikimori.io/uploads/poster/animes/54744/de6fc036f101d94a4f738be3f0415d2c.jpeg'
+      poster: 'https://shikimori.io/uploads/poster/animes/54744/de6fc036f101d94a4f738be3f0415d2c.jpeg',
+      score: 7.7,
+      tags: ['2024', '12 ep', 'Comedy', 'Romance', 'School']
     },
     {
       id: 'black-clover',
@@ -43,7 +48,9 @@
       title: 'Black Clover',
       description:
         'is a popular fantasy anime about two orphans, Asta and Yuno, who grew up together and strive to become the Wizard King. In a world where magic is everything, Yuno is a prodigy born with a rare grimoire, while Asta is the only person completely devoid of magical power. Refusing to give up, Asta obtains a mysterious five-leaf clover grimoire that grants him Anti-Magic.',
-      poster: 'https://shikimori.io/uploads/poster/animes/34572/d4c5bf9cac831c03fc5ebed2676b7b10.jpeg'
+      poster: 'https://shikimori.io/uploads/poster/animes/34572/d4c5bf9cac831c03fc5ebed2676b7b10.jpeg',
+      score: 8.1,
+      tags: ['2017', '170 ep', 'Action', 'Comedy', 'Fantasy']
     },
     {
       id: 'tsukimichi',
@@ -53,7 +60,9 @@
       title: 'Tsukimichi: Moonlit Fantasy',
       description:
         'follows Makoto Misumi, an ordinary high schooler summoned to another world as a hero, only to be cast away by the goddess for his lack of beauty. Stripped of his title and sent to a barren wasteland, he discovers an overwhelming power of his own and slowly gathers allies among the monsters and outcasts of the new world.',
-      poster: 'https://shikimori.io/uploads/poster/animes/43523/9f56a98052f05ad81a43452ecacf657d.jpeg'
+      poster: 'https://shikimori.io/uploads/poster/animes/43523/9f56a98052f05ad81a43452ecacf657d.jpeg',
+      score: 7.7,
+      tags: ['2021', '12 ep', 'Action', 'Adventure', 'Fantasy']
     }
   ]);
 
@@ -128,10 +137,13 @@
       {
         return item;
       }
+      const nextTags = buildMetaTags(shiki);
       return {
         ...item,
         poster: shiki.posterOriginal || shiki.posterMain || item.poster,
-        description: shiki.description ? truncateDescription(shiki.description, LIBRARY_DESC_LIMIT) : item.description
+        description: shiki.description ? truncateDescription(shiki.description, LIBRARY_DESC_LIMIT) : item.description,
+        score: shiki.score > 0 ? Number(shiki.score.toFixed(1)) : item.score,
+        tags: nextTags.length > 0 ? nextTags : item.tags
       };
     });
   });
@@ -288,6 +300,9 @@
 
             <div class="row-info">
               <h3 class="row-title">{item.title}</h3>
+              <div class="row-meta">
+                <MetaLine score={item.score} tags={item.tags} />
+              </div>
               <p class="row-description">{item.description}</p>
             </div>
 
@@ -324,6 +339,7 @@
 
             <div class="tile-footer">
               <h3 class="tile-title">{item.title}</h3>
+              <MetaLine score={item.score} tags={item.tags.slice(0, 3)} size="sm" />
               <div class="tile-action">
                 <MainButton loading={loadingId === item.id} onclick={() => handleWatch(item.id)}>
                   {#snippet icon()}
@@ -633,14 +649,23 @@
     color: #ffffff;
   }
 
+  .row-meta {
+    margin-top: 8px;
+  }
+
   .row-description {
-    margin: 4px 0 0 0;
+    margin: 10px 0 0 0;
     padding: 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 20px;
     font-weight: 400;
     line-height: 1.3;
     color: var(--text-muted);
+    display: -webkit-box;
+    line-clamp: 4;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .row-action {

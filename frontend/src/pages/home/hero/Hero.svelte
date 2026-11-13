@@ -5,7 +5,8 @@
   import Bookmark from '@lucide/svelte/icons/bookmark';
   import MainButton from '../../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../../marlakit/button/SecondButton.svelte';
-  import { ensureShikimoriArtwork, getCachedArtwork, truncateDescription } from '../../../api/anime';
+  import MetaLine from '../../../marlakit/meta/MetaLine.svelte';
+  import { buildMetaTags, ensureShikimoriArtwork, getCachedArtwork, truncateDescription } from '../../../api/anime';
   import { openWatch, player } from '../../../app/player.svelte';
 
   const HERO_SHIKI_ID = 54492;
@@ -17,6 +18,8 @@
   ];
 
   let previews = $state<string[]>([...FALLBACK_PREVIEWS]);
+  let score = $state<number>(8.8);
+  let metaTags = $state<string[]>(['2023', '24 ep', 'Drama', 'Mystery', 'Historical']);
   let description = $state(
     "follows Maomao, a young woman trained as an apothecary in the red-light district, who is kidnapped and forced to work as a lowly servant in the Emperor's inner palace. Possessing an eccentric obsession with poisons, medical herbs, and biological experiments, Maomao tries to keep a low profile until a series of mysterious illnesses threatens the Emperor's heirs. Using her sharp intellect and deep knowledge of pharmacology, she secretly solves the puzzles, catches the attention of the influential eunuch Jinshi, and gets pulled into a web of court intrigue, political conspiracies, and palace mysteries..."
   );
@@ -44,6 +47,15 @@
     else if (cached.screenshots.length >= 3)
     {
       previews = cached.screenshots.slice(0, 3);
+    }
+    if (cached.score > 0)
+    {
+      score = Number(cached.score.toFixed(1));
+    }
+    const nextTags = buildMetaTags(cached);
+    if (nextTags.length > 0)
+    {
+      metaTags = nextTags;
     }
     if (cached.description)
     {
@@ -87,9 +99,12 @@
     <img src={previews[2]} alt="Preview 3" class="preview-img img-3" decoding="async" />
   </div>
 
-  <!-- Hero text and action buttons with uniform 16px spacing -->
+  <!-- Hero text and action buttons with uniform spacing -->
   <div class="hero-content">
     <h1 class="hero-title">The Apothecary Diaries</h1>
+    <div class="hero-meta">
+      <MetaLine {score} tags={metaTags} />
+    </div>
     <p class="hero-description">{description}</p>
 
     <!-- Action buttons with icons -->
@@ -183,8 +198,12 @@
     white-space: nowrap;
   }
 
+  .hero-meta {
+    margin-top: 12px;
+  }
+
   .hero-description {
-    margin: 16px 0 0 0;
+    margin: 12px 0 0 0;
     padding: 0;
     max-width: 940px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;

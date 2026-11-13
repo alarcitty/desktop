@@ -8,5 +8,6 @@ export { default as Input } from './input/Input.svelte';
 export { default as ScrollArea } from './scroll/ScrollArea.svelte';
 export { default as LayerBlur } from './blur/LayerBlur.svelte';
 export { default as MorphPopup } from './popup/MorphPopup.svelte';
+export { default as MetaLine } from './meta/MetaLine.svelte';
 export { default as HlsPlayer } from './player/HlsPlayer.svelte';
 export type { HlsSources, QualityVariant, QualityLevelOption, SkipRange } from './player/types';

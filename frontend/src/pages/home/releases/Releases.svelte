@@ -7,7 +7,8 @@
   import MainButton from '../../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../../marlakit/button/SecondButton.svelte';
   import LayerBlur from '../../../marlakit/blur/LayerBlur.svelte';
-  import { ensureShikimoriArtwork, truncateDescription } from '../../../api/anime';
+  import MetaLine from '../../../marlakit/meta/MetaLine.svelte';
+  import { buildMetaTags, ensureShikimoriArtwork, truncateDescription } from '../../../api/anime';
   import { openWatch } from '../../../app/player.svelte';
 
   const RELEASE_DESC_LIMIT = 155;
@@ -21,6 +22,8 @@
     titleLines: string[];
     description: string;
     poster: string;
+    score?: number;
+    tags: string[];
   }
 
   let releases = $state<ReleaseItem[]>([
@@ -32,7 +35,9 @@
       titleLines: ['Mushoku', 'Tensei: Jobless', 'Reincarnation'],
       description:
         'A 34-year-old unemployed recluse is killed after saving strangers from a speeding truck and reincarnated in a magical fantasy world as an infant named Rudeus Greyrat. Retaining his memories and regrets from his past life, he vows to overcome his past trauma and live his new life to the fullest without regrets.',
-      poster: 'https://shikimori.io/uploads/poster/animes/39535/f66d91c3fdc65449f4bb3568e4d36fec.jpeg'
+      poster: 'https://shikimori.io/uploads/poster/animes/39535/f66d91c3fdc65449f4bb3568e4d36fec.jpeg',
+      score: 8.4,
+      tags: ['2021', '11 ep', 'Adventure', 'Drama', 'Fantasy']
     },
     {
       id: 'black-clover',
@@ -43,7 +48,9 @@
       titleLines: ['Black', 'Clover', 'Sword of the King'],
       description:
         'In a world where magic is everything, Asta, a boy born without magic, aims to become the Wizard King to overcome adversity and prove his power to the entire kingdom.',
-      poster: 'https://shikimori.io/uploads/poster/animes/34572/d4c5bf9cac831c03fc5ebed2676b7b10.jpeg'
+      poster: 'https://shikimori.io/uploads/poster/animes/34572/d4c5bf9cac831c03fc5ebed2676b7b10.jpeg',
+      score: 8.1,
+      tags: ['2017', '170 ep', 'Action', 'Comedy', 'Fantasy']
     },
     {
       id: 'frieren',
@@ -54,7 +61,9 @@
       titleLines: ['Frieren:', "Beyond Journey's", 'End'],
       description:
         "An elf mage reflects on life and mortality as she embarks on a journey to fulfill her former party's wishes after defeating the Demon King and wandering through centuries.",
-      poster: 'https://shikimori.io/uploads/poster/animes/52991/dc841cc9fce2aa1e9907a4b61c5d1d92.jpeg'
+      poster: 'https://shikimori.io/uploads/poster/animes/52991/dc841cc9fce2aa1e9907a4b61c5d1d92.jpeg',
+      score: 9.3,
+      tags: ['2023', '28 ep', 'Adventure', 'Drama', 'Fantasy']
     },
     {
       id: 'tsukimichi',
@@ -65,7 +74,9 @@
       titleLines: ['Tsukimichi:', 'Moonlit', 'Fantasy'],
       description:
         'Makoto Misumi is transported to another world to be a hero, only to be cast away by the goddess for not meeting her standards of beauty, surviving in the wasteland.',
-      poster: 'https://shikimori.io/uploads/poster/animes/43523/9f56a98052f05ad81a43452ecacf657d.jpeg'
+      poster: 'https://shikimori.io/uploads/poster/animes/43523/9f56a98052f05ad81a43452ecacf657d.jpeg',
+      score: 7.7,
+      tags: ['2021', '12 ep', 'Action', 'Adventure', 'Fantasy']
     }
   ]);
 
@@ -85,10 +96,13 @@
       if (!shiki) {
         return r;
       }
+      const nextTags = buildMetaTags(shiki);
       return {
         ...r,
         poster: shiki.posterOriginal || shiki.posterMain || r.poster,
-        description: shiki.description ? truncateDescription(shiki.description, RELEASE_DESC_LIMIT) : r.description
+        description: shiki.description ? truncateDescription(shiki.description, RELEASE_DESC_LIMIT) : r.description,
+        score: shiki.score > 0 ? Number(shiki.score.toFixed(1)) : r.score,
+        tags: nextTags.length > 0 ? nextTags : r.tags
       };
     });
   });
@@ -187,6 +201,10 @@
               {#if lineIndex < item.titleLines.length - 1}<br />{/if}
             {/each}
           </h3>
+
+          <div class="card-meta">
+            <MetaLine score={item.score} tags={item.tags} />
+          </div>
 
           <p class="card-description">
             {item.description}
@@ -440,6 +458,20 @@
 
   .title-nowrap {
     white-space: nowrap;
+  }
+
+  .card-meta {
+    margin: 0 0 12px 0;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+  }
+
+  .card.is-active .card-meta {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.19s,
+                transform 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.19s;
   }
 
   /* Description: Medeo Sans Display Regular 20px, #8D8D8D, directly relative to title */
