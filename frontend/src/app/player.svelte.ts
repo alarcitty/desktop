@@ -6,6 +6,7 @@ import {
   getCachedArtwork,
   loadFranchiseSeasons,
   resolvePlayableRelease,
+  resolveVoiceTrackRelease,
   type AnimeSeasonEntry,
   type PlayableRelease,
   type ShikiArtwork,
@@ -45,6 +46,8 @@ export const player = $state<{
 
 let activeRequestToken = 0;
 let lastHistorySyncMs = 0;
+let voiceDiscoveryPromise: Promise<VoiceTrackOption[]> | null = null;
+const failedVoiceIds = new Set<string>();
 
 function syncPlayerHistory(currentTime?: number, duration?: number): void {
   const rel = player.release;
@@ -85,6 +88,21 @@ export function reportPlaybackProgress(currentTime: number, duration: number, fo
   syncPlayerHistory(currentTime, duration);
 }
 
+function applyPreservedEpisode(
+  rel: PlayableRelease,
+  preserveEpisodeOrdinal?: number,
+  preserveEpisodeIndex?: number
+): number {
+  if (preserveEpisodeOrdinal != null) {
+    const idx = rel.episodes.findIndex((e) => e.ordinal === preserveEpisodeOrdinal);
+    if (idx >= 0) return idx;
+  }
+  if (preserveEpisodeIndex != null) {
+    return Math.min(preserveEpisodeIndex, Math.max(0, rel.episodes.length - 1));
+  }
+  return 0;
+}
+
 async function loadTargetIntoPlayer(
   token: number,
   target: WatchTarget,
@@ -99,6 +117,8 @@ async function loadTargetIntoPlayer(
   if (!opts?.keepVoices) {
     player.voices = [];
     player.selectedVoiceId = '';
+    voiceDiscoveryPromise = null;
+    failedVoiceIds.clear();
   }
   player.episodeIndex = opts?.preserveEpisodeIndex ?? 0;
   player.resumeTime = opts?.preserveTime ?? 0;
@@ -127,24 +147,23 @@ async function loadTargetIntoPlayer(
     player.selectedVoiceId = rel.alias;
     if (!opts?.keepVoices || player.voices.length === 0) {
       player.voices = [buildPrimaryVoiceOption(rel)];
-      findVoiceOptions(rel, target.shikiId)
+      const extraTitles = [target.title, ...(target.searchQueries ?? [])];
+      const discovery = findVoiceOptions(rel, target.shikiId, extraTitles)
         .then((voices) => {
           if (token === activeRequestToken && voices.length > 0) {
             player.voices = voices;
           }
+          return voices;
         })
-        .catch(() => {});
+        .catch(() => player.voices);
+      voiceDiscoveryPromise = discovery;
     }
 
-    if (opts?.preserveEpisodeOrdinal != null) {
-      const idx = rel.episodes.findIndex((e) => e.ordinal === opts.preserveEpisodeOrdinal);
-      player.episodeIndex =
-        idx >= 0 ? idx : Math.min(opts.preserveEpisodeIndex ?? 0, Math.max(0, rel.episodes.length - 1));
-    } else if (opts?.preserveEpisodeIndex != null) {
-      player.episodeIndex = Math.min(opts.preserveEpisodeIndex, Math.max(0, rel.episodes.length - 1));
-    } else {
-      player.episodeIndex = 0;
-    }
+    player.episodeIndex = applyPreservedEpisode(
+      rel,
+      opts?.preserveEpisodeOrdinal,
+      opts?.preserveEpisodeIndex
+    );
 
     const activeEp = rel.episodes[player.episodeIndex];
     syncPlayerHistory(player.resumeTime, activeEp?.duration ?? 0);
@@ -162,24 +181,69 @@ async function loadTargetIntoPlayer(
 }
 
 export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Promise<void> {
-  if (!voice.releaseAlias || voice.id === player.selectedVoiceId) return;
+  if (voice.id === player.selectedVoiceId) return;
   const currentEp = player.release?.episodes[player.episodeIndex];
   const prevOrdinal = currentEp?.ordinal;
   const prevIndex = player.episodeIndex;
-  const token = ++activeRequestToken;
-  const baseTarget = player.target;
-  const nextTarget: WatchTarget = {
-    title: baseTarget?.title || player.title,
-    shikiId: baseTarget?.shikiId,
-    releaseAlias: voice.releaseAlias,
-    searchQueries: baseTarget?.searchQueries
+  const baseRelease = player.release;
+  const baseTarget: WatchTarget = player.target ?? {
+    title: player.title,
+    shikiId: player.shikiArt?.id
   };
-  await loadTargetIntoPlayer(token, nextTarget, {
-    preserveEpisodeOrdinal: prevOrdinal,
-    preserveEpisodeIndex: prevIndex,
-    preserveTime: Number.isFinite(preserveTime) && preserveTime > 0.5 ? preserveTime : 0,
-    keepVoices: true
+  const token = ++activeRequestToken;
+
+  player.loading = true;
+  player.error = '';
+  player.resumeTime = Number.isFinite(preserveTime) && preserveTime > 0.5 ? preserveTime : 0;
+  player.autoplay = true;
+
+  try {
+    const nextRel = await resolveVoiceTrackRelease(voice, baseRelease, baseTarget);
+    if (token !== activeRequestToken) return;
+    player.release = nextRel;
+    player.selectedVoiceId = nextRel.alias;
+    player.episodeIndex = applyPreservedEpisode(nextRel, prevOrdinal, prevIndex);
+  } catch (err) {
+    if (token !== activeRequestToken) return;
+    player.error = err instanceof Error ? err.message : 'Failed to switch voiceover';
+  } finally {
+    if (token === activeRequestToken) {
+      player.loading = false;
+    }
+  }
+}
+
+export async function fallbackVoice(autoFromFailure = false): Promise<boolean> {
+  const activeId = player.selectedVoiceId;
+  const activeProvider = player.release?.provider ?? 'aniliberty';
+  if (activeId) {
+    failedVoiceIds.add(activeId);
+  }
+
+  const startToken = activeRequestToken;
+  if (voiceDiscoveryPromise) {
+    await voiceDiscoveryPromise.catch(() => {});
+  }
+  if (startToken !== activeRequestToken) return false;
+
+  const candidates = player.voices.filter((v) => {
+    if (v.id === activeId || failedVoiceIds.has(v.id)) return false;
+    if (autoFromFailure && activeProvider === 'aniliberty' && v.provider === 'aniliberty') {
+      return false;
+    }
+    return true;
   });
+
+  if (candidates.length === 0) return false;
+
+  // Prefer native MP4 stream first, then top non-sub Anixart dub, then any working source.
+  const chosen =
+    candidates.find((v) => v.provider === 'animevost') ??
+    candidates.find((v) => v.provider === 'anixart' && !v.isSub) ??
+    candidates[0];
+
+  await switchVoice(chosen, player.resumeTime);
+  return player.selectedVoiceId === chosen.id;
 }
 
 export async function openWatch(
@@ -238,6 +302,7 @@ export async function retryWatch(): Promise<void> {
 export function selectEpisode(index: number): void {
   if (!player.release) return;
   if (index < 0 || index >= player.release.episodes.length) return;
+  failedVoiceIds.clear();
   player.resumeTime = 0;
   player.autoplay = true;
   player.episodeIndex = index;
@@ -249,6 +314,7 @@ export function selectEpisode(index: number): void {
 export function nextEpisode(): void {
   if (!player.release) return;
   if (player.episodeIndex + 1 < player.release.episodes.length) {
+    failedVoiceIds.clear();
     player.resumeTime = 0;
     player.autoplay = true;
     player.episodeIndex += 1;

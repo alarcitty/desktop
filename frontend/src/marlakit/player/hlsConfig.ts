@@ -64,6 +64,33 @@ export interface ResolvedSource {
   revoke?: () => void;
 }
 
+export interface Mp4Variant {
+  label: string;
+  height: number;
+  bitrate: number;
+  url: string;
+}
+
+export type ResolvedPlayback =
+  | { mode: 'hls'; url: string; revoke?: () => void }
+  | { mode: 'mp4'; variants: Mp4Variant[] }
+  | { mode: 'embed'; url: string };
+
+export function normalizeMp4Sources(sources?: HlsSources | null): Mp4Variant[] {
+  if (!sources) return [];
+  const variants: Mp4Variant[] = [];
+  if (sources.mp4_1080) {
+    variants.push({ label: '1080p', height: 1080, bitrate: 5_000_000, url: sources.mp4_1080 });
+  }
+  if (sources.mp4_720) {
+    variants.push({ label: '720p', height: 720, bitrate: 2_800_000, url: sources.mp4_720 });
+  }
+  if (sources.mp4_480) {
+    variants.push({ label: '480p', height: 480, bitrate: 1_500_000, url: sources.mp4_480 });
+  }
+  return variants;
+}
+
 // Builds a synthesized #EXTM3U master playlist Blob URL when multiple quality URLs are provided,
 // enabling seamless quality switching inside hls.js without reloading from scratch.
 export function resolveHlsSource(src?: string | null, sources?: HlsSources | null): ResolvedSource | null {
@@ -96,6 +123,36 @@ export function resolveHlsSource(src?: string | null, sources?: HlsSources | nul
     url: blobUrl,
     revoke: () => URL.revokeObjectURL(blobUrl)
   };
+}
+
+export function resolvePlaybackSource(src?: string | null, sources?: HlsSources | null): ResolvedPlayback | null {
+  const direct = src?.trim();
+  if (direct) {
+    if (/\.mp4(?:$|\?)/i.test(direct)) {
+      return {
+        mode: 'mp4',
+        variants: [{ label: 'HD', height: 720, bitrate: 2_800_000, url: direct }]
+      };
+    }
+    return { mode: 'hls', url: direct };
+  }
+
+  const hlsResolved = resolveHlsSource(null, sources);
+  if (hlsResolved) {
+    return { mode: 'hls', url: hlsResolved.url, revoke: hlsResolved.revoke };
+  }
+
+  const mp4Variants = normalizeMp4Sources(sources);
+  if (mp4Variants.length > 0) {
+    return { mode: 'mp4', variants: mp4Variants };
+  }
+
+  const embed = sources?.embed_url?.trim();
+  if (embed) {
+    return { mode: 'embed', url: embed };
+  }
+
+  return null;
 }
 
 export function formatQualityLabel(height: number, bitrate?: number): string {

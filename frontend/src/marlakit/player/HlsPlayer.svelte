@@ -11,6 +11,8 @@
   import Settings from '@lucide/svelte/icons/settings';
   import SkipForward from '@lucide/svelte/icons/skip-forward';
   import AudioLines from '@lucide/svelte/icons/audio-lines';
+  import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
+  import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left';
   import { untrack } from 'svelte';
   import { fly, scale } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
@@ -20,7 +22,8 @@
   import {
     createMaxQualityHlsConfig,
     formatQualityLabel,
-    resolveHlsSource
+    resolvePlaybackSource,
+    type Mp4Variant
   } from './hlsConfig';
   import type {
     AudioTrackOption,
@@ -44,10 +47,12 @@
     opening?: SkipRange | null;
     ending?: SkipRange | null;
     hasNext?: boolean;
+    hasFallback?: boolean;
     onnext?: () => void;
     onended?: () => void;
     ontimeprogress?: (currentTime: number, duration: number, force?: boolean) => void;
     onselectvoice?: (voice: VoiceTrackOption, currentTime: number) => void;
+    onfallback?: () => void;
     onerror?: (message: string) => void;
     class?: string;
   }
@@ -66,10 +71,12 @@
     opening = null,
     ending = null,
     hasNext = false,
+    hasFallback = false,
     onnext,
     onended,
     ontimeprogress,
     onselectvoice,
+    onfallback,
     onerror,
     class: className = ''
   }: Props = $props();
@@ -104,6 +111,10 @@
   let activeLevelIndex = $state(-1);
   let audioTracks = $state<AudioTrackOption[]>([]);
   let activeAudioTrack = $state(-1);
+  let playbackMode = $state<'hls' | 'mp4' | 'embed'>('hls');
+  let embedUrl = $state('');
+  let mp4Variants = $state<Mp4Variant[]>([]);
+  let reloadTick = $state(0);
 
   let hoverTime = $state<number | null>(null);
   let hoverPct = $state(0);
@@ -148,15 +159,30 @@
 
   const voiceComboSections = $derived.by<ComboSection[]>(() => {
     const out: ComboSection[] = [];
-    if (voices.length > 0) {
-      const activeId = selectedVoiceId || voices[0]?.id;
+    const activeId = selectedVoiceId || voices[0]?.id;
+    const nativeVoices = voices.filter((v) => v.kind !== 'embed');
+    const externalVoices = voices.filter((v) => v.kind === 'embed');
+
+    if (nativeVoices.length > 0) {
       out.push({
-        id: 'voiceover',
-        title: 'Voiceover',
-        options: voices.map((v) => ({
+        id: 'voiceover-native',
+        title: 'Native Player',
+        options: nativeVoices.map((v) => ({
           value: `voice:${v.id}`,
           label: v.label,
           sublabel: v.sublabel,
+          selected: activeId === v.id
+        }))
+      });
+    }
+    if (externalVoices.length > 0) {
+      out.push({
+        id: 'voiceover-external',
+        title: 'External (Kodik)',
+        options: externalVoices.map((v) => ({
+          value: `voice:${v.id}`,
+          label: v.label,
+          sublabel: v.sublabel || 'External UI',
           selected: activeId === v.id
         }))
       });
@@ -185,7 +211,7 @@
       value: lvl.index,
       label: lvl.label
     }));
-    if (levels.length > 1) {
+    if (playbackMode === 'hls' && levels.length > 1) {
       items.push({ value: -1, label: 'Auto' });
     }
     return items;
@@ -243,7 +269,7 @@
     return bestIdx;
   }
 
-  // Attach and configure hls.js whenever source props change.
+  // Attach and configure hls.js, native MP4, or embed fallback whenever source props change.
   $effect(() => {
     const video = videoEl;
     const directSrc = src;
@@ -251,16 +277,20 @@
     const shouldAutoplay = autoplay;
     const lockMax = preferMaxQuality;
     const resumeOffset = initialTime;
+    void reloadTick;
 
     if (!video) return;
 
-    const resolved = resolveHlsSource(directSrc, epSources);
+    const resolved = resolvePlaybackSource(directSrc, epSources);
     errorText = '';
     levels = [];
     selectedLevel = -1;
     activeLevelIndex = -1;
     audioTracks = [];
     activeAudioTrack = -1;
+    mp4Variants = [];
+    embedUrl = '';
+    playing = false;
     currentTime = 0;
     duration = 0;
     bufferedEnd = 0;
@@ -278,10 +308,36 @@
       currentTime = targetTime;
     };
 
+    const handleNativeLoaded = () => {
+      buffering = false;
+      applyInitialResume();
+    };
+
+    const handleNativeError = () => {
+      buffering = false;
+      errorText = 'Playback error: failed to load video stream';
+      onerror?.(errorText);
+    };
+
     if (!resolved) {
       destroyHls();
+      playbackMode = 'hls';
       video.removeAttribute('src');
+      video.load();
       return;
+    }
+
+    if (resolved.mode === 'embed') {
+      destroyHls();
+      playbackMode = 'embed';
+      embedUrl = resolved.url;
+      buffering = false;
+      controlsVisible = true;
+      video.pause();
+      video.removeAttribute('src');
+      return () => {
+        window.clearTimeout(hideTimer);
+      };
     }
 
     untrack(() => {
@@ -290,6 +346,38 @@
       video.playbackRate = playbackRate;
     });
 
+    if (resolved.mode === 'mp4') {
+      destroyHls();
+      playbackMode = 'mp4';
+      const variants = [...resolved.variants].sort(
+        (a, b) => b.height - a.height || b.bitrate - a.bitrate
+      );
+      mp4Variants = variants;
+      levels = variants.map((v, idx) => ({
+        index: idx,
+        height: v.height,
+        bitrate: v.bitrate,
+        label: v.label
+      }));
+      selectedLevel = 0;
+      activeLevelIndex = 0;
+      buffering = true;
+      video.addEventListener('loadedmetadata', handleNativeLoaded);
+      video.addEventListener('error', handleNativeError);
+      video.src = variants[0].url;
+      video.load();
+      if (shouldAutoplay) {
+        void video.play().catch(() => {});
+      }
+      return () => {
+        window.clearTimeout(hideTimer);
+        video.removeEventListener('loadedmetadata', handleNativeLoaded);
+        video.removeEventListener('error', handleNativeError);
+        video.pause();
+      };
+    }
+
+    playbackMode = 'hls';
     if (Hls.isSupported()) {
       destroyHls();
       const instance = new Hls(createMaxQualityHlsConfig());
@@ -357,7 +445,10 @@
           instance.recoverMediaError();
           return;
         }
-        errorText = 'Playback error: failed to load HLS stream';
+        const status = (data.response as { code?: number } | undefined)?.code;
+        errorText = status
+          ? `Playback error: CDN returned HTTP ${status}`
+          : 'Playback error: failed to load HLS stream';
         buffering = false;
         onerror?.(errorText);
       });
@@ -367,7 +458,8 @@
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       destroyHls();
       video.src = resolved.url;
-      video.addEventListener('loadedmetadata', applyInitialResume, { once: true });
+      video.addEventListener('loadedmetadata', handleNativeLoaded, { once: true });
+      video.addEventListener('error', handleNativeError, { once: true });
       if (shouldAutoplay) {
         void video.play().catch(() => {});
       }
@@ -378,7 +470,8 @@
 
     return () => {
       window.clearTimeout(hideTimer);
-      video.removeEventListener('loadedmetadata', applyInitialResume);
+      video.removeEventListener('loadedmetadata', handleNativeLoaded);
+      video.removeEventListener('error', handleNativeError);
       destroyHls();
       resolved.revoke?.();
     };
@@ -472,6 +565,27 @@
       hls.currentLevel = levelIdx;
       if (levelIdx >= 0) {
         activeLevelIndex = levelIdx;
+      }
+    } else if (playbackMode === 'mp4' && videoEl) {
+      const target = mp4Variants[levelIdx];
+      if (target && videoEl.src !== target.url) {
+        const savedTime = videoEl.currentTime || currentTime;
+        const wasPlaying = !videoEl.paused;
+        activeLevelIndex = levelIdx;
+        buffering = true;
+        const restoreSeek = () => {
+          if (!videoEl) return;
+          if (savedTime > 0.25 && Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
+            videoEl.currentTime = Math.min(savedTime, Math.max(0, videoEl.duration - 0.5));
+          }
+          buffering = false;
+          if (wasPlaying) {
+            void videoEl.play().catch(() => {});
+          }
+        };
+        videoEl.addEventListener('loadedmetadata', restoreSeek, { once: true });
+        videoEl.src = target.url;
+        videoEl.load();
       }
     }
     activeMenu = 'none';
@@ -704,8 +818,10 @@
   <video
     bind:this={videoEl}
     class="hls-video"
+    class:is-hidden={playbackMode === 'embed'}
     {poster}
     playsinline
+    preload="metadata"
     onclick={() => {
       if (activeMenu !== 'none') {
         activeMenu = 'none';
@@ -727,7 +843,9 @@
         ontimeprogress?.(videoEl.currentTime || 0, videoEl.duration || duration || 0, true);
       }
     }}
-    onwaiting={() => (buffering = true)}
+    onwaiting={() => {
+      if (playbackMode !== 'embed') buffering = true;
+    }}
     oncanplay={() => (buffering = false)}
     onplaying={() => (buffering = false)}
     ontimeupdate={() => {
@@ -750,11 +868,51 @@
     }}
   ></video>
 
-  {#if buffering}
+  {#if playbackMode === 'embed' && embedUrl}
+    <iframe
+      class="embed-frame"
+      src={embedUrl}
+      title={title || 'Video player'}
+      allow="autoplay *; fullscreen *; encrypted-media; picture-in-picture"
+      allowfullscreen
+    ></iframe>
+
+    {#if voiceComboSections.length > 0}
+      <div class="embed-voice-dock">
+        <ComboBox
+          open={activeMenu === 'voice'}
+          sections={voiceComboSections}
+          label={activeVoiceLabel || 'Audio'}
+          ariaLabel="Voiceover and audio track"
+          placement="bottom-right"
+          minWidth={210}
+          maxWidth={276}
+          maxHeight={300}
+          ontoggle={(isOpen) => {
+            activeMenu = isOpen ? 'voice' : 'none';
+          }}
+          onselect={(opt) => {
+            const raw = String(opt.value);
+            if (raw.startsWith('voice:')) {
+              const voiceId = raw.slice('voice:'.length);
+              const found = voices.find((v) => v.id === voiceId);
+              if (found) selectVoice(found);
+            }
+          }}
+        >
+          {#snippet icon()}
+            <AudioLines size={14} strokeWidth={1.9} />
+          {/snippet}
+        </ComboBox>
+      </div>
+    {/if}
+  {/if}
+
+  {#if buffering && playbackMode !== 'embed'}
     <div class="center-overlay" aria-hidden="true">
       <div class="loader-ring"></div>
     </div>
-  {:else if !playing && !errorText}
+  {:else if !playing && !errorText && playbackMode !== 'embed'}
     <button
       type="button"
       class="center-play"
@@ -766,13 +924,35 @@
     </button>
   {/if}
 
-  {#if errorText}
+  {#if errorText && playbackMode !== 'embed'}
     <div class="error-banner" role="alert">
-      <span>{errorText}</span>
+      <span class="error-msg">{errorText}</span>
+      <div class="error-actions">
+        <button
+          type="button"
+          class="error-btn"
+          onclick={() => {
+            reloadTick += 1;
+          }}
+        >
+          <RotateCcw size={14} strokeWidth={2} />
+          <span>Retry</span>
+        </button>
+        {#if hasFallback && onfallback}
+          <button
+            type="button"
+            class="error-btn error-btn-primary"
+            onclick={() => onfallback?.()}
+          >
+            <ArrowRightLeft size={14} strokeWidth={2} />
+            <span>Switch voice</span>
+          </button>
+        {/if}
+      </div>
     </div>
   {/if}
 
-  {#if skipTarget}
+  {#if skipTarget && playbackMode !== 'embed'}
     <button
       type="button"
       class="skip-pill"
@@ -785,7 +965,7 @@
     </button>
   {/if}
 
-  {#if title || subtitle}
+  {#if (title || subtitle) && playbackMode !== 'embed'}
     <div class="top-bar" class:visible={controlsVisible || !playing}>
       <div class="title-stack">
         {#if title}
@@ -799,6 +979,7 @@
     </div>
   {/if}
 
+  {#if playbackMode !== 'embed'}
   <div class="controls-dock" class:visible={controlsVisible || !playing}>
     <!-- Timeline -->
     <div
@@ -914,8 +1095,9 @@
             label={activeVoiceLabel || 'Audio'}
             ariaLabel="Voiceover and audio track"
             placement="top-right"
-            minWidth={196}
-            maxWidth={268}
+            minWidth={210}
+            maxWidth={276}
+            maxHeight={300}
             ontoggle={(isOpen) => {
               activeMenu = isOpen ? 'voice' : 'none';
               scheduleHideControls();
@@ -1000,6 +1182,7 @@
       </div>
     </div>
   </div>
+  {/if}
 </div>
 
 <style>
@@ -1042,6 +1225,29 @@
     display: block;
     object-fit: contain;
     background: #000000;
+  }
+
+  .hls-video.is-hidden {
+    display: none;
+  }
+
+  .embed-frame {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border: none;
+    background: #000000;
+  }
+
+  .embed-voice-dock {
+    position: absolute;
+    top: 10px;
+    right: 52px;
+    z-index: 6;
+    border-radius: 10px;
+    background: rgba(14, 14, 16, 0.72);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
 
   .top-bar {
@@ -1148,12 +1354,55 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    padding: 12px 18px;
-    border-radius: 12px;
-    background: rgba(28, 14, 16, 0.9);
+    z-index: 5;
+    padding: 14px 18px;
+    border-radius: 14px;
+    background: rgba(20, 12, 14, 0.92);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border: none;
     color: #ffb4b4;
     font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+    max-width: min(420px, 86%);
+  }
+
+  .error-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .error-btn {
+    height: 32px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: background-color 0.18s ease, transform 0.16s ease;
+  }
+
+  .error-btn:hover {
+    background: rgba(255, 255, 255, 0.22);
+    transform: translateY(-1px);
+  }
+
+  .error-btn-primary {
+    background: rgba(255, 255, 255, 0.2);
   }
 
   .skip-pill {

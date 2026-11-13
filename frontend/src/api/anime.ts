@@ -1,4 +1,13 @@
 import type { HlsSources, SkipRange, VoiceTrackOption } from '../marlakit/player/types';
+import { fetchAnimeVostEpisodes, findAnimeVostMatch } from './providers/animevost';
+import { fetchAnixartEpisodes, findAnixartDiscovery } from './providers/anixart';
+import {
+  dedupeSearchQueries,
+  fetchJsonWithTimeout,
+  normalizeTitleText,
+  SPECIAL_TITLE_RE,
+  titleTokens
+} from './providers/shared';
 
 const BACKEND_BASE = 'http://localhost:8080/api/v1';
 const SHIKI_GRAPHQL = 'https://shikimori.io/api/graphql';
@@ -32,6 +41,10 @@ export interface PlayableEpisode {
   hls_1080?: string | null;
   hls_720?: string | null;
   hls_480?: string | null;
+  mp4_1080?: string | null;
+  mp4_720?: string | null;
+  mp4_480?: string | null;
+  embed_url?: string | null;
 }
 
 export interface PlayableRelease {
@@ -41,6 +54,7 @@ export interface PlayableRelease {
   titleEnglish?: string;
   year?: number;
   typeLabel?: string;
+  provider?: 'aniliberty' | 'animevost' | 'anixart' | string;
   voiceLabel?: string;
   voiceActors?: string[];
   poster?: string;
@@ -168,27 +182,6 @@ function resolveLibUrl(raw?: string | null): string {
   return raw;
 }
 
-async function fetchJsonWithTimeout<T>(url: string, init?: RequestInit, timeoutMs = 4500): Promise<T> {
-  const ctrl = new AbortController();
-  const extSignal = init?.signal;
-  if (extSignal?.aborted) {
-    ctrl.abort();
-  }
-  const onAbort = () => ctrl.abort();
-  extSignal?.addEventListener('abort', onAbort, { once: true });
-  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { ...init, signal: ctrl.signal });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    return (await res.json()) as T;
-  } finally {
-    window.clearTimeout(timer);
-    extSignal?.removeEventListener('abort', onAbort);
-  }
-}
-
 async function isBackendUp(): Promise<boolean> {
   if (backendAvailable !== null) return backendAvailable;
   try {
@@ -314,8 +307,6 @@ export async function ensureShikimoriArtwork(ids: readonly number[]): Promise<Ma
 export function getCachedArtwork(id: number): ShikiArtwork | undefined {
   return shikiCache.get(id);
 }
-
-const SPECIAL_TITLE_RE = /(?:^|[^\p{L}\p{N}])(special|сп[еэ]шл|спецвыпуск|ova|recap)(?:$|[^\p{L}\p{N}])/iu;
 
 function inferReleaseTypeValue(
   rawType?: string | null,
@@ -500,40 +491,6 @@ interface LibSearchCandidate {
   shikimori?: { id?: number | null } | null;
 }
 
-const TITLE_STOP_WORDS = new Set([
-  'the',
-  'a',
-  'an',
-  'of',
-  'in',
-  'on',
-  'to',
-  'and',
-  'for',
-  'no',
-  'wa',
-  'ga',
-  'ni',
-  'wo',
-  'season',
-  'part'
-]);
-
-function normalizeTitleText(raw: string): string {
-  return raw
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
-}
-
-function titleTokens(raw: string): string[] {
-  const all = normalizeTitleText(raw).split(' ').filter(Boolean);
-  const meaningful = all.filter((w) => !TITLE_STOP_WORDS.has(w) && (w.length >= 2 || /^\d+$/.test(w)));
-  return meaningful.length > 0 ? meaningful : all;
-}
-
 function scoreReleaseCandidate(
   cand: LibSearchCandidate,
   target: WatchTarget,
@@ -607,7 +564,7 @@ function scoreReleaseCandidate(
   return best;
 }
 
-// Resolves a playable HLS release matching the exact target (prefers Go backend, falls back to AniLiberty).
+// Resolves a playable release matching the exact target (AniLiberty first, then AnimeVost MP4 / Anixart).
 export async function resolvePlayableRelease(target: WatchTarget): Promise<PlayableRelease> {
   if (target.shikiId) {
     await ensureShikimoriArtwork([target.shikiId]).catch(() => {});
@@ -616,25 +573,16 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
 
   if (target.releaseAlias) {
     const direct = await fetchReleaseByIdOrAlias(target.releaseAlias, shikiArt, target.shikiId);
-    if (direct) return direct;
+    if (direct) return { ...direct, provider: direct.provider ?? 'aniliberty' };
   }
 
-  const rawQueries = [
+  const queries = dedupeSearchQueries([
     ...(target.searchQueries ?? []),
     shikiArt?.russian ?? '',
     shikiArt?.english ?? '',
     shikiArt?.name ?? '',
     target.title
-  ];
-  const seenQueries = new Set<string>();
-  const queries: string[] = [];
-  for (const q of rawQueries) {
-    const trimmed = q.trim();
-    const key = trimmed.toLowerCase();
-    if (trimmed.length < 2 || seenQueries.has(key)) continue;
-    seenQueries.add(key);
-    queries.push(trimmed);
-  }
+  ]);
 
   const candidatesById = new Map<number, { cand: LibSearchCandidate; score: number }>();
 
@@ -677,17 +625,66 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
   const rankedCandidates = Array.from(candidatesById.values()).sort((a, b) => b.score - a.score);
   for (const { cand } of rankedCandidates.slice(0, 5)) {
     const rel = await fetchReleaseByIdOrAlias(String(cand.id), shikiArt, target.shikiId);
-    if (rel) return rel;
+    if (rel) return { ...rel, provider: 'aniliberty' };
   }
 
-  throw new Error(`«${target.title}» сейчас недоступно для воспроизведения на AniLiberty`);
+  const providerTitles = dedupeSearchQueries([
+    shikiArt?.russian,
+    target.title,
+    shikiArt?.english,
+    shikiArt?.name,
+    ...(target.searchQueries ?? [])
+  ]);
+
+  const avMatch = await findAnimeVostMatch(providerTitles, shikiArt?.year ?? null).catch(() => null);
+  if (avMatch && avMatch.episodes.length > 0) {
+    return {
+      id: avMatch.releaseId,
+      alias: avMatch.voice.id,
+      title: shikiArt?.english || shikiArt?.name || avMatch.title || target.title,
+      titleEnglish: shikiArt?.english || shikiArt?.name,
+      year: shikiArt?.year ?? avMatch.year,
+      provider: 'animevost',
+      voiceLabel: avMatch.voice.label,
+      poster: shikiArt?.posterOriginal || shikiArt?.posterMain || avMatch.poster,
+      banner: shikiArt?.screenshots?.[0] || avMatch.poster,
+      episodes: avMatch.episodes
+    };
+  }
+
+  const axMatch = await findAnixartDiscovery(providerTitles, shikiArt?.year ?? null).catch(() => null);
+  if (axMatch && axMatch.voices.length > 0) {
+    for (const voice of axMatch.voices.slice(0, 3)) {
+      const eps = await fetchAnixartEpisodes(axMatch.releaseId, Number(voice.sourceId)).catch(() => []);
+      if (eps.length > 0) {
+        return {
+          id: axMatch.releaseId,
+          alias: voice.id,
+          title: shikiArt?.english || shikiArt?.name || axMatch.title || target.title,
+          titleEnglish: shikiArt?.english || shikiArt?.name,
+          year: shikiArt?.year ?? axMatch.year,
+          provider: 'anixart',
+          voiceLabel: voice.label,
+          poster: shikiArt?.posterOriginal || shikiArt?.posterMain || axMatch.poster,
+          banner: shikiArt?.screenshots?.[0] || axMatch.poster,
+          episodes: eps
+        };
+      }
+    }
+  }
+
+  throw new Error(`«${target.title}» сейчас недоступно для воспроизведения ни на одном из источников`);
 }
 
 export function episodeSources(ep: PlayableEpisode): HlsSources {
   return {
     hls_1080: ep.hls_1080,
     hls_720: ep.hls_720,
-    hls_480: ep.hls_480
+    hls_480: ep.hls_480,
+    mp4_1080: ep.mp4_1080,
+    mp4_720: ep.mp4_720,
+    mp4_480: ep.mp4_480,
+    embed_url: ep.embed_url
   };
 }
 
@@ -1550,42 +1547,137 @@ export async function searchGroupedAnime(
 }
 
 export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption {
+  const provider = rel.provider ?? 'aniliberty';
   const cast = rel.voiceActors?.slice(0, 3).join(', ');
   const epPart = rel.episodes.length > 0 ? `${rel.episodes.length} ep` : '';
+  const kindTag = provider === 'animevost' ? 'MP4' : provider === 'anixart' ? 'Mirror' : '';
+  const sublabel = cast || [epPart, kindTag].filter(Boolean).join(' · ') || undefined;
   return {
     id: rel.alias,
-    label: rel.voiceLabel || 'AniLiberty',
-    sublabel: cast || epPart || undefined,
-    releaseAlias: rel.alias
+    label: rel.voiceLabel || (provider === 'animevost' ? 'AnimeVost' : 'AniLiberty'),
+    sublabel,
+    releaseAlias: provider === 'aniliberty' ? rel.alias : undefined,
+    provider,
+    providerId: rel.id,
+    kind: provider === 'animevost' ? 'mp4' : provider === 'anixart' ? 'embed' : 'hls'
   };
+}
+
+export async function resolveVoiceTrackRelease(
+  voice: VoiceTrackOption,
+  baseRelease: PlayableRelease | null,
+  target: WatchTarget
+): Promise<PlayableRelease> {
+  const shikiArt = target.shikiId ? shikiCache.get(target.shikiId) : undefined;
+  if (voice.provider === 'animevost') {
+    const releaseId = Number(voice.providerId);
+    const episodes = await fetchAnimeVostEpisodes(releaseId);
+    if (episodes.length === 0) {
+      throw new Error(`AnimeVost: нет доступных серий для ${target.title}`);
+    }
+    return {
+      ...(baseRelease ?? {
+        id: releaseId,
+        title: shikiArt?.english || shikiArt?.name || target.title,
+        titleEnglish: shikiArt?.english || shikiArt?.name,
+        year: shikiArt?.year,
+        poster: shikiArt?.posterOriginal || shikiArt?.posterMain,
+        banner: shikiArt?.screenshots?.[0]
+      }),
+      id: releaseId,
+      alias: voice.id,
+      provider: 'animevost',
+      voiceLabel: voice.label,
+      voiceActors: undefined,
+      episodes
+    };
+  }
+
+  if (voice.provider === 'anixart') {
+    const releaseId = Number(voice.providerId);
+    const typeId = Number(voice.sourceId);
+    const episodes = await fetchAnixartEpisodes(releaseId, typeId);
+    if (episodes.length === 0) {
+      throw new Error(`${voice.label}: нет доступных серий`);
+    }
+    return {
+      ...(baseRelease ?? {
+        id: releaseId,
+        title: shikiArt?.english || shikiArt?.name || target.title,
+        titleEnglish: shikiArt?.english || shikiArt?.name,
+        year: shikiArt?.year,
+        poster: shikiArt?.posterOriginal || shikiArt?.posterMain,
+        banner: shikiArt?.screenshots?.[0]
+      }),
+      id: releaseId,
+      alias: voice.id,
+      provider: 'anixart',
+      voiceLabel: voice.label,
+      voiceActors: undefined,
+      episodes
+    };
+  }
+
+  return resolvePlayableRelease({
+    ...target,
+    releaseAlias: voice.releaseAlias || voice.id
+  });
 }
 
 export async function findVoiceOptions(
   primary: PlayableRelease,
-  shikiId?: number
+  shikiId?: number,
+  extraTitles?: string[]
 ): Promise<VoiceTrackOption[]> {
   const base = buildPrimaryVoiceOption(primary);
   const options: VoiceTrackOption[] = [base];
-  const targetShikiId = shikiId;
-  const searchTerm = (primary.titleEnglish || primary.title || '').trim();
-  if (!targetShikiId || searchTerm.length < 2) {
-    return options;
-  }
+  const seenIds = new Set<string>([base.id]);
+  const shikiArt = shikiId ? shikiCache.get(shikiId) : undefined;
+  const searchTitles = dedupeSearchQueries([
+    shikiArt?.russian,
+    primary.title,
+    primary.titleEnglish,
+    shikiArt?.english,
+    shikiArt?.name,
+    ...(extraTitles ?? [])
+  ]);
+  const primaryProvider = primary.provider ?? 'aniliberty';
+  const libSearchTerm = (primary.titleEnglish || primary.title || '').trim();
 
-  try {
-    const [appRes, catRes] = await Promise.allSettled([
-      fetchJsonWithTimeout<LibSearchCandidate[]>(
-        `${ANILIBERTY_BASE}/app/search/releases?query=${encodeURIComponent(searchTerm)}`,
-        undefined,
-        4500
-      ),
-      fetchJsonWithTimeout<{ data?: LibSearchCandidate[] }>(
-        `${ANILIBERTY_BASE}/anime/catalog/releases?f[search]=${encodeURIComponent(searchTerm)}&limit=12`,
-        undefined,
-        4500
-      )
-    ]);
+  const libPromise =
+    primaryProvider === 'aniliberty' && shikiId && libSearchTerm.length >= 2
+      ? Promise.allSettled([
+          fetchJsonWithTimeout<LibSearchCandidate[]>(
+            `${ANILIBERTY_BASE}/app/search/releases?query=${encodeURIComponent(libSearchTerm)}`,
+            undefined,
+            4500
+          ),
+          fetchJsonWithTimeout<{ data?: LibSearchCandidate[] }>(
+            `${ANILIBERTY_BASE}/anime/catalog/releases?f[search]=${encodeURIComponent(libSearchTerm)}&limit=12`,
+            undefined,
+            4500
+          )
+        ])
+      : Promise.resolve(null);
 
+  const avPromise =
+    primaryProvider !== 'animevost'
+      ? findAnimeVostMatch(searchTitles, shikiArt?.year ?? primary.year ?? null)
+      : Promise.resolve(null);
+
+  const axPromise = findAnixartDiscovery(searchTitles, shikiArt?.year ?? primary.year ?? null, {
+    hasNativeAniLiberty: primaryProvider === 'aniliberty',
+    hasNativeAnimeVost: primaryProvider === 'animevost'
+  });
+
+  const [libSettled, avSettled, axSettled] = await Promise.allSettled([
+    libPromise,
+    avPromise,
+    axPromise
+  ]);
+
+  if (libSettled.status === 'fulfilled' && libSettled.value) {
+    const [appRes, catRes] = libSettled.value;
     const seenAliases = new Set<string>([primary.alias]);
     const matching: LibSearchCandidate[] = [];
     for (const cand of [
@@ -1593,27 +1685,45 @@ export async function findVoiceOptions(
       ...(catRes.status === 'fulfilled' && Array.isArray(catRes.value?.data) ? catRes.value.data : [])
     ]) {
       if (!cand?.alias || seenAliases.has(cand.alias)) continue;
-      if (cand.shikimori?.id !== targetShikiId) continue;
+      if (cand.shikimori?.id !== shikiId) continue;
       seenAliases.add(cand.alias);
       matching.push(cand);
     }
 
     const extraReleases = await Promise.all(
-      matching.slice(0, 4).map((cand) => fetchReleaseByIdOrAlias(cand.alias, undefined, targetShikiId))
-    );
+      matching.slice(0, 3).map((cand) => fetchReleaseByIdOrAlias(cand.alias, undefined, shikiId))
+    ).catch(() => []);
 
     for (const rel of extraReleases) {
-      if (!rel || rel.alias === primary.alias || rel.episodes.length === 0) continue;
+      if (!rel || rel.alias === primary.alias || rel.episodes.length === 0 || seenIds.has(rel.alias)) continue;
+      seenIds.add(rel.alias);
       const altCast = rel.voiceActors?.slice(0, 3).join(', ');
       options.push({
         id: rel.alias,
         label: rel.title && rel.title !== primary.title ? `AniLiberty · ${rel.title}` : `AniLiberty · ${rel.alias}`,
         sublabel: altCast || `${rel.episodes.length} ep`,
-        releaseAlias: rel.alias
+        releaseAlias: rel.alias,
+        provider: 'aniliberty',
+        providerId: rel.id,
+        kind: 'hls'
       });
     }
-  } catch {
-    // Keep primary voice option cleanly on search failure
+  }
+
+  let hasNativeAnimeVost = primaryProvider === 'animevost';
+  if (avSettled.status === 'fulfilled' && avSettled.value && !seenIds.has(avSettled.value.voice.id)) {
+    seenIds.add(avSettled.value.voice.id);
+    hasNativeAnimeVost = true;
+    options.push(avSettled.value.voice);
+  }
+
+  if (axSettled.status === 'fulfilled' && axSettled.value) {
+    for (const axVoice of axSettled.value.voices) {
+      if (hasNativeAnimeVost && axVoice.label.trim().toLowerCase() === 'animevost') continue;
+      if (seenIds.has(axVoice.id)) continue;
+      seenIds.add(axVoice.id);
+      options.push(axVoice);
+    }
   }
 
   return options;

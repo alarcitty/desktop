@@ -17,6 +17,7 @@
   import { isInWatchLater, toggleWatchLater } from '../../app/library.svelte';
   import { goBack } from '../../app/router.svelte';
   import {
+    fallbackVoice,
     nextEpisode,
     player,
     reportPlaybackProgress,
@@ -410,9 +411,16 @@
           opening={currentEpisode.opening}
           ending={currentEpisode.ending}
           {hasNext}
+          hasFallback={player.voices.some((v) => v.id !== player.selectedVoiceId)}
           onnext={nextEpisode}
           ontimeprogress={(sec, dur, force) => reportPlaybackProgress(sec, dur, force)}
           onselectvoice={(voice, sec) => void switchVoice(voice, sec)}
+          onfallback={() => void fallbackVoice(false)}
+          onerror={() => {
+            if ((player.release?.provider ?? 'aniliberty') === 'aniliberty') {
+              void fallbackVoice(true);
+            }
+          }}
         />
       {:else}
         <div class="stage-state">

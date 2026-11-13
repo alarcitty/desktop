@@ -7,6 +7,13 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    host: 'localhost'
+    host: 'localhost',
+    proxy: {
+      '/ext/animevost': {
+        target: 'https://api.animevost.org/v1',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ext\/animevost/, '')
+      }
+    }
   }
 })
