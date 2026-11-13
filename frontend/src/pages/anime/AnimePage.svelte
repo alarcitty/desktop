@@ -20,7 +20,8 @@
     player,
     retryWatch,
     selectEpisode,
-    switchSeason
+    switchSeason,
+    switchVoice
   } from '../../app/player.svelte';
 
   const EP_PAGE_SIZE = 16;
@@ -344,11 +345,15 @@
           title={`Episode ${currentEpisode.ordinal}`}
           subtitle=""
           autoplay={player.autoplay}
+          initialTime={player.resumeTime}
+          voices={player.voices}
+          selectedVoiceId={player.selectedVoiceId}
           preferMaxQuality={true}
           opening={currentEpisode.opening}
           ending={currentEpisode.ending}
           {hasNext}
           onnext={nextEpisode}
+          onselectvoice={(voice, sec) => void switchVoice(voice, sec)}
         />
       {:else}
         <div class="stage-state">
@@ -948,12 +953,23 @@
     outline: none;
     border-radius: var(--radius-card);
     overflow: hidden;
-    background: #08080a;
+    background: #0c0c0c;
     isolation: isolate;
-    transform: translateZ(0);
+    transform: translate3d(0, 0, 0);
     cursor: pointer;
     text-align: left;
     transition: transform 0.24s var(--ease-out);
+  }
+
+  .ep-card::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: calc(var(--radius-card) + 3px);
+    border: 4px solid #0c0c0c;
+    transform: translateZ(0);
+    pointer-events: none;
+    z-index: 6;
   }
 
   .ep-card:hover {
@@ -965,8 +981,7 @@
     width: 100%;
     aspect-ratio: 16 / 9;
     overflow: hidden;
-    border-radius: inherit;
-    background: #08080a;
+    background: #0c0c0c;
   }
 
   .ep-thumb {
@@ -990,7 +1005,7 @@
     align-items: center;
     justify-content: center;
     color: rgba(255, 255, 255, 0.24);
-    background: radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.06) 0%, rgba(13, 13, 16, 0.96) 75%);
+    background: radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.06) 0%, #0c0c0c 78%);
     transition: color 0.25s var(--ease-out);
   }
 
@@ -1000,20 +1015,23 @@
 
   .ep-thumb-fade {
     position: absolute;
-    inset: -3px;
+    inset: -4px;
+    z-index: 2;
     background: linear-gradient(
       180deg,
-      rgba(8, 8, 10, 0.16) 0%,
-      rgba(8, 8, 10, 0.22) 45%,
-      rgba(8, 8, 10, 0.8) 78%,
-      rgba(8, 8, 10, 0.96) 94%,
-      #08080a 100%
+      rgba(12, 12, 12, 0.14) 0%,
+      rgba(12, 12, 12, 0.2) 44%,
+      rgba(12, 12, 12, 0.84) 76%,
+      rgba(12, 12, 12, 0.96) 89%,
+      #0c0c0c 95%,
+      #0c0c0c 100%
     );
     pointer-events: none;
   }
 
   .ep-overlay-bottom {
     position: absolute;
+    z-index: 3;
     left: 12px;
     right: 12px;
     bottom: 10px;
@@ -1080,15 +1098,28 @@
   }
 
   .frame-card {
+    position: relative;
     padding: 0;
     border: none;
     outline: none;
     border-radius: var(--radius-card);
     overflow: hidden;
-    clip-path: inset(0 round var(--radius-card));
     aspect-ratio: 16 / 9;
-    background: #101012;
+    background: #0c0c0c;
+    isolation: isolate;
+    transform: translate3d(0, 0, 0);
     cursor: pointer;
+  }
+
+  .frame-card::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: calc(var(--radius-card) + 3px);
+    border: 4px solid #0c0c0c;
+    transform: translateZ(0);
+    pointer-events: none;
+    z-index: 3;
   }
 
   .frame-img {
@@ -1096,6 +1127,7 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    backface-visibility: hidden;
     transition: transform 0.45s var(--ease-out), filter 0.3s var(--ease-out);
   }
 

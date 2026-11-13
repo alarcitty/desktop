@@ -10,17 +10,25 @@
   import PictureInPicture2 from '@lucide/svelte/icons/picture-in-picture-2';
   import Settings from '@lucide/svelte/icons/settings';
   import SkipForward from '@lucide/svelte/icons/skip-forward';
-  import Check from '@lucide/svelte/icons/check';
+  import AudioLines from '@lucide/svelte/icons/audio-lines';
   import { untrack } from 'svelte';
   import { fly, scale } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
 
+  import ComboBox from '../combo/ComboBox.svelte';
+  import type { ComboSection } from '../combo/types';
   import {
     createMaxQualityHlsConfig,
     formatQualityLabel,
     resolveHlsSource
   } from './hlsConfig';
-  import type { HlsSources, QualityLevelOption, SkipRange } from './types';
+  import type {
+    AudioTrackOption,
+    HlsSources,
+    QualityLevelOption,
+    SkipRange,
+    VoiceTrackOption
+  } from './types';
 
   interface Props {
     src?: string;
@@ -29,12 +37,16 @@
     title?: string;
     subtitle?: string;
     autoplay?: boolean;
+    initialTime?: number;
+    voices?: VoiceTrackOption[];
+    selectedVoiceId?: string;
     preferMaxQuality?: boolean;
     opening?: SkipRange | null;
     ending?: SkipRange | null;
     hasNext?: boolean;
     onnext?: () => void;
     onended?: () => void;
+    onselectvoice?: (voice: VoiceTrackOption, currentTime: number) => void;
     onerror?: (message: string) => void;
     class?: string;
   }
@@ -46,12 +58,16 @@
     title = '',
     subtitle = '',
     autoplay = false,
+    initialTime = 0,
+    voices = [],
+    selectedVoiceId = '',
     preferMaxQuality = true,
     opening = null,
     ending = null,
     hasNext = false,
     onnext,
     onended,
+    onselectvoice,
     onerror,
     class: className = ''
   }: Props = $props();
@@ -78,12 +94,14 @@
 
   let isFullscreen = $state(false);
   let controlsVisible = $state(true);
-  let activeMenu = $state<'none' | 'quality' | 'speed'>('none');
+  let activeMenu = $state<'none' | 'voice' | 'quality' | 'speed'>('none');
   let errorText = $state('');
 
   let levels = $state<QualityLevelOption[]>([]);
   let selectedLevel = $state(-1); // -1 = Auto ABR, >=0 = pinned level index
   let activeLevelIndex = $state(-1);
+  let audioTracks = $state<AudioTrackOption[]>([]);
+  let activeAudioTrack = $state(-1);
 
   let hoverTime = $state<number | null>(null);
   let hoverPct = $state(0);
@@ -107,6 +125,15 @@
   const bufferedPct = $derived(duration > 0 ? Math.min(100, (bufferedEnd / duration) * 100) : 0);
   const volumePct = $derived((muted ? 0 : volume) * 100);
 
+  const activeVoiceLabel = $derived.by(() => {
+    const activeVoice = voices.find((v) => v.id === selectedVoiceId) ?? voices[0];
+    if (audioTracks.length > 1) {
+      const track = audioTracks.find((t) => t.index === activeAudioTrack);
+      if (track) return track.label;
+    }
+    return activeVoice?.label ?? '';
+  });
+
   const activeQualityLabel = $derived.by(() => {
     const found = levels.find((l) => l.index === activeLevelIndex);
     if (found) return found.label;
@@ -115,6 +142,51 @@
       if (pinned) return pinned.label;
     }
     return 'HD';
+  });
+
+  const voiceComboSections = $derived.by<ComboSection[]>(() => {
+    const out: ComboSection[] = [];
+    if (voices.length > 0) {
+      const activeId = selectedVoiceId || voices[0]?.id;
+      out.push({
+        id: 'voiceover',
+        title: 'Voiceover',
+        options: voices.map((v) => ({
+          value: `voice:${v.id}`,
+          label: v.label,
+          sublabel: v.sublabel,
+          selected: activeId === v.id
+        }))
+      });
+    }
+    if (audioTracks.length > 1) {
+      out.push({
+        id: 'audio',
+        title: 'Audio Track',
+        options: audioTracks.map((t) => ({
+          value: `audio:${t.index}`,
+          label: t.label,
+          selected: activeAudioTrack === t.index
+        }))
+      });
+    }
+    return out;
+  });
+
+  const speedComboOptions = SPEED_OPTIONS.map((rate) => ({
+    value: rate,
+    label: `${rate}x`
+  }));
+
+  const qualityComboOptions = $derived.by(() => {
+    const items = levels.map((lvl) => ({
+      value: lvl.index,
+      label: lvl.label
+    }));
+    if (levels.length > 1) {
+      items.push({ value: -1, label: 'Auto' });
+    }
+    return items;
   });
 
   const skipTarget = $derived.by(() => {
@@ -176,6 +248,7 @@
     const epSources = sources;
     const shouldAutoplay = autoplay;
     const lockMax = preferMaxQuality;
+    const resumeOffset = initialTime;
 
     if (!video) return;
 
@@ -184,10 +257,24 @@
     levels = [];
     selectedLevel = -1;
     activeLevelIndex = -1;
+    audioTracks = [];
+    activeAudioTrack = -1;
     currentTime = 0;
     duration = 0;
     bufferedEnd = 0;
     networkRetries = 0;
+    let appliedResumeSeek = false;
+
+    const applyInitialResume = () => {
+      if (appliedResumeSeek || resumeOffset <= 0.5 || !video) return;
+      appliedResumeSeek = true;
+      const targetTime =
+        Number.isFinite(video.duration) && video.duration > 0
+          ? Math.min(resumeOffset, Math.max(0, video.duration - 0.5))
+          : resumeOffset;
+      video.currentTime = targetTime;
+      currentTime = targetTime;
+    };
 
     if (!resolved) {
       destroyHls();
@@ -233,9 +320,24 @@
           activeLevelIndex = maxIdx;
         }
 
+        applyInitialResume();
+
         if (shouldAutoplay) {
           void video.play().catch(() => {});
         }
+      });
+
+      instance.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_event, data) => {
+        audioTracks = (data.audioTracks ?? []).map((t, i) => ({
+          index: t.id ?? i,
+          label: t.name || t.lang || `Audio ${i + 1}`,
+          lang: t.lang
+        }));
+        activeAudioTrack = instance.audioTrack;
+      });
+
+      instance.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_event, data) => {
+        activeAudioTrack = data.id;
       });
 
       instance.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
@@ -263,6 +365,7 @@
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       destroyHls();
       video.src = resolved.url;
+      video.addEventListener('loadedmetadata', applyInitialResume, { once: true });
       if (shouldAutoplay) {
         void video.play().catch(() => {});
       }
@@ -273,6 +376,7 @@
 
     return () => {
       window.clearTimeout(hideTimer);
+      video.removeEventListener('loadedmetadata', applyInitialResume);
       destroyHls();
       resolved.revoke?.();
     };
@@ -320,6 +424,21 @@
     playbackRate = rate;
     if (videoEl) {
       videoEl.playbackRate = rate;
+    }
+    activeMenu = 'none';
+    scheduleHideControls();
+  }
+
+  function selectVoice(voice: VoiceTrackOption) {
+    activeMenu = 'none';
+    scheduleHideControls();
+    onselectvoice?.(voice, videoEl?.currentTime ?? currentTime);
+  }
+
+  function setAudioTrack(trackIdx: number) {
+    if (hls) {
+      hls.audioTrack = trackIdx;
+      activeAudioTrack = trackIdx;
     }
     activeMenu = 'none';
     scheduleHideControls();
@@ -714,76 +833,74 @@
       </div>
 
       <div class="controls-right">
-        <!-- Playback speed -->
-        <div class="menu-wrap">
-          <button
-            type="button"
-            class="chip-btn"
-            onclick={() => (activeMenu = activeMenu === 'speed' ? 'none' : 'speed')}
+        <!-- Voiceover / Audio track selector -->
+        {#if voiceComboSections.length > 0}
+          <ComboBox
+            open={activeMenu === 'voice'}
+            sections={voiceComboSections}
+            label={activeVoiceLabel || 'Audio'}
+            ariaLabel="Voiceover and audio track"
+            placement="top-right"
+            minWidth={196}
+            maxWidth={268}
+            ontoggle={(isOpen) => {
+              activeMenu = isOpen ? 'voice' : 'none';
+              scheduleHideControls();
+            }}
+            onselect={(opt) => {
+              const raw = String(opt.value);
+              if (raw.startsWith('voice:')) {
+                const voiceId = raw.slice('voice:'.length);
+                const found = voices.find((v) => v.id === voiceId);
+                if (found) selectVoice(found);
+              } else if (raw.startsWith('audio:')) {
+                const idx = Number(raw.slice('audio:'.length));
+                if (Number.isFinite(idx)) setAudioTrack(idx);
+              }
+            }}
           >
-            {playbackRate}x
-          </button>
-          {#if activeMenu === 'speed'}
-            <div class="popover-menu">
-              {#each SPEED_OPTIONS as rate}
-                <button
-                  type="button"
-                  class="popover-item"
-                  class:active={playbackRate === rate}
-                  onclick={() => setSpeed(rate)}
-                >
-                  <span>{rate}x</span>
-                  {#if playbackRate === rate}
-                    <Check size={14} strokeWidth={2.2} />
-                  {/if}
-                </button>
-              {/each}
-            </div>
-          {/if}
-        </div>
+            {#snippet icon()}
+              <AudioLines size={14} strokeWidth={1.9} />
+            {/snippet}
+          </ComboBox>
+        {/if}
+
+        <!-- Playback speed -->
+        <ComboBox
+          open={activeMenu === 'speed'}
+          value={playbackRate}
+          options={speedComboOptions}
+          label={`${playbackRate}x`}
+          ariaLabel="Playback speed"
+          placement="top-right"
+          minWidth={112}
+          ontoggle={(isOpen) => {
+            activeMenu = isOpen ? 'speed' : 'none';
+            scheduleHideControls();
+          }}
+          onselect={(opt) => setSpeed(Number(opt.value))}
+        />
 
         <!-- Quality selector (defaults to highest fixed resolution) -->
         {#if levels.length > 0}
-          <div class="menu-wrap">
-            <button
-              type="button"
-              class="chip-btn"
-              onclick={() => (activeMenu = activeMenu === 'quality' ? 'none' : 'quality')}
-            >
+          <ComboBox
+            open={activeMenu === 'quality'}
+            value={selectedLevel}
+            options={qualityComboOptions}
+            label={selectedLevel === -1 ? `Auto (${activeQualityLabel})` : activeQualityLabel}
+            ariaLabel="Video quality"
+            placement="top-right"
+            minWidth={112}
+            ontoggle={(isOpen) => {
+              activeMenu = isOpen ? 'quality' : 'none';
+              scheduleHideControls();
+            }}
+            onselect={(opt) => setQuality(Number(opt.value))}
+          >
+            {#snippet icon()}
               <Settings size={14} strokeWidth={1.9} />
-              <span>{selectedLevel === -1 ? `Auto (${activeQualityLabel})` : activeQualityLabel}</span>
-            </button>
-            {#if activeMenu === 'quality'}
-              <div class="popover-menu">
-                {#each levels as lvl}
-                  <button
-                    type="button"
-                    class="popover-item"
-                    class:active={selectedLevel === lvl.index}
-                    onclick={() => setQuality(lvl.index)}
-                  >
-                    <span>{lvl.label}</span>
-                    {#if selectedLevel === lvl.index}
-                      <Check size={14} strokeWidth={2.2} />
-                    {/if}
-                  </button>
-                {/each}
-                {#if levels.length > 1}
-                  <button
-                    type="button"
-                    class="popover-item"
-                    class:active={selectedLevel === -1}
-                    onclick={() => setQuality(-1)}
-                  >
-                    <span>Auto</span>
-                    {#if selectedLevel === -1}
-                      <Check size={14} strokeWidth={2.2} />
-                    {/if}
-                  </button>
-                {/if}
-              </div>
-            {/if}
-          </div>
+            {/snippet}
+          </ComboBox>
         {/if}
 
         <button
@@ -1184,76 +1301,5 @@
 
   .time-sep {
     color: rgba(255, 255, 255, 0.45);
-  }
-
-  .menu-wrap {
-    position: relative;
-  }
-
-  .chip-btn {
-    height: 28px;
-    padding: 0 8px;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.88);
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-    transition: background-color 0.15s ease, color 0.15s ease;
-  }
-
-  .chip-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
-  }
-
-  .popover-menu {
-    position: absolute;
-    right: 0;
-    bottom: 36px;
-    min-width: 112px;
-    padding: 6px;
-    border-radius: 12px;
-    background: rgba(16, 16, 18, 0.92);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: none;
-    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.65);
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    z-index: 10;
-  }
-
-  .popover-item {
-    width: 100%;
-    height: 30px;
-    padding: 0 10px;
-    border: none;
-    border-radius: 7px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.78);
-    font-family: inherit;
-    font-size: 13px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    cursor: pointer;
-  }
-
-  .popover-item:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
-  }
-
-  .popover-item.active {
-    color: #ffffff;
-    font-weight: 600;
   }
 </style>

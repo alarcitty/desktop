@@ -886,16 +886,26 @@
     width: 100%;
     border-radius: var(--radius-card);
     overflow: hidden;
-    clip-path: inset(0 round var(--radius-card));
-    background: #101012;
+    background: #0c0c0c;
     cursor: pointer;
     isolation: isolate;
     contain: layout paint;
     transition: transform 0.3s var(--ease-out);
   }
 
+  .story-card::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: calc(var(--radius-card) + 3px);
+    border: 4px solid #0c0c0c;
+    transform: translateZ(0);
+    pointer-events: none;
+    z-index: 5;
+  }
+
   .story-card:hover {
-    transform: translateY(-2px);
+    transform: translate3d(0, -2px, 0);
   }
 
   .story-media {
@@ -912,6 +922,7 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    backface-visibility: hidden;
     transition: transform 0.55s var(--ease-out), filter 0.35s var(--ease-out);
     pointer-events: none;
     user-select: none;
@@ -928,10 +939,7 @@
 
   .media-fade {
     position: absolute;
-    left: -2px;
-    right: -2px;
-    top: 0;
-    bottom: -3px;
+    inset: -3px;
     z-index: 1;
     background: linear-gradient(180deg, rgba(16, 16, 18, 0) 36%, #101012 95%);
     pointer-events: none;

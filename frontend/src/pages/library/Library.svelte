@@ -624,6 +624,7 @@
     border-radius: var(--radius-card);
     user-select: none;
     pointer-events: none;
+    backface-visibility: hidden;
     transition: transform var(--hover-dur) var(--ease-out);
   }
 
@@ -691,7 +692,6 @@
     aspect-ratio: 1 / 1;
     border-radius: var(--radius-card);
     overflow: hidden;
-    clip-path: inset(0 round var(--radius-card));
     background: #0c0c0c;
     contain: layout paint;
     isolation: isolate;
@@ -700,12 +700,24 @@
     justify-content: space-between;
   }
 
+  .library-tile::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: calc(var(--radius-card) + 3px);
+    border: 4px solid #0c0c0c;
+    transform: translateZ(0);
+    pointer-events: none;
+    z-index: 5;
+  }
+
   .tile-poster {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
+    backface-visibility: hidden;
     user-select: none;
     pointer-events: none;
     will-change: transform;

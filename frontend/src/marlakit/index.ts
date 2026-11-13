@@ -9,5 +9,14 @@ export { default as ScrollArea } from './scroll/ScrollArea.svelte';
 export { default as LayerBlur } from './blur/LayerBlur.svelte';
 export { default as MorphPopup } from './popup/MorphPopup.svelte';
 export { default as MetaLine } from './meta/MetaLine.svelte';
+export { default as ComboBox, default as Combo } from './combo/ComboBox.svelte';
+export type { ComboOption, ComboPlacement, ComboSection, ComboValue } from './combo/types';
 export { default as HlsPlayer } from './player/HlsPlayer.svelte';
-export type { HlsSources, QualityVariant, QualityLevelOption, SkipRange } from './player/types';
+export type {
+  AudioTrackOption,
+  HlsSources,
+  QualityLevelOption,
+  QualityVariant,
+  SkipRange,
+  VoiceTrackOption
+} from './player/types';

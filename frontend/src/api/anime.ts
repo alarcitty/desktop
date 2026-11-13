@@ -1,4 +1,4 @@
-import type { HlsSources, SkipRange } from '../marlakit/player/types';
+import type { HlsSources, SkipRange, VoiceTrackOption } from '../marlakit/player/types';
 
 const BACKEND_BASE = 'http://localhost:8080/api/v1';
 const SHIKI_GRAPHQL = 'https://shikimori.io/api/graphql';
@@ -41,6 +41,8 @@ export interface PlayableRelease {
   titleEnglish?: string;
   year?: number;
   typeLabel?: string;
+  voiceLabel?: string;
+  voiceActors?: string[];
   poster?: string;
   banner?: string;
   episodes: PlayableEpisode[];
@@ -311,6 +313,10 @@ interface RawLibRelease {
   shikimori?: { id?: number | null } | null;
   name?: { main?: string; english?: string; alternative?: string | null };
   poster?: { src?: string; preview?: string };
+  members?: Array<{
+    role?: { value?: string | null; description?: string | null } | null;
+    nickname?: string | null;
+  }> | null;
   episodes?: Array<{
     id: string;
     ordinal: number;
@@ -358,6 +364,14 @@ function mapLibRelease(r: RawLibRelease, shikiArt?: ShikiArtwork): PlayableRelea
       hls_480: ep.hls_480
     }));
 
+  const voiceActors = Array.from(
+    new Set(
+      (r.members ?? [])
+        .filter((m) => m.role?.value === 'voicing' && m.nickname?.trim())
+        .map((m) => m.nickname!.trim())
+    )
+  );
+
   return {
     id: r.id,
     alias: r.alias,
@@ -365,6 +379,8 @@ function mapLibRelease(r: RawLibRelease, shikiArt?: ShikiArtwork): PlayableRelea
     titleEnglish: r.name?.english || shikiArt?.english,
     year: r.year ?? undefined,
     typeLabel: inferReleaseTypeValue(r.type?.value, r.name?.main, r.name?.english, r.alias),
+    voiceLabel: 'AniLiberty',
+    voiceActors,
     poster: shikiArt?.posterOriginal || resolveLibUrl(r.poster?.src || r.poster?.preview),
     banner: shikiArt?.screenshots[0] || shikiArt?.posterOriginal || resolveLibUrl(r.poster?.src),
     episodes
@@ -1275,4 +1291,74 @@ export async function searchGroupedAnime(rawQuery: string): Promise<SearchGroupI
     groupedSearchCache.set(cacheKey, grouped);
   }
   return grouped;
+}
+
+export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption {
+  const cast = rel.voiceActors?.slice(0, 3).join(', ');
+  const epPart = rel.episodes.length > 0 ? `${rel.episodes.length} ep` : '';
+  return {
+    id: rel.alias,
+    label: rel.voiceLabel || 'AniLiberty',
+    sublabel: cast || epPart || undefined,
+    releaseAlias: rel.alias
+  };
+}
+
+export async function findVoiceOptions(
+  primary: PlayableRelease,
+  shikiId?: number
+): Promise<VoiceTrackOption[]> {
+  const base = buildPrimaryVoiceOption(primary);
+  const options: VoiceTrackOption[] = [base];
+  const targetShikiId = shikiId;
+  const searchTerm = (primary.titleEnglish || primary.title || '').trim();
+  if (!targetShikiId || searchTerm.length < 2) {
+    return options;
+  }
+
+  try {
+    const [appRes, catRes] = await Promise.allSettled([
+      fetchJsonWithTimeout<LibSearchCandidate[]>(
+        `${ANILIBERTY_BASE}/app/search/releases?query=${encodeURIComponent(searchTerm)}`,
+        undefined,
+        4500
+      ),
+      fetchJsonWithTimeout<{ data?: LibSearchCandidate[] }>(
+        `${ANILIBERTY_BASE}/anime/catalog/releases?f[search]=${encodeURIComponent(searchTerm)}&limit=12`,
+        undefined,
+        4500
+      )
+    ]);
+
+    const seenAliases = new Set<string>([primary.alias]);
+    const matching: LibSearchCandidate[] = [];
+    for (const cand of [
+      ...(appRes.status === 'fulfilled' && Array.isArray(appRes.value) ? appRes.value : []),
+      ...(catRes.status === 'fulfilled' && Array.isArray(catRes.value?.data) ? catRes.value.data : [])
+    ]) {
+      if (!cand?.alias || seenAliases.has(cand.alias)) continue;
+      if (cand.shikimori?.id !== targetShikiId) continue;
+      seenAliases.add(cand.alias);
+      matching.push(cand);
+    }
+
+    const extraReleases = await Promise.all(
+      matching.slice(0, 4).map((cand) => fetchReleaseByIdOrAlias(cand.alias, undefined, targetShikiId))
+    );
+
+    for (const rel of extraReleases) {
+      if (!rel || rel.alias === primary.alias || rel.episodes.length === 0) continue;
+      const altCast = rel.voiceActors?.slice(0, 3).join(', ');
+      options.push({
+        id: rel.alias,
+        label: rel.title && rel.title !== primary.title ? `AniLiberty · ${rel.title}` : `AniLiberty · ${rel.alias}`,
+        sublabel: altCast || `${rel.episodes.length} ep`,
+        releaseAlias: rel.alias
+      });
+    }
+  } catch {
+    // Keep primary voice option cleanly on search failure
+  }
+
+  return options;
 }

@@ -23,3 +23,16 @@ export interface QualityLevelOption {
   height: number;
   bitrate: number;
 }
+
+export interface VoiceTrackOption {
+  id: string;
+  label: string;
+  sublabel?: string;
+  releaseAlias?: string;
+}
+
+export interface AudioTrackOption {
+  index: number;
+  label: string;
+  lang?: string;
+}

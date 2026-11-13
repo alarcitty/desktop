@@ -400,7 +400,7 @@
     gap: 0;
     border-radius: var(--radius-card);
     overflow: hidden;
-    clip-path: inset(0 round var(--radius-card));
+    transform: translateZ(0);
     background: #101012;
   }
 
@@ -433,6 +433,7 @@
     object-fit: cover;
     object-position: center 22%;
     display: block;
+    backface-visibility: hidden;
     pointer-events: none;
     user-select: none;
     transition: transform 0.45s var(--ease-out);
@@ -444,7 +445,7 @@
 
   .strip-card-overlay {
     position: absolute;
-    inset: 0;
+    inset: -2px;
     background: rgba(8, 8, 10, 0.56);
     pointer-events: none;
     transition: background-color 0.35s var(--ease-out);
@@ -460,9 +461,9 @@
 
   .strip-card-bottom-fade {
     position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
     height: 46%;
     background: linear-gradient(180deg, rgba(8, 8, 10, 0) 0%, rgba(8, 8, 10, 0.65) 100%);
     pointer-events: none;

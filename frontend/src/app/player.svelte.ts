@@ -1,5 +1,7 @@
 import {
+  buildPrimaryVoiceOption,
   ensureShikimoriArtwork,
+  findVoiceOptions,
   getCachedArtwork,
   loadFranchiseSeasons,
   resolvePlayableRelease,
@@ -8,6 +10,7 @@ import {
   type ShikiArtwork,
   type WatchTarget
 } from '../api/anime';
+import type { VoiceTrackOption } from '../marlakit/player/types';
 import { navigate } from './router.svelte';
 
 export const player = $state<{
@@ -18,7 +21,10 @@ export const player = $state<{
   shikiArt: ShikiArtwork | null;
   release: PlayableRelease | null;
   seasons: AnimeSeasonEntry[];
+  voices: VoiceTrackOption[];
+  selectedVoiceId: string;
   episodeIndex: number;
+  resumeTime: number;
   autoplay: boolean;
 }>({
   loading: false,
@@ -28,20 +34,32 @@ export const player = $state<{
   shikiArt: null,
   release: null,
   seasons: [],
+  voices: [],
+  selectedVoiceId: '',
   episodeIndex: 0,
+  resumeTime: 0,
   autoplay: true
 });
 
 let activeRequestToken = 0;
 
-async function loadTargetIntoPlayer(token: number, target: WatchTarget): Promise<PlayableRelease | null> {
+async function loadTargetIntoPlayer(
+  token: number,
+  target: WatchTarget,
+  opts?: { preserveEpisodeOrdinal?: number; preserveEpisodeIndex?: number; preserveTime?: number; keepVoices?: boolean }
+): Promise<PlayableRelease | null> {
   player.loading = true;
   player.error = '';
   player.title = target.title;
   player.target = target;
   player.shikiArt = target.shikiId ? getCachedArtwork(target.shikiId) ?? null : null;
   player.release = null;
-  player.episodeIndex = 0;
+  if (!opts?.keepVoices) {
+    player.voices = [];
+    player.selectedVoiceId = '';
+  }
+  player.episodeIndex = opts?.preserveEpisodeIndex ?? 0;
+  player.resumeTime = opts?.preserveTime ?? 0;
   player.autoplay = true;
 
   if (target.shikiId && !player.shikiArt) {
@@ -61,7 +79,27 @@ async function loadTargetIntoPlayer(token: number, target: WatchTarget): Promise
     if (token !== activeRequestToken) return null;
     player.release = rel;
     player.title = player.shikiArt?.english || player.shikiArt?.name || rel.title || target.title;
-    player.episodeIndex = 0;
+    player.selectedVoiceId = rel.alias;
+    if (!opts?.keepVoices || player.voices.length === 0) {
+      player.voices = [buildPrimaryVoiceOption(rel)];
+      findVoiceOptions(rel, target.shikiId)
+        .then((voices) => {
+          if (token === activeRequestToken && voices.length > 0) {
+            player.voices = voices;
+          }
+        })
+        .catch(() => {});
+    }
+
+    if (opts?.preserveEpisodeOrdinal != null) {
+      const idx = rel.episodes.findIndex((e) => e.ordinal === opts.preserveEpisodeOrdinal);
+      player.episodeIndex =
+        idx >= 0 ? idx : Math.min(opts.preserveEpisodeIndex ?? 0, Math.max(0, rel.episodes.length - 1));
+    } else if (opts?.preserveEpisodeIndex != null) {
+      player.episodeIndex = Math.min(opts.preserveEpisodeIndex, Math.max(0, rel.episodes.length - 1));
+    } else {
+      player.episodeIndex = 0;
+    }
     return rel;
   } catch (err) {
     if (token !== activeRequestToken) return null;
@@ -72,6 +110,27 @@ async function loadTargetIntoPlayer(token: number, target: WatchTarget): Promise
       player.loading = false;
     }
   }
+}
+
+export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Promise<void> {
+  if (!voice.releaseAlias || voice.id === player.selectedVoiceId) return;
+  const currentEp = player.release?.episodes[player.episodeIndex];
+  const prevOrdinal = currentEp?.ordinal;
+  const prevIndex = player.episodeIndex;
+  const token = ++activeRequestToken;
+  const baseTarget = player.target;
+  const nextTarget: WatchTarget = {
+    title: baseTarget?.title || player.title,
+    shikiId: baseTarget?.shikiId,
+    releaseAlias: voice.releaseAlias,
+    searchQueries: baseTarget?.searchQueries
+  };
+  await loadTargetIntoPlayer(token, nextTarget, {
+    preserveEpisodeOrdinal: prevOrdinal,
+    preserveEpisodeIndex: prevIndex,
+    preserveTime: Number.isFinite(preserveTime) && preserveTime > 0.5 ? preserveTime : 0,
+    keepVoices: true
+  });
 }
 
 export async function openWatch(target: WatchTarget): Promise<void> {
@@ -123,6 +182,7 @@ export async function retryWatch(): Promise<void> {
 export function selectEpisode(index: number): void {
   if (!player.release) return;
   if (index < 0 || index >= player.release.episodes.length) return;
+  player.resumeTime = 0;
   player.autoplay = true;
   player.episodeIndex = index;
 }
@@ -130,6 +190,7 @@ export function selectEpisode(index: number): void {
 export function nextEpisode(): void {
   if (!player.release) return;
   if (player.episodeIndex + 1 < player.release.episodes.length) {
+    player.resumeTime = 0;
     player.autoplay = true;
     player.episodeIndex += 1;
   }
@@ -140,5 +201,8 @@ export function resetPlayer(): void {
   player.loading = false;
   player.release = null;
   player.seasons = [];
+  player.voices = [];
+  player.selectedVoiceId = '';
+  player.resumeTime = 0;
   player.error = '';
 }

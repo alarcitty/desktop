@@ -290,7 +290,7 @@
   /* Active card dark gradients */
   .card-overlay {
     position: absolute;
-    inset: 0;
+    inset: -2px;
     background:
       linear-gradient(0deg, rgba(0, 0, 0, 0.20) 0%, rgba(0, 0, 0, 0.20) 100%),
       linear-gradient(90deg, rgba(0, 0, 0, 0.74) 25%, rgba(102, 102, 102, 0.10) 100%);
@@ -306,9 +306,9 @@
 
   .card-bottom-fade {
     position: absolute;
-    left: 0;
-    bottom: 0;
-    width: 100%;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
     height: 140px;
     background: linear-gradient(0deg, rgba(0, 0, 0, 0.35) 0%, rgba(102, 102, 102, 0) 100%);
     pointer-events: none;
@@ -324,7 +324,7 @@
   /* Inactive side card dimming overlay */
   .side-card-overlay {
     position: absolute;
-    inset: 0;
+    inset: -2px;
     background: linear-gradient(0deg, rgba(12, 12, 12, 0.40) 0%, rgba(12, 12, 12, 0.40) 100%);
     pointer-events: none;
     z-index: 2;

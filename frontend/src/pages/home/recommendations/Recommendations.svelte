@@ -164,6 +164,7 @@
     object-fit: cover;
     object-position: center center;
     display: block;
+    backface-visibility: hidden;
     user-select: none;
     pointer-events: none;
     will-change: transform;
@@ -173,7 +174,7 @@
   /* 46% dark overlay from Figma */
   .card-overlay {
     position: absolute;
-    inset: 0;
+    inset: -2px;
     background: rgba(0, 0, 0, 0.46);
     pointer-events: none;
     transition: background-color var(--hover-dur) var(--ease-out);
