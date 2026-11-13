@@ -55,6 +55,13 @@
   let activeIndex = $state(0);
   let isWatchLoading = $state(false);
   let isPlanLoading = $state(false);
+  let watchTimer: number | undefined;
+  let planTimer: number | undefined;
+
+  $effect(() => () => {
+    window.clearTimeout(watchTimer);
+    window.clearTimeout(planTimer);
+  });
 
   function setActive(index: number) {
     if (activeIndex !== index) {
@@ -64,16 +71,18 @@
 
   function handleWatchClick(e: MouseEvent) {
     e.stopPropagation();
+    window.clearTimeout(watchTimer);
     isWatchLoading = true;
-    setTimeout(() => {
+    watchTimer = window.setTimeout(() => {
       isWatchLoading = false;
     }, 2000);
   }
 
   function handlePlanClick(e: MouseEvent) {
     e.stopPropagation();
+    window.clearTimeout(planTimer);
     isPlanLoading = true;
-    setTimeout(() => {
+    planTimer = window.setTimeout(() => {
       isPlanLoading = false;
     }, 2000);
   }
@@ -85,7 +94,7 @@
 
   <!-- Ambient Layer Blur underneath cards (GPU-accelerated cross-fade, zero layout recalculation) -->
   <div class="releases-underlay-blur" aria-hidden="true">
-    {#each releases as item, index}
+    {#each releases as item, index (item.id)}
       <div
         class="blur-layer"
         class:is-active={activeIndex === index}
@@ -104,7 +113,7 @@
 
   <!-- Full-width 4-banner panorama strip (interactive accordion) -->
   <div class="releases-strip">
-    {#each releases as item, index}
+    {#each releases as item, index (item.id)}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
@@ -117,6 +126,8 @@
           alt={item.id}
           class="card-img"
           class:card-4-img={item.isCard4}
+          loading="lazy"
+          decoding="async"
         />
 
         <!-- Active card gradient overlays -->
@@ -233,6 +244,8 @@
     width: 100%;
     height: 100%;
     opacity: 0;
+    will-change: opacity;
+    backface-visibility: hidden;
     transition: opacity 0.5s ease;
   }
 

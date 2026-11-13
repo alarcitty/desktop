@@ -35,12 +35,12 @@
         filter: blur({blur}px);
         -webkit-filter: blur({blur}px);
         opacity: {opacity};
-        transform: translate({offsetX}px, {offsetY}px) scale({scale});
+        transform: translate3d({offsetX}px, {offsetY}px, 0) scale({scale});
       "
       aria-hidden="true"
     >
       {#if src}
-        <img {src} alt="" class="blur-img" />
+        <img {src} alt="" class="blur-img" decoding="async" />
       {:else}
         {@render children()}
       {/if}
@@ -59,13 +59,13 @@
       filter: blur({blur}px);
       -webkit-filter: blur({blur}px);
       opacity: {opacity};
-      transform: translate({offsetX}px, {offsetY}px) scale({scale});
+      transform: translate3d({offsetX}px, {offsetY}px, 0) scale({scale});
       {style}
     "
     aria-hidden="true"
   >
     {#if src}
-      <img {src} alt="" class="blur-img" />
+      <img {src} alt="" class="blur-img" decoding="async" />
     {/if}
   </div>
 {/if}
@@ -84,6 +84,8 @@
     pointer-events: none;
     user-select: none;
     z-index: 0;
+    will-change: transform;
+    backface-visibility: hidden;
   }
 
   .layer-blur-foreground {
@@ -101,6 +103,8 @@
     pointer-events: none;
     user-select: none;
     z-index: 0;
+    will-change: transform;
+    backface-visibility: hidden;
   }
 
   .blur-img {

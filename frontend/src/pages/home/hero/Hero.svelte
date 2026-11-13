@@ -10,17 +10,26 @@
 
   let isWatchLoading = $state(false);
   let isPlanLoading = $state(false);
+  let watchTimer: number | undefined;
+  let planTimer: number | undefined;
+
+  $effect(() => () => {
+    window.clearTimeout(watchTimer);
+    window.clearTimeout(planTimer);
+  });
 
   function handleWatchClick() {
+    window.clearTimeout(watchTimer);
     isWatchLoading = true;
-    setTimeout(() => {
+    watchTimer = window.setTimeout(() => {
       isWatchLoading = false;
     }, 2000);
   }
 
   function handlePlanClick() {
+    window.clearTimeout(planTimer);
     isPlanLoading = true;
-    setTimeout(() => {
+    planTimer = window.setTimeout(() => {
       isPlanLoading = false;
     }, 2000);
   }
@@ -29,9 +38,9 @@
 <section class="hero-container">
   <!-- 3-screenshot horizontal gallery strip -->
   <div class="preview-strip">
-    <img src={preview1} alt="Preview 1" class="preview-img img-1" />
-    <img src={preview2} alt="Preview 2" class="preview-img img-2" />
-    <img src={preview3} alt="Preview 3" class="preview-img img-3" />
+    <img src={preview1} alt="Preview 1" class="preview-img img-1" decoding="async" />
+    <img src={preview2} alt="Preview 2" class="preview-img img-2" decoding="async" />
+    <img src={preview3} alt="Preview 3" class="preview-img img-3" decoding="async" />
   </div>
 
   <!-- Hero text and action buttons with uniform 16px spacing -->

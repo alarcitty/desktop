@@ -23,7 +23,7 @@
 
   <!-- Ambient Layer Blur underlay beneath posters -->
   <div class="recommendations-underlay-blur" aria-hidden="true">
-    {#each items as item}
+    {#each items as item (item.id)}
       <div class="blur-col">
         <LayerBlur src={item.poster} blur={80} opacity={0.35} scale={1.05} offsetY={0} />
       </div>
@@ -32,11 +32,11 @@
 
   <!-- Full-width 5-poster panorama strip -->
   <div class="recommendations-strip">
-    {#each items as item}
+    {#each items as item (item.id)}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="rec-card">
-        <img src={item.poster} alt={item.id} class="card-img" />
+        <img src={item.poster} alt={item.id} class="card-img" loading="lazy" decoding="async" />
         <div class="card-overlay"></div>
       </div>
     {/each}
@@ -138,6 +138,7 @@
     overflow: hidden;
     box-sizing: border-box;
     cursor: pointer;
+    contain: layout paint;
     transition: filter 0.25s ease;
   }
 
@@ -151,6 +152,7 @@
     display: block;
     user-select: none;
     pointer-events: none;
+    will-change: transform;
     transition: transform 0.4s var(--ease-out);
   }
 

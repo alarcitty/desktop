@@ -105,6 +105,16 @@
     untrack(() => (isOpen ? show() : hide()));
   });
 
+  $effect(() =>
+  {
+    return () =>
+    {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  });
+
   function handleKeydown(e: KeyboardEvent)
   {
     if (open && e.key === 'Escape')
@@ -150,6 +160,7 @@
     background: rgba(0, 0, 0, 0);
     -webkit-backdrop-filter: blur(0px);
     backdrop-filter: blur(0px);
+    will-change: backdrop-filter, background-color;
     transition:
       background-color var(--popup-duration) var(--ease-out),
       -webkit-backdrop-filter var(--popup-duration) var(--ease-out),
@@ -169,6 +180,8 @@
     z-index: 1001;
     box-sizing: border-box;
     overflow: hidden;
+    contain: layout style;
+    will-change: left, top, width, height, backdrop-filter;
     padding: 0;
     border-radius: 9px;
     background: rgba(16, 16, 16, 0);

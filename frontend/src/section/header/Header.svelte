@@ -23,10 +23,14 @@
 
   // loading state for google button (triggers on click)
   let isGoogleLoading = $state(false);
+  let googleTimer: number | undefined;
+
+  $effect(() => () => window.clearTimeout(googleTimer));
 
   function handleGoogleLogin() {
+    window.clearTimeout(googleTimer);
     isGoogleLoading = true;
-    setTimeout(() => {
+    googleTimer = window.setTimeout(() => {
       isGoogleLoading = false;
     }, 2500);
   }
@@ -35,7 +39,7 @@
 <header class="header">
   <div class="header-left">
     <div class="logo-wrap">
-      <img src={logoSrc} alt="mila" class="logo-img" />
+      <img src={logoSrc} alt="mila" class="logo-img" decoding="async" />
     </div>
 
     <!-- marlakit Input component (hidden while the search popup is morphing out of it) -->
