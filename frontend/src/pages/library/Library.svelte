@@ -579,6 +579,8 @@
     position: relative;
     height: 268px;
     overflow: hidden;
+    background: #070707;
+    isolation: isolate;
     display: flex;
     align-items: flex-start;
     gap: 25px;
@@ -591,23 +593,22 @@
   /* Blurred poster as the row background */
   .row-bg {
     position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
+    inset: -2px;
+    width: calc(100% + 4px);
+    height: calc(100% + 4px);
     object-fit: cover;
     filter: blur(22px);
-    transform: translate3d(0, 0, 0) scale(1.15);
-    will-change: transform;
-    backface-visibility: hidden;
+    transform: scale(1.15);
+    z-index: 0;
     pointer-events: none;
     user-select: none;
   }
 
   .row-dim {
     position: absolute;
-    inset: 0;
+    inset: -2px;
+    z-index: 1;
     background: rgba(4, 4, 4, 0.78);
-    transform: translate3d(0, 0, 0);
     pointer-events: none;
     transition: background-color var(--hover-dur) var(--ease-out);
   }
@@ -618,6 +619,7 @@
 
   .row-poster {
     position: relative;
+    z-index: 2;
     flex: 0 0 245px;
     width: 245px;
     height: 215px;
@@ -634,6 +636,7 @@
 
   .row-info {
     position: relative;
+    z-index: 2;
     flex: 1 1 auto;
     min-width: 0;
     max-width: 741px;
@@ -670,6 +673,7 @@
 
   .row-action {
     position: absolute;
+    z-index: 2;
     top: 23px;
     right: 24px;
   }
@@ -692,12 +696,11 @@
     overflow: hidden;
     clip-path: inset(0 round var(--radius-card));
     background: #070707;
-    contain: layout style;
+    contain: layout paint;
     isolation: isolate;
-    transform: translate3d(0, 0, 0);
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
+    justify-content: space-between;
   }
 
   .library-tile::after {
@@ -729,14 +732,13 @@
 
   .tile-overlay {
     position: absolute;
-    inset: -1px;
+    inset: -2px;
     background: linear-gradient(
       180deg,
       rgba(7, 7, 7, 0.06) 0%,
       rgba(7, 7, 7, 0.36) 45%,
       rgba(7, 7, 7, 0.92) 100%
     );
-    transform: translate3d(0, 0, 0);
     pointer-events: none;
     transition: opacity var(--hover-dur) var(--ease-out);
   }
@@ -747,15 +749,14 @@
 
   .tile-hover-dim {
     position: absolute;
-    inset: -1px;
+    inset: -2px;
     background: linear-gradient(
       180deg,
-      rgba(7, 7, 7, 0.78) 0%,
-      rgba(7, 7, 7, 0.48) 56%,
+      rgba(7, 7, 7, 0.82) 0%,
+      rgba(7, 7, 7, 0.52) 56%,
       rgba(7, 7, 7, 0.1) 88%
     );
     opacity: 0;
-    transform: translate3d(0, 0, 0);
     pointer-events: none;
     transition: opacity var(--hover-dur) var(--ease-out);
   }
@@ -766,23 +767,20 @@
   }
 
   .tile-description {
-    position: absolute;
-    top: 20px;
-    left: 20px;
-    right: 20px;
+    position: relative;
     z-index: 2;
-    margin: 0;
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 18px 18px 4px 18px;
     padding: 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 400;
-    line-height: 1.42;
-    color: rgba(255, 255, 255, 0.54);
-    display: -webkit-box;
-    -webkit-line-clamp: 6;
-    line-clamp: 6;
-    -webkit-box-orient: vertical;
+    line-height: 1.4;
+    color: rgba(255, 255, 255, 0.62);
     overflow: hidden;
+    -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 52%, rgba(0, 0, 0, 0) 96%);
+    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 52%, rgba(0, 0, 0, 0) 96%);
     opacity: 0;
     transform: translate3d(0, -6px, 0);
     pointer-events: none;
@@ -800,7 +798,8 @@
   .tile-footer {
     position: relative;
     z-index: 2;
-    padding: 18px;
+    flex-shrink: 0;
+    padding: 6px 18px 18px 18px;
     display: flex;
     flex-direction: column;
     gap: 10px;

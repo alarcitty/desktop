@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { fade } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import Hero from './hero/Hero.svelte';
   import Releases from './releases/Releases.svelte';
   import Recommendations from './recommendations/Recommendations.svelte';
@@ -15,7 +17,7 @@
   {
     const map = await ensureShikimoriArtwork(FEATURED_SHIKI_IDS);
     const shot = map.get(HERO_SHIKI_ID)?.screenshots[0];
-    if (shot)
+    if (shot && bgImage === FALLBACK_BG)
     {
       bgImage = shot;
     }
@@ -24,7 +26,15 @@
 
 <main class="main-wrapper">
   <!-- Hero background wrapper containing the poster and all overlays -->
-  <div class="hero-bg-wrapper" style="background-image: url('{bgImage}');">
+  <div class="hero-bg-wrapper">
+    {#key bgImage}
+      <div
+        class="hero-bg-image"
+        style="background-image: url('{bgImage}');"
+        transition:fade={{ duration: 420, easing: cubicOut }}
+      ></div>
+    {/key}
+
     <!-- 1. 60% base dark dimming -->
     <div class="bg-dark-overlay"></div>
 
@@ -36,7 +46,7 @@
 
     <!-- Hero content sitting above overlays -->
     <div class="hero-content-layer">
-      <Hero />
+      <Hero onselectbg={(url) => { bgImage = url; }} />
     </div>
   </div>
 
@@ -67,12 +77,21 @@
     min-height: 125vh;
     margin-top: -72px;
     padding-top: 72px;
-    background-size: cover;
-    background-position: center center;
-    background-repeat: no-repeat;
+    background-color: #0c0c0c;
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .hero-bg-image {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    z-index: 0;
+    pointer-events: none;
   }
 
   /* 60% dark dimming */

@@ -36,6 +36,7 @@
   let error = $state<string | null>(null);
   let activeStory = $state<NewsItem | null>(null);
   let watchingId = $state<string | null>(null);
+  let viewportWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1280);
 
   const tabLayout = $derived.by(() =>
   {
@@ -78,6 +79,34 @@
   {
     if (!leadItem) return [];
     return filteredItems.filter((item) => item.id !== leadItem.id);
+  });
+
+  const colCount = $derived(viewportWidth <= 1120 ? 2 : 3);
+
+  const masonryColumns = $derived.by(() =>
+  {
+    const cols: Array<Array<{ item: NewsItem; index: number }>> = Array.from(
+      { length: colCount },
+      () => []
+    );
+    const heights = new Array<number>(colCount).fill(0);
+    for (let index = 0; index < feedItems.length; index++)
+    {
+      const item = feedItems[index];
+      let targetCol = 0;
+      for (let c = 1; c < colCount; c++)
+      {
+        if (heights[c] < heights[targetCol])
+        {
+          targetCol = c;
+        }
+      }
+      cols[targetCol].push({ item, index });
+      const titleLines = item.title.length > 36 ? 2 : 1;
+      const estimatedHeight = (item.image ? 190 : 0) + 155 + titleLines * 22;
+      heights[targetCol] += estimatedHeight;
+    }
+    return cols;
   });
 
   function measureTabs()
@@ -231,7 +260,7 @@
   }
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+<svelte:window bind:innerWidth={viewportWidth} onkeydown={handleWindowKeydown} />
 
 <div class="news-page">
   <!-- Full-bleed Home-style atmospheric hero banner -->
@@ -371,68 +400,74 @@
       <div class="news-views">
         {#key activeTab}
           <div
-            class="news-grid"
+            class="news-masonry"
             out:fly={{ y: -10, duration: 150, easing: cubicIn }}
           >
-            {#each feedItems as item, index (item.id)}
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div
-                class="story-card"
-                in:cardEnter|global={{ index }}
-                onclick={() => openStory(item)}
-              >
-            {#if item.image}
-              <div class="story-media">
-                <img
-                  src={item.image}
-                  alt={item.title}
-                  class="media-img"
-                  class:is-portrait={!item.isLandscape}
-                  loading="lazy"
-                  decoding="async"
-                />
-                <div class="media-fade"></div>
+            {#each masonryColumns as col, colIdx (colIdx)}
+              <div class="news-col">
+                {#each col as entry (entry.item.id)}
+                  {@const item = entry.item}
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <div
+                    class="story-card"
+                    class:is-compact={!item.image}
+                    in:cardEnter|global={{ index: entry.index }}
+                    onclick={() => openStory(item)}
+                  >
+                    {#if item.image}
+                      <div class="story-media">
+                        <img
+                          src={item.image}
+                          alt={item.title}
+                          class="media-img"
+                          class:is-portrait={!item.isLandscape}
+                          loading="lazy"
+                          decoding="async"
+                        />
+                        <div class="media-fade"></div>
+                      </div>
+                    {/if}
+
+                    <div class="story-info">
+                      <MetaLine score={item.score} tags={item.hashtags.slice(0, 3)} size="sm" />
+
+                      <h3 class="story-title">{item.title}</h3>
+                      <p class="story-excerpt">{item.excerpt}</p>
+
+                      <div class="story-footer">
+                        <div class="footer-meta">
+                          {#if item.relativeTime}
+                            <span>{item.relativeTime}</span>
+                          {/if}
+                          {#if item.commentsCount && item.commentsCount > 0}
+                            <span class="meta-comments">
+                              <MessageSquare size={12} strokeWidth={2} />
+                              {item.commentsCount}
+                            </span>
+                          {/if}
+                        </div>
+
+                        {#if item.releaseAlias}
+                          <MainButton loading={watchingId === item.id} onclick={(e) => watchItem(item, e)}>
+                            {#snippet icon()}
+                              <Play size={15} fill="currentColor" strokeWidth={0} />
+                            {/snippet}
+                            Watch
+                          </MainButton>
+                        {:else}
+                          <SecondButton onclick={(e) => { e.stopPropagation(); openStory(item); }}>
+                            {#snippet icon()}
+                              <BookOpen size={15} strokeWidth={2} />
+                            {/snippet}
+                            Read
+                          </SecondButton>
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                {/each}
               </div>
-            {/if}
-
-            <div class="story-info">
-              <MetaLine score={item.score} tags={item.hashtags.slice(0, 3)} size="sm" />
-
-              <h3 class="story-title">{item.title}</h3>
-              <p class="story-excerpt">{item.excerpt}</p>
-
-              <div class="story-footer">
-                <div class="footer-meta">
-                  {#if item.relativeTime}
-                    <span>{item.relativeTime}</span>
-                  {/if}
-                  {#if item.commentsCount && item.commentsCount > 0}
-                    <span class="meta-comments">
-                      <MessageSquare size={12} strokeWidth={2} />
-                      {item.commentsCount}
-                    </span>
-                  {/if}
-                </div>
-
-                {#if item.releaseAlias}
-                  <MainButton loading={watchingId === item.id} onclick={(e) => watchItem(item, e)}>
-                    {#snippet icon()}
-                      <Play size={15} fill="currentColor" strokeWidth={0} />
-                    {/snippet}
-                    Watch
-                  </MainButton>
-                {:else}
-                  <SecondButton onclick={(e) => { e.stopPropagation(); openStory(item); }}>
-                    {#snippet icon()}
-                      <BookOpen size={15} strokeWidth={2} />
-                    {/snippet}
-                    Read
-                  </SecondButton>
-                {/if}
-              </div>
-            </div>
-          </div>
             {/each}
           </div>
         {/key}
@@ -813,11 +848,28 @@
     transform: translate3d(0, 0, 0);
   }
 
-  /* Borderless 3-column grid */
+  /* Borderless responsive masonry */
   .news-grid {
     grid-area: 1 / 1;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+  }
+
+  .news-masonry {
+    grid-area: 1 / 1;
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .news-col {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
     gap: 20px;
   }
 
@@ -831,27 +883,27 @@
     position: relative;
     display: flex;
     flex-direction: column;
+    width: 100%;
     border-radius: var(--radius-card);
     overflow: hidden;
-    background: rgba(255, 255, 255, 0.035);
+    clip-path: inset(0 round var(--radius-card));
+    background: #101012;
     cursor: pointer;
+    isolation: isolate;
     contain: layout paint;
-    transition:
-      transform 0.3s var(--ease-out),
-      background-color 0.3s var(--ease-out);
+    transition: transform 0.3s var(--ease-out);
   }
 
   .story-card:hover {
     transform: translateY(-2px);
-    background: rgba(255, 255, 255, 0.055);
   }
 
   .story-media {
     position: relative;
     width: 100%;
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 2 / 1;
     overflow: hidden;
-    background: #0d0d0f;
+    background: #101012;
     flex-shrink: 0;
   }
 
@@ -860,7 +912,7 @@
     height: 100%;
     object-fit: cover;
     display: block;
-    transition: transform 0.55s var(--ease-out);
+    transition: transform 0.55s var(--ease-out), filter 0.35s var(--ease-out);
     pointer-events: none;
     user-select: none;
   }
@@ -871,22 +923,35 @@
 
   .story-card:hover .media-img {
     transform: scale(1.045);
+    filter: brightness(1.07);
   }
 
   .media-fade {
     position: absolute;
-    inset: 0;
+    left: -2px;
+    right: -2px;
+    top: 0;
+    bottom: -3px;
     z-index: 1;
-    background: linear-gradient(180deg, rgba(13, 13, 15, 0) 38%, rgba(13, 13, 15, 0.92) 100%);
+    background: linear-gradient(180deg, rgba(16, 16, 18, 0) 36%, #101012 95%);
     pointer-events: none;
   }
 
   .story-info {
+    position: relative;
+    z-index: 2;
+    margin-top: -2px;
+    background: #101012;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 16px 20px 20px 20px;
-    flex: 1;
+    gap: 8px;
+    padding: 14px 18px 16px 18px;
+    flex: 0 0 auto;
+  }
+
+  .story-card.is-compact .story-info {
+    margin-top: 0;
+    padding-top: 16px;
   }
 
   .story-title {
@@ -910,15 +975,14 @@
     line-height: 1.42;
     color: #8d8d8d;
     display: -webkit-box;
-    line-clamp: 3;
-    -webkit-line-clamp: 3;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
 
   .story-footer {
-    margin-top: auto;
-    padding-top: 8px;
+    padding-top: 6px;
     display: flex;
     align-items: center;
     justify-content: space-between;
