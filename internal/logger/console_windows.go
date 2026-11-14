@@ -5,6 +5,7 @@ package logger
 import (
 	"os"
 	"syscall"
+	"testing"
 	"unsafe"
 )
 
@@ -23,6 +24,9 @@ const (
 )
 
 func init() {
+	if testing.Testing() {
+		return
+	}
 	// attach to parent console if run from terminal
 	attachConsole.Call(attachParentProcess)
 

@@ -1,5 +1,10 @@
 import type { HlsSources, SkipRange, VoiceTrackOption } from '../marlakit/player/types';
 import {
+  fetchAnimeGOEpisodes,
+  findAnimeGOMatch,
+  type AnimeGODubOption
+} from './providers/animego';
+import {
   fetchAnimeVostEpisodes,
   findAnimeVostMatch,
   searchAnimeVost,
@@ -84,7 +89,7 @@ export interface PlayableRelease {
   titleEnglish?: string;
   year?: number;
   typeLabel?: string;
-  provider?: 'aniliberty' | 'dreamcast' | 'animevost' | string;
+  provider?: 'aniliberty' | 'dreamcast' | 'animevost' | 'animego' | string;
   voiceLabel?: string;
   voiceActors?: string[];
   poster?: string;
@@ -820,6 +825,33 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
       banner: shikiArt?.screenshots?.[0] || dcMatch.poster,
       episodes: dcMatch.episodes
     };
+  }
+
+  const agoMatch = await findAnimeGOMatch(providerTitles, shikiArt?.year ?? null).catch(() => null);
+  if (agoMatch && agoMatch.dubs.length > 0) {
+    const preferredOrder = ['студийная банда', 'anilibria', 'dream cast', 'shiza', 'anidub'];
+    const pickBestDub = (): AnimeGODubOption => {
+      for (const kw of preferredOrder) {
+        const found = agoMatch.dubs.find((d) => !d.voice.isSub && d.voice.label.toLowerCase().includes(kw));
+        if (found) return found;
+      }
+      return agoMatch.dubs.find((d) => !d.voice.isSub) ?? agoMatch.dubs[0];
+    };
+    const chosen = pickBestDub();
+    if (chosen.episodes.length > 0) {
+      return {
+        id: agoMatch.animeId,
+        alias: chosen.voice.id,
+        title: shikiArt?.english || shikiArt?.name || agoMatch.title || target.title,
+        titleEnglish: shikiArt?.english || shikiArt?.name,
+        year: shikiArt?.year ?? agoMatch.year,
+        provider: 'animego',
+        voiceLabel: chosen.voice.label,
+        poster: shikiArt?.posterOriginal || shikiArt?.posterMain || agoMatch.poster,
+        banner: shikiArt?.screenshots?.[0] || agoMatch.poster,
+        episodes: chosen.episodes
+      };
+    }
   }
 
   const avMatch = await findAnimeVostMatch(providerTitles, shikiArt?.year ?? null).catch(() => null);
@@ -2080,6 +2112,34 @@ export async function resolveVoiceTrackRelease(
     };
   }
 
+  if (voice.provider === 'animego') {
+    const animeId = Number(voice.providerId);
+    const rawSource = typeof voice.sourceId === 'string' ? voice.sourceId : '';
+    const sepIdx = rawSource.indexOf('|');
+    const trId = sepIdx >= 0 ? rawSource.slice(0, sepIdx) : rawSource;
+    const embedUrl = sepIdx >= 0 ? rawSource.slice(sepIdx + 1) : '';
+    const episodes = await fetchAnimeGOEpisodes(animeId, trId, embedUrl);
+    if (episodes.length === 0) {
+      throw new Error(`AnimeGO: нет доступных серий для ${target.title}`);
+    }
+    return {
+      ...(baseRelease ?? {
+        id: animeId,
+        title: shikiArt?.english || shikiArt?.name || target.title,
+        titleEnglish: shikiArt?.english || shikiArt?.name,
+        year: shikiArt?.year,
+        poster: shikiArt?.posterOriginal || shikiArt?.posterMain,
+        banner: shikiArt?.screenshots?.[0]
+      }),
+      id: animeId,
+      alias: voice.id,
+      provider: 'animego',
+      voiceLabel: voice.label,
+      voiceActors: undefined,
+      episodes: mergeBaseEpisodeMetadata(episodes, baseRelease?.episodes)
+    };
+  }
+
   if (voice.provider === 'animevost') {
     const releaseId = Number(voice.providerId);
     const episodes = await fetchAnimeVostEpisodes(releaseId);
@@ -2160,10 +2220,13 @@ export async function findVoiceOptions(
       ? findAnimeVostMatch(searchTitles, shikiArt?.year ?? primary.year ?? null)
       : Promise.resolve(null);
 
-  const [libSettled, dcSettled, avSettled] = await Promise.allSettled([
+  const agoPromise = findAnimeGOMatch(searchTitles, shikiArt?.year ?? primary.year ?? null);
+
+  const [libSettled, dcSettled, avSettled, agoSettled] = await Promise.allSettled([
     libPromise,
     dcPromise,
-    avPromise
+    avPromise,
+    agoPromise
   ]);
 
   if (libSettled.status === 'fulfilled' && libSettled.value) {
@@ -2214,6 +2277,20 @@ export async function findVoiceOptions(
   if (avSettled.status === 'fulfilled' && avSettled.value && !seenIds.has(avSettled.value.voice.id)) {
     seenIds.add(avSettled.value.voice.id);
     options.push(avSettled.value.voice);
+  }
+
+  if (agoSettled.status === 'fulfilled' && agoSettled.value) {
+    for (const dub of agoSettled.value.dubs) {
+      if (seenIds.has(dub.voice.id)) continue;
+      // Skip duplicate voice entries when the exact studio is already present natively (e.g., direct AniLibria or Dream Cast),
+      // while always keeping Original (Sub) cleanly available for 1080p Dual-Stream pairing.
+      const dupLabel =
+        !dub.voice.isSub &&
+        options.some((opt) => opt.label.toLowerCase() === dub.voice.label.toLowerCase());
+      if (dupLabel) continue;
+      seenIds.add(dub.voice.id);
+      options.push(dub.voice);
+    }
   }
 
   return options;

@@ -29,6 +29,7 @@
   } from './hlsConfig';
   import type {
     AudioTrackOption,
+    DubAudioSource,
     HlsSources,
     QualityLevelOption,
     SkipRange,
@@ -38,6 +39,9 @@
   interface Props {
     src?: string;
     sources?: HlsSources | null;
+    dubAudio?: DubAudioSource | null;
+    dubVoiceId?: string;
+    dubOffsetSec?: number;
     poster?: string;
     title?: string;
     subtitle?: string;
@@ -55,6 +59,8 @@
     onended?: () => void;
     ontimeprogress?: (currentTime: number, duration: number, force?: boolean) => void;
     onselectvoice?: (voice: VoiceTrackOption, currentTime: number) => void;
+    onselectdubvoice?: (voice: VoiceTrackOption | null) => void;
+    onduboffsetchange?: (offsetSec: number) => void;
     onfallback?: () => void;
     onerror?: (message: string) => void;
     onpip?: () => void;
@@ -68,6 +74,9 @@
   let {
     src = '',
     sources = null,
+    dubAudio = null,
+    dubVoiceId = '',
+    dubOffsetSec = 0,
     poster = '',
     title = '',
     subtitle = '',
@@ -85,6 +94,8 @@
     onended,
     ontimeprogress,
     onselectvoice,
+    onselectdubvoice,
+    onduboffsetchange,
     onfallback,
     onerror,
     onpip,
@@ -101,12 +112,15 @@
 
   let rootEl = $state<HTMLDivElement | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
+  let dubAudioEl = $state<HTMLAudioElement | null>(null);
   let seekEl = $state<HTMLDivElement | null>(null);
   let volumeEl = $state<HTMLDivElement | null>(null);
 
   let hls: Hls | null = null;
+  let dubHls: Hls | null = null;
   let playing = $state(false);
   let buffering = $state(false);
+  let dubBuffering = $state(false);
   let currentTime = $state(0);
   let duration = $state(0);
   let bufferedEnd = $state(0);
@@ -172,6 +186,10 @@
 
   const activeVoiceLabel = $derived.by(() => {
     const activeVoice = voices.find((v) => v.id === selectedVoiceId) ?? voices[0];
+    if (dubAudio) {
+      const base = activeVoice?.isSub ? '1080p Video' : activeVoice?.label || 'Video';
+      return `${base} + ${dubAudio.label}`;
+    }
     if (audioTracks.length > 1) {
       const track = audioTracks.find((t) => t.index === activeAudioTrack);
       if (track) return track.label;
@@ -203,6 +221,33 @@
           selected: activeId === v.id
         }))
       });
+    }
+    if (onselectdubvoice && voices.length > 1) {
+      const dubCandidates = voices.filter((v) => !v.isSub && v.id !== activeId);
+      if (dubCandidates.length > 0 || dubAudio) {
+        const dubOptions = [
+          ...(dubAudio
+            ? [
+                {
+                  value: 'dub:none',
+                  label: 'Original Stream Audio',
+                  selected: false
+                }
+              ]
+            : []),
+          ...dubCandidates.map((v) => ({
+            value: `dub:${v.id}`,
+            label: v.label,
+            sublabel: 'Audio only over video',
+            selected: dubVoiceId === v.id
+          }))
+        ];
+        out.push({
+          id: 'dubpair',
+          title: 'Mix RU Audio',
+          options: dubOptions
+        });
+      }
     }
     if (audioTracks.length > 1) {
       out.push({
@@ -267,6 +312,30 @@
     if (hls) {
       hls.destroy();
       hls = null;
+    }
+  }
+
+  function destroyDubHls() {
+    if (dubHls) {
+      dubHls.destroy();
+      dubHls = null;
+    }
+  }
+
+  function syncDubTime(force = false) {
+    if (!dubAudio || !dubAudioEl || !videoEl) return;
+    const rawTarget = (videoEl.currentTime || 0) + dubOffsetSec;
+    const maxDur =
+      Number.isFinite(dubAudioEl.duration) && dubAudioEl.duration > 0
+        ? dubAudioEl.duration
+        : Infinity;
+    const clamped = Math.max(0, Math.min(rawTarget, maxDur));
+    if (force || Math.abs((dubAudioEl.currentTime || 0) - clamped) > 0.16) {
+      try {
+        dubAudioEl.currentTime = clamped;
+      } catch {
+        // Metadata not ready yet
+      }
     }
   }
 
@@ -345,7 +414,7 @@
 
     untrack(() => {
       video.volume = volume;
-      video.muted = muted;
+      video.muted = Boolean(dubAudio) || muted;
       video.playbackRate = playbackRate;
     });
 
@@ -480,6 +549,107 @@
     };
   });
 
+  // Attach and synchronize the second Russian voiceover audio stream in Dual-Stream mode.
+  $effect(() => {
+    const audioEl = dubAudioEl;
+    const video = videoEl;
+    const activeDub = dubAudio;
+
+    if (!audioEl || !video) return;
+
+    if (!activeDub) {
+      destroyDubHls();
+      dubBuffering = false;
+      audioEl.pause();
+      audioEl.removeAttribute('src');
+      audioEl.load();
+      untrack(() => {
+        video.muted = muted;
+        video.volume = volume;
+      });
+      return;
+    }
+
+    const resolvedDub = resolvePlaybackSource(undefined, activeDub.sources);
+    if (!resolvedDub) {
+      return;
+    }
+
+    video.muted = true;
+    untrack(() => {
+      audioEl.volume = volume;
+      audioEl.muted = muted;
+      audioEl.playbackRate = playbackRate;
+    });
+
+    const onDubMeta = () => {
+      dubBuffering = false;
+      syncDubTime(true);
+      if (!video.paused) {
+        void audioEl.play().catch(() => {});
+      }
+    };
+    const onDubWaiting = () => {
+      dubBuffering = true;
+    };
+    const onDubCanPlay = () => {
+      dubBuffering = false;
+      if (!video.paused && audioEl.paused) {
+        syncDubTime(false);
+        void audioEl.play().catch(() => {});
+      }
+    };
+
+    audioEl.addEventListener('loadedmetadata', onDubMeta);
+    audioEl.addEventListener('waiting', onDubWaiting);
+    audioEl.addEventListener('canplay', onDubCanPlay);
+
+    const dubUrl = resolvedDub.mode === 'hls' ? resolvedDub.url : resolvedDub.variants[0]?.url;
+    if (resolvedDub.mode === 'hls' && dubUrl && Hls.isSupported()) {
+      destroyDubHls();
+      const dHls = new Hls(createMaxQualityHlsConfig({ capLevelToPlayerSize: false }));
+      dubHls = dHls;
+      dHls.on(Hls.Events.MANIFEST_PARSED, () => {
+        syncDubTime(true);
+        if (!video.paused) {
+          void audioEl.play().catch(() => {});
+        }
+      });
+      dHls.loadSource(dubUrl);
+      dHls.attachMedia(audioEl);
+    } else if (dubUrl) {
+      destroyDubHls();
+      audioEl.src = dubUrl;
+      audioEl.load();
+    }
+
+    const driftTimer = window.setInterval(() => {
+      if (!video.paused) {
+        syncDubTime(false);
+        if (audioEl.paused && !dubBuffering) {
+          void audioEl.play().catch(() => {});
+        }
+      }
+    }, 350);
+
+    return () => {
+      window.clearInterval(driftTimer);
+      audioEl.removeEventListener('loadedmetadata', onDubMeta);
+      audioEl.removeEventListener('waiting', onDubWaiting);
+      audioEl.removeEventListener('canplay', onDubCanPlay);
+      destroyDubHls();
+      audioEl.pause();
+      if (resolvedDub.mode === 'hls') {
+        resolvedDub.revoke?.();
+      }
+    };
+  });
+
+  $effect(() => {
+    void dubOffsetSec;
+    syncDubTime(true);
+  });
+
   let nativeFsActive = false;
 
   async function setNativeWindowFullscreen(next: boolean) {
@@ -548,6 +718,7 @@
     const clamped = Math.max(0, Math.min(duration, seconds));
     videoEl.currentTime = clamped;
     currentTime = clamped;
+    syncDubTime(true);
     scheduleHideControls();
   }
 
@@ -589,6 +760,9 @@
     if (videoEl) {
       videoEl.playbackRate = rate;
     }
+    if (dubAudioEl) {
+      dubAudioEl.playbackRate = rate;
+    }
     activeMenu = 'none';
     scheduleHideControls();
   }
@@ -614,7 +788,11 @@
     muted = clamped === 0;
     if (videoEl) {
       videoEl.volume = clamped;
-      videoEl.muted = muted;
+      videoEl.muted = Boolean(dubAudio) || muted;
+    }
+    if (dubAudioEl) {
+      dubAudioEl.volume = clamped;
+      dubAudioEl.muted = muted;
     }
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(VOLUME_KEY, String(clamped));
@@ -628,8 +806,12 @@
       volume = 0.5;
     }
     if (videoEl) {
-      videoEl.muted = muted;
+      videoEl.muted = Boolean(dubAudio) || muted;
       videoEl.volume = volume;
+    }
+    if (dubAudioEl) {
+      dubAudioEl.muted = muted;
+      dubAudioEl.volume = volume;
     }
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(MUTED_KEY, muted ? '1' : '0');
@@ -856,6 +1038,10 @@
       playing = true;
       buffering = false;
       onplaychange?.(true);
+      if (dubAudio && dubAudioEl) {
+        syncDubTime(true);
+        void dubAudioEl.play().catch(() => {});
+      }
       scheduleHideControls();
     }}
     onpause={() => {
@@ -865,15 +1051,28 @@
       }
       playing = false;
       controlsVisible = true;
+      dubAudioEl?.pause();
       onplaychange?.(false);
       window.clearTimeout(hideTimer);
       if (videoEl) {
         ontimeprogress?.(videoEl.currentTime || 0, videoEl.duration || duration || 0, true);
       }
     }}
-    onwaiting={() => (buffering = true)}
+    onwaiting={() => {
+      buffering = true;
+      dubAudioEl?.pause();
+    }}
     oncanplay={() => (buffering = false)}
-    onplaying={() => (buffering = false)}
+    onplaying={() => {
+      buffering = false;
+      if (dubAudio && dubAudioEl) {
+        syncDubTime(false);
+        void dubAudioEl.play().catch(() => {});
+      }
+    }}
+    onseeked={() => {
+      syncDubTime(true);
+    }}
     ontimeupdate={() => {
       if (!draggingSeek && videoEl) {
         currentTime = videoEl.currentTime;
@@ -887,6 +1086,7 @@
     onended={() => {
       playing = false;
       controlsVisible = true;
+      dubAudioEl?.pause();
       onplaychange?.(false);
       if (videoEl) {
         ontimeprogress?.(videoEl.duration || videoEl.currentTime || 0, videoEl.duration || duration || 0, true);
@@ -894,6 +1094,8 @@
       onended?.();
     }}
   ></video>
+
+  <audio bind:this={dubAudioEl} preload="auto" aria-hidden="true" style="display: none;"></audio>
 
   {#if buffering}
     <div class="center-overlay" aria-hidden="true">
@@ -1132,6 +1334,18 @@
                   const voiceId = raw.slice('voice:'.length);
                   const found = voices.find((v) => v.id === voiceId);
                   if (found) selectVoice(found);
+                } else if (raw.startsWith('dub:')) {
+                  const dubId = raw.slice('dub:'.length);
+                  if (dubId === 'none') {
+                    onselectdubvoice?.(null);
+                  } else {
+                    const found = voices.find((v) => v.id === dubId);
+                    if (found) onselectdubvoice?.(found);
+                  }
+                  if (!dubAudio) {
+                    activeMenu = 'none';
+                  }
+                  scheduleHideControls();
                 } else if (raw.startsWith('audio:')) {
                   const idx = Number(raw.slice('audio:'.length));
                   if (Number.isFinite(idx)) setAudioTrack(idx);
@@ -1140,6 +1354,49 @@
             >
               {#snippet icon()}
                 <AudioLines size={14} strokeWidth={1.9} />
+              {/snippet}
+              {#snippet footer()}
+                {#if dubAudio && onduboffsetchange}
+                  <div class="dub-sync-box" role="group" aria-label="Audio synchronization" onpointerdown={(e) => e.stopPropagation()}>
+                    <div class="dub-sync-head">
+                      <span class="dub-sync-label">Audio Sync</span>
+                      <button
+                        type="button"
+                        class="dub-sync-reset"
+                        title="Reset offset to 0.0s"
+                        onclick={() => onduboffsetchange(0)}
+                      >
+                        {dubOffsetSec > 0 ? `+${dubOffsetSec.toFixed(1)}s` : `${dubOffsetSec.toFixed(1)}s`}
+                      </button>
+                    </div>
+                    <div class="dub-sync-controls">
+                      <button
+                        type="button"
+                        class="dub-sync-step"
+                        onclick={() => onduboffsetchange(dubOffsetSec - 0.1)}
+                      >
+                        -0.1
+                      </button>
+                      <input
+                        type="range"
+                        class="dub-sync-range"
+                        min="-5"
+                        max="5"
+                        step="0.1"
+                        aria-label="Audio sync offset in seconds"
+                        value={dubOffsetSec}
+                        oninput={(e) => onduboffsetchange(Number((e.currentTarget as HTMLInputElement).value))}
+                      />
+                      <button
+                        type="button"
+                        class="dub-sync-step"
+                        onclick={() => onduboffsetchange(dubOffsetSec + 0.1)}
+                      >
+                        +0.1
+                      </button>
+                    </div>
+                  </div>
+                {/if}
               {/snippet}
             </ComboBox>
           {/if}
@@ -1743,5 +2000,68 @@
 
   .time-sep {
     color: rgba(255, 255, 255, 0.45);
+  }
+
+  .dub-sync-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .dub-sync-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .dub-sync-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.48);
+  }
+
+  .dub-sync-reset {
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 7px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .dub-sync-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .dub-sync-step {
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.85);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .dub-sync-step:hover,
+  .dub-sync-reset:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .dub-sync-range {
+    flex: 1;
+    min-width: 84px;
+    accent-color: #ffffff;
+    cursor: pointer;
   }
 </style>

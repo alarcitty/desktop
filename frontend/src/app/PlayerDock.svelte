@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import HlsPlayer from '../marlakit/player/HlsPlayer.svelte';
+  import type { DubAudioSource } from '../marlakit/player/types';
   import { episodeSources } from '../api/anime';
   import {
     bindings,
@@ -15,6 +16,8 @@
     player,
     registerPlayerPauseControl,
     reportPlaybackProgress,
+    selectDubVoice,
+    setDubAudioOffset,
     setPipCorner,
     setPlayerPlaying,
     switchVoice,
@@ -35,6 +38,18 @@
 
   const episodes = $derived(player.release?.episodes ?? []);
   const currentEpisode = $derived(episodes[player.episodeIndex] ?? null);
+  const currentDubAudio = $derived.by<DubAudioSource | null>(() => {
+    if (!currentEpisode || !player.dubRelease || !player.dubVoiceId) return null;
+    const dubEp =
+      player.dubRelease.episodes.find((ep) => ep.ordinal === currentEpisode.ordinal) ??
+      player.dubRelease.episodes[player.episodeIndex];
+    if (!dubEp) return null;
+    return {
+      id: player.dubVoiceId,
+      label: player.dubRelease.voiceLabel || 'RU Dub',
+      sources: episodeSources(dubEp)
+    };
+  });
   const hasNext = $derived(Boolean(player.release && player.episodeIndex + 1 < episodes.length));
 
   const displayTitle = $derived(
@@ -344,6 +359,9 @@
       <HlsPlayer
         bind:this={hlsPlayerRef}
         sources={episodeSources(currentEpisode)}
+        dubAudio={currentDubAudio}
+        dubVoiceId={player.dubVoiceId}
+        dubOffsetSec={player.dubOffsetSec}
         poster={currentEpisode.preview || backdropUrl}
         title={`Episode ${currentEpisode.ordinal}`}
         subtitle={isPipVisible ? displayTitle : ''}
@@ -360,6 +378,8 @@
         onnext={nextEpisode}
         ontimeprogress={(sec, dur, force) => reportPlaybackProgress(sec, dur, force)}
         onselectvoice={(voice, sec) => void switchVoice(voice, sec)}
+        onselectdubvoice={(voice) => void selectDubVoice(voice)}
+        onduboffsetchange={(offset) => setDubAudioOffset(offset)}
         onfallback={() => void fallbackVoice(false)}
         onpip={() => void handleToggleSystemPip()}
         onexpandpip={() => void handleExpandPip()}

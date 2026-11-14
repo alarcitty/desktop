@@ -33,6 +33,7 @@
     disabled?: boolean;
     icon?: Snippet;
     trigger?: Snippet<[{ open: boolean; toggle: () => void; label: string }]>;
+    footer?: Snippet;
     class?: string;
     menuClass?: string;
     onselect?: (option: ComboOption) => void;
@@ -55,6 +56,7 @@
     disabled = false,
     icon,
     trigger,
+    footer,
     class: className = '',
     menuClass = '',
     onselect,
@@ -192,6 +194,11 @@
           {/each}
         </div>
       </ScrollArea>
+      {#if footer}
+        <div class="marla-combo-footer">
+          {@render footer()}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -364,5 +371,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 205px;
+  }
+
+  .marla-combo-footer {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: 4px;
+    padding: 8px 10px 4px;
   }
 </style>

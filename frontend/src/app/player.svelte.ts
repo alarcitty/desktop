@@ -25,6 +25,18 @@ import {
 export type PipCorner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 
 const PIP_CORNER_STORAGE_KEY = 'mila.player.pipCorner';
+const DUB_OFFSET_STORAGE_PREFIX = 'mila.player.dubOffset:';
+
+function readSavedDubOffset(releaseAlias: string, dubId: string): number {
+  if (typeof localStorage === 'undefined' || !dubId) return 0;
+  const raw = Number(localStorage.getItem(`${DUB_OFFSET_STORAGE_PREFIX}${releaseAlias}:${dubId}`));
+  return Number.isFinite(raw) ? Math.max(-5, Math.min(5, raw)) : 0;
+}
+
+function saveDubOffset(releaseAlias: string, dubId: string, sec: number): void {
+  if (typeof localStorage === 'undefined' || !dubId) return;
+  localStorage.setItem(`${DUB_OFFSET_STORAGE_PREFIX}${releaseAlias}:${dubId}`, String(sec));
+}
 
 function readSavedPipCorner(): PipCorner {
   if (typeof localStorage === 'undefined') return 'bottom-right';
@@ -45,6 +57,9 @@ export const player = $state<{
   seasons: AnimeSeasonEntry[];
   voices: VoiceTrackOption[];
   selectedVoiceId: string;
+  dubRelease: PlayableRelease | null;
+  dubVoiceId: string;
+  dubOffsetSec: number;
   episodeIndex: number;
   resumeTime: number;
   autoplay: boolean;
@@ -64,6 +79,9 @@ export const player = $state<{
   seasons: [],
   voices: [],
   selectedVoiceId: '',
+  dubRelease: null,
+  dubVoiceId: '',
+  dubOffsetSec: 0,
   episodeIndex: 0,
   resumeTime: 0,
   autoplay: true,
@@ -149,6 +167,9 @@ async function loadTargetIntoPlayer(
   if (!opts?.keepVoices) {
     player.voices = [];
     player.selectedVoiceId = '';
+    player.dubRelease = null;
+    player.dubVoiceId = '';
+    player.dubOffsetSec = 0;
     voiceDiscoveryPromise = null;
     failedVoiceIds.clear();
   }
@@ -244,6 +265,13 @@ export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Pr
     if (token !== activeRequestToken) return;
     player.release = nextRel;
     player.selectedVoiceId = nextRel.alias;
+    if (player.dubVoiceId === voice.id) {
+      player.dubVoiceId = '';
+      player.dubRelease = null;
+      player.dubOffsetSec = 0;
+    } else if (player.dubVoiceId) {
+      player.dubOffsetSec = readSavedDubOffset(nextRel.alias, player.dubVoiceId);
+    }
     player.episodeIndex = applyPreservedEpisode(nextRel, prevOrdinal, prevIndex);
   } catch (err) {
     if (token !== activeRequestToken) return;
@@ -252,6 +280,39 @@ export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Pr
     if (token === activeRequestToken) {
       player.loading = false;
     }
+  }
+}
+
+export async function selectDubVoice(voice: VoiceTrackOption | null): Promise<void> {
+  if (!voice) {
+    player.dubVoiceId = '';
+    player.dubRelease = null;
+    player.dubOffsetSec = 0;
+    return;
+  }
+  const baseRelease = player.release;
+  const baseTarget: WatchTarget = player.target ?? {
+    title: player.title,
+    shikiId: player.shikiArt?.id
+  };
+  const token = activeRequestToken;
+  try {
+    const dubRel = await resolveVoiceTrackRelease(voice, baseRelease, baseTarget);
+    if (token !== activeRequestToken) return;
+    player.dubVoiceId = voice.id;
+    player.dubRelease = dubRel;
+    player.dubOffsetSec = readSavedDubOffset(baseRelease?.alias ?? '', voice.id);
+  } catch (err) {
+    if (token !== activeRequestToken) return;
+    player.error = err instanceof Error ? err.message : 'Failed to attach dub audio stream';
+  }
+}
+
+export function setDubAudioOffset(sec: number): void {
+  const rounded = Math.max(-5, Math.min(5, Math.round(sec * 10) / 10));
+  player.dubOffsetSec = rounded;
+  if (player.dubVoiceId) {
+    saveDubOffset(player.release?.alias ?? '', player.dubVoiceId, rounded);
   }
 }
 

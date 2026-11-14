@@ -2,6 +2,7 @@ package mila
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -95,6 +96,23 @@ func NewProviderHandler() http.Handler {
 
 func newProviderProxyHandler(routes []providerRoute) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ext/stream":
+			serveStreamProxy(w, r, false)
+			return
+		case "/ext/aniboom/master.m3u8":
+			serveAniboomMasterPlaylist(w, r)
+			return
+		case "/ext/aniboom/resolve":
+			serveAniboomResolveJSON(w, r)
+			return
+		case "/ext/animego/search":
+			serveAnimeGOSearch(w, r)
+			return
+		case "/ext/animego/player":
+			serveAnimeGOPlayer(w, r)
+			return
+		}
 		for _, route := range routes {
 			if r.URL.Path == route.prefix || strings.HasPrefix(r.URL.Path, route.prefix+"/") {
 				serveProxyRoute(w, r, route)
@@ -103,6 +121,214 @@ func newProviderProxyHandler(routes []providerRoute) http.Handler {
 		}
 		http.NotFound(w, r)
 	})
+}
+
+func setProxyCORSHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Range")
+}
+
+func serveAnimeGOSearch(w http.ResponseWriter, r *http.Request) {
+	setProxyCORSHeaders(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	items, err := searchAnimeGO(r.Context(), animeGOBaseURL, q)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(items)
+}
+
+func serveAnimeGOPlayer(w http.ResponseWriter, r *http.Request) {
+	setProxyCORSHeaders(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	id, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("id")))
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid anime id", http.StatusBadRequest)
+		return
+	}
+	res, err := fetchAnimeGOPlayer(r.Context(), animeGOBaseURL, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func serveAniboomResolveJSON(w http.ResponseWriter, r *http.Request) {
+	setProxyCORSHeaders(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	embed := strings.TrimSpace(r.URL.Query().Get("embed"))
+	ep, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("ep")))
+	resolved, err := resolveAniboomEpisode(r.Context(), embed, ep)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(resolved)
+}
+
+func serveAniboomMasterPlaylist(w http.ResponseWriter, r *http.Request) {
+	setProxyCORSHeaders(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	embed := strings.TrimSpace(r.URL.Query().Get("embed"))
+	ep, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("ep")))
+	resolved, err := resolveAniboomEpisode(r.Context(), embed, ep)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	masterURL, err := validatePublicStreamURL(resolved.MasterURL)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	fetchAndServePlaylist(w, r, masterURL, aniboomRefererURL)
+}
+
+func serveStreamProxy(w http.ResponseWriter, r *http.Request, allowPrivate bool) {
+	setProxyCORSHeaders(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	rawTarget := r.URL.Query().Get("url")
+	var targetURL *url.URL
+	var err error
+	if allowPrivate {
+		targetURL, err = url.Parse(strings.TrimSpace(rawTarget))
+		if err == nil && (targetURL.Scheme != "http" && targetURL.Scheme != "https" || targetURL.Host == "") {
+			err = fmt.Errorf("invalid stream URL")
+		}
+	} else {
+		targetURL, err = validatePublicStreamURL(rawTarget)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	referer := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if referer == "" {
+		referer = targetURL.Scheme + "://" + targetURL.Host + "/"
+	}
+	if strings.HasSuffix(strings.ToLower(targetURL.Path), ".m3u8") {
+		fetchAndServePlaylist(w, r, targetURL, referer)
+		return
+	}
+
+	upReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL.String(), nil)
+	if err != nil {
+		http.Error(w, "upstream request failed", http.StatusBadGateway)
+		return
+	}
+	upReq.Header.Set("User-Agent", defaultBrowserUA)
+	upReq.Header.Set("Referer", referer)
+	if refParsed, parseErr := url.Parse(referer); parseErr == nil && refParsed.Host != "" {
+		upReq.Header.Set("Origin", refParsed.Scheme+"://"+refParsed.Host)
+	}
+	if rng := r.Header.Get("Range"); rng != "" {
+		upReq.Header.Set("Range", rng)
+	}
+
+	resp, err := mediaProxyHTTPClient.Do(upReq)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("upstream error: %v", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	ct := resp.Header.Get("Content-Type")
+	if ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "" {
+		w.Header().Set("Cache-Control", cc)
+	}
+	if cr := resp.Header.Get("Content-Range"); cr != "" {
+		w.Header().Set("Content-Range", cr)
+	}
+	if ar := resp.Header.Get("Accept-Ranges"); ar != "" {
+		w.Header().Set("Accept-Ranges", ar)
+	}
+	if strings.Contains(strings.ToLower(ct), "mpegurl") && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxPlaylistBytes))
+		if readErr != nil {
+			http.Error(w, "failed reading playlist", http.StatusBadGateway)
+			return
+		}
+		rewritten := rewriteStreamPlaylist(string(raw), targetURL, referer)
+		w.Header().Set("Content-Length", strconv.Itoa(len(rewritten)))
+		w.WriteHeader(resp.StatusCode)
+		if r.Method != http.MethodHead {
+			_, _ = io.WriteString(w, rewritten)
+		}
+		return
+	}
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		w.Header().Set("Content-Length", cl)
+	}
+	w.WriteHeader(resp.StatusCode)
+	if r.Method != http.MethodHead {
+		_, _ = io.Copy(w, resp.Body)
+	}
+}
+
+func fetchAndServePlaylist(w http.ResponseWriter, r *http.Request, playlistURL *url.URL, referer string) {
+	upReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, playlistURL.String(), nil)
+	if err != nil {
+		http.Error(w, "playlist request failed", http.StatusBadGateway)
+		return
+	}
+	upReq.Header.Set("User-Agent", defaultBrowserUA)
+	upReq.Header.Set("Referer", referer)
+	if refParsed, parseErr := url.Parse(referer); parseErr == nil && refParsed.Host != "" {
+		upReq.Header.Set("Origin", refParsed.Scheme+"://"+refParsed.Host)
+	}
+	resp, err := mediaProxyHTTPClient.Do(upReq)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("playlist upstream error: %v", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		http.Error(w, fmt.Sprintf("playlist upstream HTTP %d", resp.StatusCode), http.StatusBadGateway)
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxPlaylistBytes))
+	if err != nil {
+		http.Error(w, "failed reading playlist", http.StatusBadGateway)
+		return
+	}
+	rewritten := rewriteStreamPlaylist(string(raw), playlistURL, referer)
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(rewritten)))
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = io.WriteString(w, rewritten)
+	}
 }
 
 func serveProxyRoute(w http.ResponseWriter, r *http.Request, route providerRoute) {
