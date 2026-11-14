@@ -4,9 +4,10 @@
   interface Props {
     children?: Snippet;
     class?: string;
+    maxHeight?: number | null;
   }
 
-  let { children, class: className = '' }: Props = $props();
+  let { children, class: className = '', maxHeight = null }: Props = $props();
 
   let viewportRef = $state<HTMLDivElement | null>(null);
   let contentRef = $state<HTMLDivElement | null>(null);
@@ -279,6 +280,7 @@
 
 <div
   class="marlakit-scroll-area {className}"
+  style:max-height={maxHeight ? `${maxHeight}px` : undefined}
   onmouseenter={() => { if (thumbHeight > 0) isVisible = true; }}
   onmouseleave={() => { if (!isDragging) isVisible = false; }}
   role="region"
@@ -288,6 +290,7 @@
   <div
     bind:this={viewportRef}
     class="marlakit-scroll-viewport"
+    style:max-height={maxHeight ? `${maxHeight}px` : undefined}
     onscroll={() => { if (!wheelRafId) scheduleThumbUpdate(true); }}
   >
     <div bind:this={contentRef} class="marlakit-scroll-content">
@@ -339,7 +342,6 @@
 
   .marlakit-scroll-content {
     width: 100%;
-    min-height: 100%;
     display: flex;
     flex-direction: column;
   }

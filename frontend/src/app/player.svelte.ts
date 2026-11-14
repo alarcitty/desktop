@@ -1,4 +1,5 @@
 import {
+  buildMetaTags,
   buildPrimaryVoiceOption,
   ensureShikimoriArtwork,
   findVoiceOptions,
@@ -11,6 +12,7 @@ import {
   type WatchTarget
 } from '../api/anime';
 import type { VoiceTrackOption } from '../marlakit/player/types';
+import { recordHistoryEntry } from './history.svelte';
 import { navigate } from './router.svelte';
 
 export const player = $state<{
@@ -42,6 +44,46 @@ export const player = $state<{
 });
 
 let activeRequestToken = 0;
+let lastHistorySyncMs = 0;
+
+function syncPlayerHistory(currentTime?: number, duration?: number): void {
+  const rel = player.release;
+  const art = player.shikiArt;
+  const target = player.target;
+  if (!rel && !target) return;
+
+  const ep = rel?.episodes[player.episodeIndex];
+  const episodeOrdinal = ep?.ordinal ?? player.episodeIndex + 1;
+  const title = art?.english || art?.name || rel?.title || player.title || target?.title || '';
+  if (!title) return;
+
+  const poster = art?.posterOriginal || art?.posterMain || rel?.poster || '';
+  const tags = buildMetaTags(art ?? undefined);
+  const score = art?.score && art.score > 0 ? Number(art.score.toFixed(1)) : undefined;
+
+  recordHistoryEntry({
+    shikiId: art?.id ?? target?.shikiId,
+    releaseAlias: rel?.alias ?? target?.releaseAlias,
+    searchQueries: target?.searchQueries,
+    title,
+    description: art?.description?.trim() || '',
+    poster,
+    score,
+    tags,
+    episodeOrdinal,
+    episodeIndex: player.episodeIndex,
+    totalEpisodes: rel?.episodes.length,
+    currentTime,
+    duration: duration && duration > 0 ? duration : ep?.duration
+  });
+}
+
+export function reportPlaybackProgress(currentTime: number, duration: number, force = false): void {
+  const now = Date.now();
+  if (!force && now - lastHistorySyncMs < 3000) return;
+  lastHistorySyncMs = now;
+  syncPlayerHistory(currentTime, duration);
+}
 
 async function loadTargetIntoPlayer(
   token: number,
@@ -69,6 +111,9 @@ async function loadTargetIntoPlayer(
         const art = map.get(target.shikiId!);
         if (art) {
           player.shikiArt = art;
+          if (player.release) {
+            syncPlayerHistory();
+          }
         }
       })
       .catch(() => {});
@@ -100,6 +145,10 @@ async function loadTargetIntoPlayer(
     } else {
       player.episodeIndex = 0;
     }
+
+    const activeEp = rel.episodes[player.episodeIndex];
+    syncPlayerHistory(player.resumeTime, activeEp?.duration ?? 0);
+    lastHistorySyncMs = Date.now();
     return rel;
   } catch (err) {
     if (token !== activeRequestToken) return null;
@@ -133,12 +182,19 @@ export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Pr
   });
 }
 
-export async function openWatch(target: WatchTarget): Promise<void> {
+export async function openWatch(
+  target: WatchTarget,
+  opts?: { episodeOrdinal?: number; episodeIndex?: number; resumeTime?: number }
+): Promise<void> {
   const token = ++activeRequestToken;
   player.seasons = [];
   navigate('anime');
 
-  const rel = await loadTargetIntoPlayer(token, target);
+  const rel = await loadTargetIntoPlayer(token, target, {
+    preserveEpisodeOrdinal: opts?.episodeOrdinal,
+    preserveEpisodeIndex: opts?.episodeIndex,
+    preserveTime: opts?.resumeTime
+  });
   if (!rel || token !== activeRequestToken) return;
 
   loadFranchiseSeasons(rel.id)
@@ -185,6 +241,9 @@ export function selectEpisode(index: number): void {
   player.resumeTime = 0;
   player.autoplay = true;
   player.episodeIndex = index;
+  const ep = player.release.episodes[index];
+  syncPlayerHistory(0, ep?.duration ?? 0);
+  lastHistorySyncMs = Date.now();
 }
 
 export function nextEpisode(): void {
@@ -193,6 +252,9 @@ export function nextEpisode(): void {
     player.resumeTime = 0;
     player.autoplay = true;
     player.episodeIndex += 1;
+    const ep = player.release.episodes[player.episodeIndex];
+    syncPlayerHistory(0, ep?.duration ?? 0);
+    lastHistorySyncMs = Date.now();
   }
 }
 

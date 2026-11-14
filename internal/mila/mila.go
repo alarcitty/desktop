@@ -72,3 +72,18 @@ func (m *Mila) Startup(ctx context.Context) {
 		}
 	}()
 }
+
+// SetFullscreen toggles true OS monitor fullscreen (covering the taskbar).
+func (m *Mila) SetFullscreen(fullscreen bool) {
+	if m.ctx == nil {
+		return
+	}
+	if fullscreen {
+		wailsRuntime.WindowFullscreen(m.ctx)
+		screen.SetWindowFullscreen("milaWindow", "mila", true)
+	} else {
+		screen.SetWindowFullscreen("milaWindow", "mila", false)
+		wailsRuntime.WindowUnfullscreen(m.ctx)
+		screen.ClearWindowBlur("milaWindow", "mila")
+	}
+}

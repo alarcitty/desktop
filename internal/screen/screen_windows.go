@@ -31,14 +31,80 @@ const (
 	spiGetWorkArea                  = 0x0030
 	wcaAccentPolicy                 = 19
 	accentEnableTransparentGradient = 2
+
+	gwlStyle           = -16
+	wsPopup            = 0x80000000
+	wsVisible          = 0x10000000
+	wsOverlappedWindow = 0x00CF0000
+	wsMaximize         = 0x01000000
+
+	monitorDefaultToNearest = 2
+
+	swpNoOwnerZOrder = 0x0200
+	swpFrameChanged  = 0x0020
+	swpShowWindow    = 0x0040
+
+	coinitApartmentThreaded = 0x2
+	clsctxInprocServer      = 0x1
 )
+
+type monitorInfo struct {
+	cbSize    uint32
+	rcMonitor rect
+	rcWork    rect
+	dwFlags   uint32
+}
+
+type guid struct {
+	data1 uint32
+	data2 uint16
+	data3 uint16
+	data4 [8]byte
+}
+
+type iTaskbarList2Vtbl struct {
+	QueryInterface       uintptr
+	AddRef               uintptr
+	Release              uintptr
+	HrInit               uintptr
+	AddTab               uintptr
+	DeleteTab            uintptr
+	ActivateTab          uintptr
+	SetActiveAlt         uintptr
+	MarkFullscreenWindow uintptr
+}
+
+type iTaskbarList2 struct {
+	lpVtbl *iTaskbarList2Vtbl
+}
 
 var (
 	user32                        = syscall.NewLazyDLL("user32.dll")
+	ole32                         = syscall.NewLazyDLL("ole32.dll")
 	getSystemMetrics              = user32.NewProc("GetSystemMetrics")
 	systemParametersInfo          = user32.NewProc("SystemParametersInfoW")
 	findWindowW                   = user32.NewProc("FindWindowW")
 	setWindowCompositionAttribute = user32.NewProc("SetWindowCompositionAttribute")
+	getWindowLongW                = user32.NewProc("GetWindowLongW")
+	setWindowLongW                = user32.NewProc("SetWindowLongW")
+	monitorFromWindow             = user32.NewProc("MonitorFromWindow")
+	getMonitorInfoW               = user32.NewProc("GetMonitorInfoW")
+	setWindowPos                  = user32.NewProc("SetWindowPos")
+	coInitializeEx                = ole32.NewProc("CoInitializeEx")
+	coCreateInstance              = ole32.NewProc("CoCreateInstance")
+
+	clsidTaskbarList = guid{
+		data1: 0x56FDF344,
+		data2: 0xFD6D,
+		data3: 0x11D0,
+		data4: [8]byte{0x95, 0x8A, 0x00, 0x60, 0x97, 0xC9, 0xA0, 0x90},
+	}
+	iidITaskbarList2 = guid{
+		data1: 0x602D4995,
+		data2: 0xB13A,
+		data3: 0x429B,
+		data4: [8]byte{0xA6, 0x6E, 0x19, 0x35, 0xE4, 0x4F, 0x43, 0x17},
+	}
 )
 
 // get work area size minus taskbar
@@ -73,8 +139,7 @@ func ThreeQuarterSize() (int, int) {
 	return (w * 3) / 4, (h * 3) / 4
 }
 
-// remove blur in corners by replacing ACCENT_ENABLE_BLURBEHIND with pure transparency
-func ClearWindowBlur(className, title string) bool {
+func findAppWindow(className, title string) uintptr {
 	var classPtr, titlePtr *uint16
 	if className != "" {
 		classPtr, _ = syscall.UTF16PtrFromString(className)
@@ -90,6 +155,82 @@ func ClearWindowBlur(className, title string) bool {
 	if hwnd == 0 && titlePtr != nil {
 		hwnd, _, _ = findWindowW.Call(0, uintptr(unsafe.Pointer(titlePtr)))
 	}
+	return hwnd
+}
+
+func markTaskbarFullscreen(hwnd uintptr, fullscreen bool) {
+	if hwnd == 0 {
+		return
+	}
+	_, _, _ = coInitializeEx.Call(0, uintptr(coinitApartmentThreaded))
+
+	var obj *iTaskbarList2
+	hr, _, _ := coCreateInstance.Call(
+		uintptr(unsafe.Pointer(&clsidTaskbarList)),
+		0,
+		uintptr(clsctxInprocServer),
+		uintptr(unsafe.Pointer(&iidITaskbarList2)),
+		uintptr(unsafe.Pointer(&obj)),
+	)
+	if hr != 0 || obj == nil || obj.lpVtbl == nil {
+		return
+	}
+	defer syscall.SyscallN(obj.lpVtbl.Release, uintptr(unsafe.Pointer(obj)))
+
+	hrInit, _, _ := syscall.SyscallN(obj.lpVtbl.HrInit, uintptr(unsafe.Pointer(obj)))
+	if hrInit != 0 {
+		return
+	}
+
+	var flag uintptr
+	if fullscreen {
+		flag = 1
+	}
+	_, _, _ = syscall.SyscallN(obj.lpVtbl.MarkFullscreenWindow, uintptr(unsafe.Pointer(obj)), hwnd, flag)
+}
+
+// SetWindowFullscreen ensures the native HWND covers the entire physical monitor (including the taskbar).
+func SetWindowFullscreen(className, title string, fullscreen bool) bool {
+	hwnd := findAppWindow(className, title)
+	if hwnd == 0 {
+		return false
+	}
+
+	if fullscreen {
+		styleIdx := int32(gwlStyle)
+		style, _, _ := getWindowLongW.Call(hwnd, uintptr(styleIdx))
+		cleanStyle := (uint32(style) & ^uint32(wsOverlappedWindow|wsMaximize)) | wsPopup | wsVisible
+		_, _, _ = setWindowLongW.Call(hwnd, uintptr(styleIdx), uintptr(cleanStyle))
+
+		monitor, _, _ := monitorFromWindow.Call(hwnd, uintptr(monitorDefaultToNearest))
+		if monitor != 0 {
+			mi := monitorInfo{cbSize: uint32(unsafe.Sizeof(monitorInfo{}))}
+			ok, _, _ := getMonitorInfoW.Call(monitor, uintptr(unsafe.Pointer(&mi)))
+			if ok != 0 {
+				w := mi.rcMonitor.right - mi.rcMonitor.left
+				h := mi.rcMonitor.bottom - mi.rcMonitor.top
+				_, _, _ = setWindowPos.Call(
+					hwnd,
+					0,
+					uintptr(mi.rcMonitor.left),
+					uintptr(mi.rcMonitor.top),
+					uintptr(w),
+					uintptr(h),
+					uintptr(swpNoOwnerZOrder|swpFrameChanged|swpShowWindow),
+				)
+			}
+		}
+		markTaskbarFullscreen(hwnd, true)
+		return true
+	}
+
+	markTaskbarFullscreen(hwnd, false)
+	return true
+}
+
+// remove blur in corners by replacing ACCENT_ENABLE_BLURBEHIND with pure transparency
+func ClearWindowBlur(className, title string) bool {
+	hwnd := findAppWindow(className, title)
 	if hwnd == 0 {
 		return false
 	}

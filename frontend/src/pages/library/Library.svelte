@@ -1,18 +1,28 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fly } from 'svelte/transition';
   import { cubicIn, cubicOut } from 'svelte/easing';
   import LayoutList from '@lucide/svelte/icons/layout-list';
   import LayoutGrid from '@lucide/svelte/icons/layout-grid';
   import Play from '@lucide/svelte/icons/play';
+  import X from '@lucide/svelte/icons/x';
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
-  import { buildMetaTags, ensureShikimoriArtwork } from '../../api/anime';
+  import {
+    clearWatchHistory,
+    formatTimeCompact,
+    removeHistoryEntry,
+    watchHistory
+  } from '../../app/history.svelte';
+  import {
+    enrichLibraryArtwork,
+    localLibrary,
+    type LibraryListKind
+  } from '../../app/library.svelte';
   import { openWatch } from '../../app/player.svelte';
 
-  interface LibraryItem
+  interface DisplayLibraryItem
   {
     id: string;
     shikiId: number;
@@ -24,51 +34,21 @@
     posterPosition?: string;
     score?: number;
     tags: string[];
+    episodeOrdinal?: number;
+    episodeIndex?: number;
+    resumeTime?: number;
+    progressPct?: number;
   }
 
-  let items = $state<LibraryItem[]>([
-    {
-      id: 'alya',
-      shikiId: 54744,
-      searchQueries: ['Tokidoki Bosotto', 'Аля иногда кокетничает'],
-      title: 'Alya Sometimes Hides Her Feelings in Russian',
-      description:
-        'The story centers on Alisa Mikhailovna "Alya" Kujou, a stunning and brilliant student who acts cold and distant to everyone, and her unmotivated seatmate, Masachika Kuze. To hide her true feelings of embarrassment, affection, or frustration, Alya frequently mutters sweet.',
-      poster: 'https://shikimori.io/uploads/poster/animes/54744/de6fc036f101d94a4f738be3f0415d2c.jpeg',
-      score: 7.7,
-      tags: ['2024', '12 ep', 'Comedy', 'Romance', 'School']
-    },
-    {
-      id: 'black-clover',
-      shikiId: 34572,
-      searchQueries: ['Black Clover', 'Чёрный клевер'],
-      title: 'Black Clover',
-      description:
-        'is a popular fantasy anime about two orphans, Asta and Yuno, who grew up together and strive to become the Wizard King. In a world where magic is everything, Yuno is a prodigy born with a rare grimoire, while Asta is the only person completely devoid of magical power. Refusing to give up, Asta obtains a mysterious five-leaf clover grimoire that grants him Anti-Magic.',
-      poster: 'https://shikimori.io/uploads/poster/animes/34572/d4c5bf9cac831c03fc5ebed2676b7b10.jpeg',
-      score: 8.1,
-      tags: ['2017', '170 ep', 'Action', 'Comedy', 'Fantasy']
-    },
-    {
-      id: 'tsukimichi',
-      shikiId: 43523,
-      releaseAlias: 'tsuki-ga-michibiku-isekai-douchuu',
-      searchQueries: ['Tsuki ga Michibiku Isekai Douchuu', 'Лунное путешествие'],
-      title: 'Tsukimichi: Moonlit Fantasy',
-      description:
-        'follows Makoto Misumi, an ordinary high schooler summoned to another world as a hero, only to be cast away by the goddess for his lack of beauty. Stripped of his title and sent to a barren wasteland, he discovers an overwhelming power of his own and slowly gathers allies among the monsters and outcasts of the new world.',
-      poster: 'https://shikimori.io/uploads/poster/animes/43523/9f56a98052f05ad81a43452ecacf657d.jpeg',
-      score: 7.7,
-      tags: ['2021', '12 ep', 'Action', 'Adventure', 'Fantasy']
-    }
-  ]);
-
-  const tabs = ['Likes', 'watch later', 'favorites'];
+  const tabs = ['Likes', 'watch later', 'favorites', 'history'];
+  const listByTab: Array<LibraryListKind | null> = ['likes', 'watch_later', 'favorites', null];
   const TAB_GAP = 22;
   const TAB_INACTIVE_SCALE = 0.5;
 
   let activeTab = $state(0);
   let hasSwitchedTab = $state(false);
+  let transitionKind = $state<'tab' | 'view'>('tab');
+  let tabDirection = $state<1 | -1>(1);
   let tabsReady = $state(false);
   let tabWidths = $state<Array<{ active: number; inactive: number }>>([]);
   let tabBaselineY = $state(38);
@@ -124,25 +104,9 @@
     tabsReady = true;
   }
 
-  onMount(async () =>
+  onMount(() =>
   {
-    const map = await ensureShikimoriArtwork(items.map((item) => item.shikiId));
-    items = items.map((item) =>
-    {
-      const shiki = map.get(item.shikiId);
-      if (!shiki)
-      {
-        return item;
-      }
-      const nextTags = buildMetaTags(shiki);
-      return {
-        ...item,
-        poster: shiki.posterOriginal || shiki.posterMain || item.poster,
-        description: shiki.description ? shiki.description : item.description,
-        score: shiki.score > 0 ? Number(shiki.score.toFixed(1)) : item.score,
-        tags: nextTags.length > 0 ? nextTags : item.tags
-      };
-    });
+    void enrichLibraryArtwork();
   });
 
   $effect(() =>
@@ -158,10 +122,56 @@
     };
   });
 
+  const historyItems = $derived.by((): DisplayLibraryItem[] =>
+  {
+    const fallbackPoster = localLibrary.items[0]?.poster || '';
+    return watchHistory.entries.map((entry) =>
+    {
+      const epTag = entry.totalEpisodes
+        ? `Ep ${entry.episodeOrdinal}/${entry.totalEpisodes}`
+        : `Ep ${entry.episodeOrdinal}`;
+      const progressTag =
+        entry.currentTime >= 5 ? `${epTag} · ${formatTimeCompact(entry.currentTime)}` : epTag;
+      const baseTags = entry.tags.filter((t) => !/^\d+\s*ep$/i.test(t));
+      const progressPct =
+        entry.duration > 0
+          ? Math.min(100, Math.max(0, (entry.currentTime / entry.duration) * 100))
+          : 0;
+
+      return {
+        id: entry.id,
+        shikiId: entry.shikiId ?? 0,
+        releaseAlias: entry.releaseAlias,
+        searchQueries: entry.searchQueries,
+        title: entry.title,
+        description: entry.description || 'Stopped at your last watched episode.',
+        poster: entry.poster || fallbackPoster,
+        posterPosition: entry.posterPosition,
+        score: entry.score,
+        tags: [progressTag, ...baseTags].slice(0, 5),
+        episodeOrdinal: entry.episodeOrdinal,
+        episodeIndex: entry.episodeIndex,
+        resumeTime: entry.currentTime,
+        progressPct
+      };
+    });
+  });
+
+  const isHistoryTab = $derived(activeTab === 3);
+  const displayedItems = $derived.by((): DisplayLibraryItem[] =>
+  {
+    if (isHistoryTab) return historyItems;
+    const listKind = listByTab[activeTab];
+    if (!listKind) return localLibrary.items;
+    return localLibrary.items.filter((item) => item.lists.includes(listKind));
+  });
+  const ambientPoster = $derived(displayedItems[0]?.poster || localLibrary.items[0]?.poster || '');
+
   function selectTab(index: number)
   {
     if (activeTab === index) return;
-    measureTabs();
+    tabDirection = index > activeTab ? 1 : -1;
+    transitionKind = 'tab';
     hasSwitchedTab = true;
     activeTab = index;
   }
@@ -169,28 +179,47 @@
   function setViewMode(mode: 'list' | 'grid')
   {
     if (viewMode === mode) return;
+    transitionKind = 'view';
     hasToggledView = true;
     viewMode = mode;
   }
 
-  function cardEnter(_node: Element, params: { index: number })
+  function contentEnter(_node: Element)
   {
-    if (!hasToggledView) {
+    if (!hasSwitchedTab && !hasToggledView) {
       return { duration: 0 };
     }
-    const stagger = Math.min(params.index, 6) * 45;
+    const isTab = transitionKind === 'tab';
+    const xOffset = isTab ? tabDirection * 20 : 0;
+    const yOffset = isTab ? 0 : 10;
     return {
-      delay: 110 + stagger,
-      duration: 320,
+      delay: 75,
+      duration: 240,
       easing: cubicOut,
       css: (t: number) =>
-        `opacity: ${t}; transform: translate3d(0, ${(1 - t) * 14}px, 0) scale(${0.96 + 0.04 * t});`
+        `opacity: ${t}; transform: translate3d(${(1 - t) * xOffset}px, ${(1 - t) * yOffset}px, 0);`
+    };
+  }
+
+  function contentLeave(_node: Element)
+  {
+    if (!hasSwitchedTab && !hasToggledView) {
+      return { duration: 0 };
+    }
+    const isTab = transitionKind === 'tab';
+    const xOffset = isTab ? -tabDirection * 14 : 0;
+    const yOffset = isTab ? 0 : -8;
+    return {
+      duration: 130,
+      easing: cubicIn,
+      css: (t: number) =>
+        `opacity: ${t}; transform: translate3d(${(1 - t) * xOffset}px, ${(1 - t) * yOffset}px, 0);`
     };
   }
 
   async function handleWatch(aId: string)
   {
-    const item = items.find((x) => x.id === aId);
+    const item = displayedItems.find((x) => x.id === aId);
     if (!item)
     {
       return;
@@ -198,12 +227,21 @@
     loadingId = aId;
     try
     {
-      await openWatch({
-        title: item.title,
-        shikiId: item.shikiId,
-        releaseAlias: item.releaseAlias,
-        searchQueries: item.searchQueries
-      });
+      await openWatch(
+        {
+          title: item.title,
+          shikiId: item.shikiId > 0 ? item.shikiId : undefined,
+          releaseAlias: item.releaseAlias,
+          searchQueries: item.searchQueries
+        },
+        item.episodeOrdinal != null
+          ? {
+              episodeOrdinal: item.episodeOrdinal,
+              episodeIndex: item.episodeIndex,
+              resumeTime: item.resumeTime
+            }
+          : undefined
+      );
     }
     finally
     {
@@ -215,7 +253,9 @@
 <div class="library-page">
   <!-- Ambient glow from the first poster, fading out downwards -->
   <div class="library-ambient" aria-hidden="true">
-    <LayerBlur src={items[0].poster} blur={60} opacity={0.18} scale={1.2} />
+    {#if ambientPoster}
+      <LayerBlur src={ambientPoster} blur={60} opacity={0.18} scale={1.2} />
+    {/if}
   </div>
 
   <div class="library-head">
@@ -242,40 +282,51 @@
       {/each}
     </div>
 
-    <!-- View mode switch -->
-    <div class="library-view-modes" class:is-grid={viewMode === 'grid'}>
-      <span class="view-pill" aria-hidden="true"></span>
-      <button
-        type="button"
-        class="view-btn"
-        class:active={viewMode === 'list'}
-        aria-label="List view"
-        aria-pressed={viewMode === 'list'}
-        onclick={() => setViewMode('list')}
-      >
-        <LayoutList size={18} strokeWidth={1.7} />
-      </button>
-      <button
-        type="button"
-        class="view-btn"
-        class:active={viewMode === 'grid'}
-        aria-label="Grid view"
-        aria-pressed={viewMode === 'grid'}
-        onclick={() => setViewMode('grid')}
-      >
-        <LayoutGrid size={18} strokeWidth={1.7} />
-      </button>
+    <div class="library-controls">
+      {#if isHistoryTab && displayedItems.length > 0}
+        <button type="button" class="clear-history-btn" onclick={clearWatchHistory}>
+          Clear history
+        </button>
+      {/if}
+
+      <!-- View mode switch -->
+      <div class="library-view-modes" class:is-grid={viewMode === 'grid'}>
+        <span class="view-pill" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="view-btn"
+          class:active={viewMode === 'list'}
+          aria-label="List view"
+          aria-pressed={viewMode === 'list'}
+          onclick={() => setViewMode('list')}
+        >
+          <LayoutList size={18} strokeWidth={1.7} />
+        </button>
+        <button
+          type="button"
+          class="view-btn"
+          class:active={viewMode === 'grid'}
+          aria-label="Grid view"
+          aria-pressed={viewMode === 'grid'}
+          onclick={() => setViewMode('grid')}
+        >
+          <LayoutGrid size={18} strokeWidth={1.7} />
+        </button>
+      </div>
     </div>
   </div>
 
   <div class="library-views">
-    {#if viewMode === 'list'}
-      <ul
-        class="library-list"
-        out:fly={{ y: -10, duration: 150, easing: cubicIn }}
-      >
-        {#each items as item, index (item.id)}
-          <li class="library-row" in:cardEnter|global={{ index }}>
+    {#key `${activeTab}:${viewMode}`}
+      <div class="library-stage" in:contentEnter out:contentLeave>
+        {#if displayedItems.length === 0}
+          <div class="library-empty">
+            <p class="empty-title">{isHistoryTab ? 'No watch history yet' : 'Nothing saved here yet'}</p>
+          </div>
+        {:else if viewMode === 'list'}
+          <ul class="library-list">
+        {#each displayedItems as item, index (item.id)}
+          <li class="library-row">
             <img
               src={item.poster}
               alt=""
@@ -286,14 +337,21 @@
             />
             <div class="row-dim"></div>
 
-            <img
-              src={item.poster}
-              alt={item.title}
-              class="row-poster"
-              style:object-position={item.posterPosition}
-              loading={index > 1 ? 'lazy' : undefined}
-              decoding="async"
-            />
+            <div class="row-poster-wrap">
+              <img
+                src={item.poster}
+                alt={item.title}
+                class="row-poster"
+                style:object-position={item.posterPosition}
+                loading={index > 1 ? 'lazy' : undefined}
+                decoding="async"
+              />
+              {#if item.progressPct && item.progressPct > 0}
+                <div class="progress-track" aria-hidden="true">
+                  <div class="progress-fill" style:width={`${item.progressPct}%`}></div>
+                </div>
+              {/if}
+            </div>
 
             <div class="row-info">
               <h3 class="row-title">{item.title}</h3>
@@ -304,23 +362,30 @@
             </div>
 
             <div class="row-action">
+              {#if isHistoryTab}
+                <button
+                  type="button"
+                  class="remove-entry-btn"
+                  aria-label={`Remove ${item.title} from history`}
+                  onclick={() => removeHistoryEntry(item.id)}
+                >
+                  <X size={15} strokeWidth={2} />
+                </button>
+              {/if}
               <MainButton loading={loadingId === item.id} onclick={() => handleWatch(item.id)}>
                 {#snippet icon()}
                   <Play size={16} fill="currentColor" strokeWidth={0} />
                 {/snippet}
-                Watch
+                {isHistoryTab ? 'Continue' : 'Watch'}
               </MainButton>
             </div>
           </li>
         {/each}
       </ul>
     {:else}
-      <ul
-        class="library-grid"
-        out:fly={{ y: -10, duration: 150, easing: cubicIn }}
-      >
-        {#each items as item, index (item.id)}
-          <li class="library-tile" in:cardEnter|global={{ index }}>
+      <ul class="library-grid">
+        {#each displayedItems as item, index (item.id)}
+          <li class="library-tile">
             <img
               src={item.poster}
               alt={item.title}
@@ -332,24 +397,42 @@
             <div class="tile-overlay"></div>
             <div class="tile-hover-dim"></div>
 
+            {#if isHistoryTab}
+              <button
+                type="button"
+                class="remove-entry-btn tile-remove"
+                aria-label={`Remove ${item.title} from history`}
+                onclick={() => removeHistoryEntry(item.id)}
+              >
+                <X size={14} strokeWidth={2} />
+              </button>
+            {/if}
+
             <p class="tile-description">{item.description}</p>
 
             <div class="tile-footer">
               <h3 class="tile-title">{item.title}</h3>
               <MetaLine score={item.score} tags={item.tags.slice(0, 3)} size="sm" />
+              {#if item.progressPct && item.progressPct > 0}
+                <div class="progress-track tile-progress" aria-hidden="true">
+                  <div class="progress-fill" style:width={`${item.progressPct}%`}></div>
+                </div>
+              {/if}
               <div class="tile-action">
                 <MainButton loading={loadingId === item.id} onclick={() => handleWatch(item.id)}>
                   {#snippet icon()}
                     <Play size={16} fill="currentColor" strokeWidth={0} />
                   {/snippet}
-                  Watch
+                  {isHistoryTab ? 'Continue' : 'Watch'}
                 </MainButton>
               </div>
             </div>
           </li>
         {/each}
       </ul>
-    {/if}
+        {/if}
+      </div>
+    {/key}
   </div>
 </div>
 
@@ -492,6 +575,42 @@
     opacity: 1;
   }
 
+  .library-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .clear-history-btn {
+    height: 36px;
+    padding: 0 13px;
+    margin-bottom: 2px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.56);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      color 0.2s ease,
+      background-color 0.2s ease,
+      border-color 0.2s ease,
+      transform 0.1s ease;
+  }
+
+  .clear-history-btn:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+
+  .clear-history-btn:active {
+    transform: scale(0.96);
+  }
+
   .library-view-modes {
     position: relative;
     display: flex;
@@ -555,9 +674,35 @@
     display: grid;
     width: 100%;
     min-width: 0;
+    overflow-x: hidden;
     contain: layout style;
     isolation: isolate;
     transform: translate3d(0, 0, 0);
+  }
+
+  .library-stage {
+    grid-area: 1 / 1;
+    width: 100%;
+    min-width: 0;
+    will-change: opacity, transform;
+  }
+
+  .library-empty {
+    min-height: calc(100vh - 230px);
+    padding: 24px var(--page-pad-x) 48px var(--page-pad-x);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .empty-title {
+    margin: 0;
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.56);
+    user-select: none;
   }
 
   .library-list {
@@ -616,14 +761,21 @@
     background: rgba(4, 4, 4, 0.62);
   }
 
-  .row-poster {
+  .row-poster-wrap {
     position: relative;
     z-index: 2;
     flex: 0 0 245px;
     width: 245px;
     height: 215px;
-    object-fit: cover;
     border-radius: var(--radius-card);
+    overflow: hidden;
+  }
+
+  .row-poster {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
     user-select: none;
     pointer-events: none;
     backface-visibility: hidden;
@@ -632,6 +784,29 @@
 
   .library-row:hover .row-poster {
     transform: scale(1.02);
+  }
+
+  .progress-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.16);
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: #ffffff;
+    border-radius: 999px;
+  }
+
+  .progress-track.tile-progress {
+    position: relative;
+    border-radius: 999px;
+    margin-top: -2px;
   }
 
   .row-info {
@@ -676,6 +851,53 @@
     z-index: 2;
     top: 26px;
     right: 26px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .remove-entry-btn {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    background: rgba(12, 12, 12, 0.65);
+    color: rgba(255, 255, 255, 0.64);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity 0.2s ease,
+      color 0.2s ease,
+      background-color 0.2s ease,
+      transform 0.1s ease;
+  }
+
+  .library-row:hover .remove-entry-btn,
+  .library-tile:hover .remove-entry-btn,
+  .remove-entry-btn:focus-visible {
+    opacity: 1;
+  }
+
+  .remove-entry-btn:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  .remove-entry-btn:active {
+    transform: scale(0.92);
+  }
+
+  .remove-entry-btn.tile-remove {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 4;
+    width: 30px;
+    height: 30px;
   }
 
   .library-grid {

@@ -46,6 +46,7 @@
     hasNext?: boolean;
     onnext?: () => void;
     onended?: () => void;
+    ontimeprogress?: (currentTime: number, duration: number, force?: boolean) => void;
     onselectvoice?: (voice: VoiceTrackOption, currentTime: number) => void;
     onerror?: (message: string) => void;
     class?: string;
@@ -67,6 +68,7 @@
     hasNext = false,
     onnext,
     onended,
+    ontimeprogress,
     onselectvoice,
     onerror,
     class: className = ''
@@ -382,12 +384,68 @@
     };
   });
 
+  let nativeFsActive = false;
+
+  function setNativeWindowFullscreen(next: boolean) {
+    if (typeof window === 'undefined') return;
+    if (typeof document !== 'undefined') {
+      document.body.classList.toggle('is-player-fullscreen', next);
+    }
+    if (nativeFsActive === next) return;
+    nativeFsActive = next;
+    const w = window as any;
+    if (typeof w.go?.mila?.Mila?.SetFullscreen === 'function') {
+      void w.go.mila.Mila.SetFullscreen(next);
+    } else if (next && typeof w.runtime?.WindowFullscreen === 'function') {
+      w.runtime.WindowFullscreen();
+    } else if (!next && typeof w.runtime?.WindowUnfullscreen === 'function') {
+      w.runtime.WindowUnfullscreen();
+    }
+  }
+
+  async function enterFullscreen() {
+    if (!rootEl) return;
+    isFullscreen = true;
+    setNativeWindowFullscreen(true);
+    if (document.fullscreenElement !== rootEl && typeof rootEl.requestFullscreen === 'function') {
+      await rootEl.requestFullscreen().catch(() => {});
+    }
+  }
+
+  async function exitFullscreen() {
+    isFullscreen = false;
+    setNativeWindowFullscreen(false);
+    if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
+      await document.exitFullscreen().catch(() => {});
+    }
+  }
+
   $effect(() => {
     function onFsChange() {
-      isFullscreen = document.fullscreenElement === rootEl;
+      const domFs = document.fullscreenElement === rootEl;
+      if (domFs) {
+        isFullscreen = true;
+        setNativeWindowFullscreen(true);
+      } else if (isFullscreen) {
+        isFullscreen = false;
+        setNativeWindowFullscreen(false);
+      }
+    }
+    function onWinKeydown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && isFullscreen && document.fullscreenElement !== rootEl) {
+        e.preventDefault();
+        void exitFullscreen();
+      }
     }
     document.addEventListener('fullscreenchange', onFsChange);
-    return () => document.removeEventListener('fullscreenchange', onFsChange);
+    window.addEventListener('keydown', onWinKeydown);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      window.removeEventListener('keydown', onWinKeydown);
+      if (nativeFsActive) {
+        setNativeWindowFullscreen(false);
+      }
+    };
   });
 
   function togglePlay() {
@@ -475,10 +533,10 @@
 
   async function toggleFullscreen() {
     if (!rootEl) return;
-    if (document.fullscreenElement === rootEl) {
-      await document.exitFullscreen().catch(() => {});
+    if (isFullscreen || document.fullscreenElement === rootEl) {
+      await exitFullscreen();
     } else {
-      await rootEl.requestFullscreen().catch(() => {});
+      await enterFullscreen();
     }
     scheduleHideControls();
   }
@@ -596,7 +654,12 @@
         void toggleFullscreen();
         break;
       case 'Escape':
-        activeMenu = 'none';
+        if (activeMenu !== 'none') {
+          activeMenu = 'none';
+        } else if (isFullscreen) {
+          e.preventDefault();
+          void exitFullscreen();
+        }
         break;
     }
   }
@@ -626,6 +689,7 @@
 <div
   bind:this={rootEl}
   class="hls-player {className}"
+  class:is-fullscreen={isFullscreen}
   class:controls-hidden={!controlsVisible && playing}
   tabindex="0"
   role="region"
@@ -659,12 +723,18 @@
       playing = false;
       controlsVisible = true;
       window.clearTimeout(hideTimer);
+      if (videoEl) {
+        ontimeprogress?.(videoEl.currentTime || 0, videoEl.duration || duration || 0, true);
+      }
     }}
     onwaiting={() => (buffering = true)}
     oncanplay={() => (buffering = false)}
     onplaying={() => (buffering = false)}
     ontimeupdate={() => {
-      if (!draggingSeek && videoEl) currentTime = videoEl.currentTime;
+      if (!draggingSeek && videoEl) {
+        currentTime = videoEl.currentTime;
+        ontimeprogress?.(videoEl.currentTime || 0, videoEl.duration || duration || 0, false);
+      }
     }}
     ondurationchange={() => {
       if (videoEl) duration = videoEl.duration || 0;
@@ -673,6 +743,9 @@
     onended={() => {
       playing = false;
       controlsVisible = true;
+      if (videoEl) {
+        ontimeprogress?.(videoEl.duration || videoEl.currentTime || 0, videoEl.duration || duration || 0, true);
+      }
       onended?.();
     }}
   ></video>
@@ -945,6 +1018,22 @@
 
   .hls-player.controls-hidden {
     cursor: none;
+  }
+
+  .hls-player:fullscreen,
+  .hls-player.is-fullscreen {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    aspect-ratio: auto !important;
+    border-radius: 0 !important;
+  }
+
+  .hls-player.is-fullscreen:not(:fullscreen) {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 99999 !important;
   }
 
   .hls-video {

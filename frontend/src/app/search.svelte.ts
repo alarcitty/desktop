@@ -1,7 +1,7 @@
 // Shared state for the global search popup.
 // `open`   - target state (what the user asked for)
 // `active` - popup is visible or still animating (header input stays hidden)
-export const search = $state({ open: false, active: false, query: '' });
+export const search = $state({ open: false, active: false, query: '', filtersOpen: false });
 
 export interface AnchorRect
 {
@@ -29,12 +29,17 @@ export function getSearchAnchorRect(): AnchorRect | null
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 }
 
-export function openSearch(): void
+export function openSearch(options?: { filters?: boolean }): void
 {
   if (search.open)
   {
+    if (options?.filters !== undefined)
+    {
+      search.filtersOpen = options.filters;
+    }
     return;
   }
+  search.filtersOpen = options?.filters ?? true;
   search.open = true;
   search.active = true;
 }
@@ -49,4 +54,5 @@ export function finishSearchClose(): void
 {
   search.active = false;
   search.query = '';
+  search.filtersOpen = false;
 }

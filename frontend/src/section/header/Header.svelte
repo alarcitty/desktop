@@ -1,5 +1,6 @@
 <script lang="ts">
   import Search from "@lucide/svelte/icons/search";
+  import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import logoSrc from "../../assets/mila_header.svg";
   import Input from "../../marlakit/input/Input.svelte";
   import SocialButton from "../../marlakit/button/SocialButton.svelte";
@@ -51,6 +52,20 @@
       >
         {#snippet icon()}
           <Search size={16} strokeWidth={1.8} />
+        {/snippet}
+        {#snippet trailingIcon()}
+          <button
+            type="button"
+            class="search-filter-btn"
+            aria-label="Open search filters"
+            title="Filters"
+            onclick={(e) => {
+              e.stopPropagation();
+              openSearch({ filters: true });
+            }}
+          >
+            <SlidersHorizontal size={15} strokeWidth={1.8} />
+          </button>
         {/snippet}
       </Input>
     </div>
@@ -119,6 +134,8 @@
     --wails-draggable: drag;
     user-select: none;
     z-index: 50;
+    transform: translateZ(0);
+    contain: layout style;
   }
 
   .header-left {
@@ -134,6 +151,34 @@
 
   .search-anchor.is-hidden {
     visibility: hidden;
+  }
+
+  .search-filter-btn {
+    width: 24px;
+    height: 24px;
+    margin: 0 -2px 0 0;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.42);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition:
+      color 0.16s var(--ease-out),
+      background-color 0.16s var(--ease-out),
+      transform 0.1s ease;
+  }
+
+  .search-filter-btn:hover {
+    color: #ffffff;
+    background: transparent;
+  }
+
+  .search-filter-btn:active {
+    transform: scale(0.92);
   }
 
   .logo-wrap {

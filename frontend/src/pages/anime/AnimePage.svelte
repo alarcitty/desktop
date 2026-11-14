@@ -14,10 +14,12 @@
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import HlsPlayer from '../../marlakit/player/HlsPlayer.svelte';
   import { buildMetaTags, episodeSources, type AnimeSeasonEntry } from '../../api/anime';
+  import { isInWatchLater, toggleWatchLater } from '../../app/library.svelte';
   import { goBack } from '../../app/router.svelte';
   import {
     nextEpisode,
     player,
+    reportPlaybackProgress,
     retryWatch,
     selectEpisode,
     switchSeason,
@@ -31,12 +33,10 @@
   let descExpanded = $state(false);
   let descCollapsedH = $state(78);
   let descExpandedH = $state(0);
-  let inLibrary = $state(false);
   let isPlanLoading = $state(false);
   let epRangeIndex = $state(0);
   let lightboxUrl = $state<string | null>(null);
   let failedThumbs = $state<Record<string, boolean>>({});
-  let planTimer: number | undefined;
 
   const displayTitle = $derived(
     player.shikiArt?.english || player.shikiArt?.name || player.release?.title || player.title || 'Anime'
@@ -201,9 +201,13 @@
     }
   });
 
-  $effect(() => () => {
-    window.clearTimeout(planTimer);
-  });
+  const inLibrary = $derived(
+    isInWatchLater({
+      shikiId: player.shikiArt?.id ?? player.target?.shikiId,
+      releaseAlias: player.release?.alias ?? player.target?.releaseAlias,
+      title: displayTitle
+    })
+  );
 
   function formatDuration(sec: number): string {
     if (!sec || sec <= 0) return '';
@@ -221,12 +225,19 @@
   }
 
   function handlePlanToggle() {
-    window.clearTimeout(planTimer);
+    if (!displayTitle) return;
     isPlanLoading = true;
-    planTimer = window.setTimeout(() => {
-      inLibrary = !inLibrary;
-      isPlanLoading = false;
-    }, 280);
+    toggleWatchLater({
+      shikiId: player.shikiArt?.id ?? player.target?.shikiId,
+      releaseAlias: player.release?.alias ?? player.target?.releaseAlias,
+      searchQueries: player.target?.searchQueries,
+      title: displayTitle,
+      description: fullDescription,
+      poster: posterUrl,
+      score,
+      tags: metaTags
+    });
+    isPlanLoading = false;
   }
 
   function handleWindowKeydown(e: KeyboardEvent) {
@@ -400,6 +411,7 @@
           ending={currentEpisode.ending}
           {hasNext}
           onnext={nextEpisode}
+          ontimeprogress={(sec, dur, force) => reportPlaybackProgress(sec, dur, force)}
           onselectvoice={(voice, sec) => void switchVoice(voice, sec)}
         />
       {:else}
@@ -756,7 +768,7 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 18px;
     margin-top: 24px;
   }
 
@@ -765,24 +777,23 @@
     align-items: center;
     gap: 7px;
     border: 0;
-    border-radius: 10px;
-    padding: 9px 15px;
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.72);
+    border-radius: 0;
+    padding: 4px 0;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.5);
     font-family: inherit;
     font-size: 13.5px;
     font-weight: 500;
     letter-spacing: -0.01em;
     cursor: pointer;
     transition:
-      background 180ms var(--ease-out),
       color 180ms var(--ease-out),
       transform 180ms var(--ease-out);
   }
 
   .season-tab:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.86);
   }
 
   .season-tab:active {
@@ -790,7 +801,7 @@
   }
 
   .season-tab.active {
-    background: rgba(255, 255, 255, 0.16);
+    background: transparent;
     color: #ffffff;
     font-weight: 600;
   }
@@ -800,7 +811,8 @@
   }
 
   .season-tab.is-static:hover {
-    background: rgba(255, 255, 255, 0.16);
+    background: transparent;
+    color: #ffffff;
   }
 
   .season-tab.is-static:active {

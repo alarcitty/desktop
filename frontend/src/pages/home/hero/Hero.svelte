@@ -25,14 +25,9 @@
   import { openWatch, player } from '../../../app/player.svelte';
   import { router } from '../../../app/router.svelte';
   import { search } from '../../../app/search.svelte';
-
-  interface Props {
-    onselectbg?: (url: string) => void;
-  }
+  import { markHeroMediaReady } from '../../../app/boot.svelte';
 
   const SPOTLIGHT_INTERVAL_MS = 8500;
-
-  let { onselectbg }: Props = $props();
 
   let spotlight = $state<HomeSpotlightItem[]>(getCachedHomeFeeds()?.spotlight ?? []);
   let activeIndex = $state(0);
@@ -42,7 +37,7 @@
   let planTimer: number | undefined;
   let cycleTimer: number | undefined;
 
-  let previewStripEl = $state<HTMLDivElement | null>(null);
+  let heroBgEl = $state<HTMLDivElement | null>(null);
   let previewVideoEl = $state<HTMLVideoElement | null>(null);
   let previewClip = $state<HeroOpeningPreview | null>(null);
   let videoReady = $state(false);
@@ -95,6 +90,7 @@
   let unmuteFadeStartMs = 0;
   let switchFadeStartMs = 0;
   let skipNextUnmuteFade = false;
+  let hasExplicitMuteChoice = false;
   let volumeTrackEl = $state<HTMLDivElement | null>(null);
   let opCtrlEl = $state<HTMLDivElement | null>(null);
   let videoVolume = $state(loadInitialVolume());
@@ -102,11 +98,32 @@
   let isAdjustingVolume = $state(false);
   let isSwitchingOpening = $state(false);
   let opMenuOpen = $state(false);
-  let opBarDismissed = $state(false);
+  let bgSlideIndex = $state(0);
   let selectedOpenings = $state<Record<number, number>>(loadSelectedOpenings());
   let effectiveVolume = $derived(videoMuted ? 0 : videoVolume);
 
   let activeHero = $derived(spotlight[activeIndex] ?? spotlight[0] ?? null);
+  let bgScreenshots = $derived.by(() => {
+    if (!activeHero) return [] as string[];
+    const unique: string[] = [];
+    for (const url of [activeHero.bg, ...activeHero.previews]) {
+      if (url && !unique.includes(url)) {
+        unique.push(url);
+      }
+    }
+    return unique;
+  });
+  let displayedBgImage = $derived.by(() => {
+    if (!activeHero) return '';
+    if (bgSlideIndex === 0 || !previewClip) {
+      const idx = bgSlideIndex % Math.max(1, bgScreenshots.length);
+      return bgScreenshots[idx] ?? activeHero.bg ?? '';
+    }
+    const shotIdx = (bgSlideIndex - 1) % Math.max(1, bgScreenshots.length);
+    return bgScreenshots[shotIdx] ?? bgScreenshots[0] ?? activeHero.bg ?? '';
+  });
+  let showOpeningBg = $derived(Boolean(previewClip) && bgSlideIndex === 0);
+  let totalBgSlides = $derived((previewClip ? 1 : 0) + bgScreenshots.length);
   let heroOpenings = $derived(activeHero?.openings ?? []);
   let activeOpeningOption = $derived.by((): HeroOpeningOption | null => {
     if (!activeHero || heroOpenings.length === 0) return null;
@@ -118,7 +135,7 @@
     activeOpeningOption ? Math.max(0, heroOpenings.findIndex((op) => op.number === activeOpeningOption.number)) : 0
   );
   let shouldPlayPreview = $derived(
-    Boolean(previewClip) && router.current === 'home' && isHeroVisible && !search.open
+    Boolean(previewClip) && bgSlideIndex === 0 && router.current === 'home' && isHeroVisible && !search.open
   );
 
   function stopAudioFadeLoop() {
@@ -126,6 +143,12 @@
       window.cancelAnimationFrame(audioFadeRaf);
       audioFadeRaf = undefined;
     }
+  }
+
+  function getPreviewEndSec(video: HTMLVideoElement, clip: HeroOpeningPreview): number {
+    return clip.isDirectVideo && Number.isFinite(video.duration) && video.duration > 1
+      ? video.duration
+      : clip.endSec;
   }
 
   function applyPreviewAudioEnvelope(now = performance.now()) {
@@ -142,7 +165,8 @@
     const clipInLinear = Math.min(1, elapsedInClip / AUDIO_FADE_IN_SEC);
     const clipIn = clipInLinear * clipInLinear;
 
-    const remaining = Math.max(0, clip.endSec - 0.15 - video.currentTime);
+    const endSec = getPreviewEndSec(video, clip);
+    const remaining = Math.max(0, endSec - 0.15 - video.currentTime);
     const clipOutLinear = remaining < AUDIO_FADE_OUT_SEC ? Math.max(0, remaining / AUDIO_FADE_OUT_SEC) : 1;
     const clipOut = clipOutLinear * clipOutLinear;
 
@@ -162,6 +186,7 @@
   function setPreviewVolume(nextRaw: number) {
     const clamped = Math.max(0, Math.min(1, Math.round(nextRaw * 100) / 100));
     if (clamped <= 0) {
+      hasExplicitMuteChoice = true;
       skipNextUnmuteFade = false;
       videoVolume = 0;
       videoMuted = true;
@@ -173,6 +198,7 @@
       return;
     }
 
+    hasExplicitMuteChoice = true;
     const wasMuted = videoMuted;
     videoVolume = clamped;
     lastNonZeroVolume = clamped;
@@ -207,6 +233,7 @@
   }
 
   function togglePreviewMute() {
+    hasExplicitMuteChoice = true;
     skipNextUnmuteFade = false;
     if (videoMuted || videoVolume <= 0) {
       if (videoVolume <= 0) {
@@ -255,10 +282,33 @@
     }
     activeIndex = index;
     const selected = spotlight[index];
-    if (selected?.bg)
+    if (selected?.customPreviewUrl && !hasExplicitMuteChoice && videoMuted)
     {
-      onselectbg?.(selected.bg);
+      videoMuted = false;
     }
+  }
+
+  function nextBgSlide() {
+    if (totalBgSlides <= 1) return;
+    bgSlideIndex = (bgSlideIndex + 1) % totalBgSlides;
+  }
+
+  function bgSlideIn(_node: Element) {
+    return {
+      duration: 540,
+      easing: cubicOut,
+      css: (t: number) =>
+        `opacity: ${t}; transform: scale(${1.03 - t * 0.03});`
+    };
+  }
+
+  function bgSlideOut(_node: Element) {
+    return {
+      duration: 460,
+      easing: cubicOut,
+      css: (t: number) =>
+        `opacity: ${t}; transform: scale(${1 + (1 - t) * 0.02});`
+    };
   }
 
   function startAutoCycle()
@@ -266,17 +316,11 @@
     window.clearInterval(cycleTimer);
     cycleTimer = window.setInterval(() =>
     {
-      if (isPaused || opMenuOpen || !videoMuted || router.current !== 'home' || spotlight.length <= 1)
+      if (isPaused || opMenuOpen || !videoMuted || bgSlideIndex > 0 || router.current !== 'home' || spotlight.length <= 1)
       {
         return;
       }
-      const next = (activeIndex + 1) % spotlight.length;
-      activeIndex = next;
-      const selected = spotlight[next];
-      if (selected?.bg)
-      {
-        onselectbg?.(selected.bg);
-      }
+      activeIndex = (activeIndex + 1) % spotlight.length;
     }, SPOTLIGHT_INTERVAL_MS);
   }
 
@@ -287,6 +331,8 @@
       openingAlias: option ? option.alias : hero.openingAlias,
       openingEpisode: option ? option.episode : hero.openingEpisode,
       openingStartOffsetSec: option ? option.startOffsetSec : hero.openingStartOffsetSec,
+      customPreviewUrl: hero.customPreviewUrl,
+      customPreviewAspect: hero.customPreviewAspect,
       shikiId: hero.shikiId,
       searchQueries: hero.searchQueries
     });
@@ -294,7 +340,7 @@
 
   async function selectHeroOpening(
     opNumber: number,
-    options?: { dismiss?: boolean; triggerEl?: HTMLElement | null }
+    options?: { triggerEl?: HTMLElement | null }
   ) {
     options?.triggerEl?.blur();
     if (document.activeElement instanceof HTMLElement && opCtrlEl?.contains(document.activeElement)) {
@@ -306,9 +352,6 @@
     const targetOp = heroOpenings.find((op) => op.number === opNumber);
     if (!targetOp || targetOp.number === activeOpeningOption?.number) {
       opMenuOpen = false;
-      if (options?.dismiss !== false) {
-        opBarDismissed = true;
-      }
       return;
     }
 
@@ -321,9 +364,7 @@
     }
 
     opMenuOpen = false;
-    if (options?.dismiss !== false) {
-      opBarDismissed = true;
-    }
+    bgSlideIndex = 0;
     const token = ++previewReqToken;
     switchFadeStartMs = performance.now();
     isSwitchingOpening = true;
@@ -351,7 +392,7 @@
     const nextIdx = (activeOpeningIndex + delta + heroOpenings.length) % heroOpenings.length;
     const nextOp = heroOpenings[nextIdx];
     if (nextOp) {
-      void selectHeroOpening(nextOp.number, { dismiss: false, triggerEl });
+      void selectHeroOpening(nextOp.number, { triggerEl });
     }
   }
 
@@ -379,10 +420,10 @@
     const hero = activeHero;
     const token = ++previewReqToken;
     previewClip = null;
+    bgSlideIndex = 0;
     isSwitchingOpening = false;
     switchFadeStartMs = 0;
     opMenuOpen = false;
-    opBarDismissed = false;
     untrack(() => destroyPreviewStream());
 
     if (!hero) return;
@@ -397,10 +438,16 @@
 
     resolveOpeningForHero(hero, initialOp)
       .then((clip) => {
-        if (token !== previewReqToken || !clip) return;
+        if (token !== previewReqToken) return;
+        if (!clip) {
+          markHeroMediaReady();
+          return;
+        }
         previewClip = clip;
       })
-      .catch(() => {});
+      .catch(() => {
+        markHeroMediaReady();
+      });
   });
 
   $effect(() => {
@@ -416,7 +463,8 @@
 
     const trySeekAndPlay = () => {
       if (cancelled || !video) return;
-      if (video.currentTime < clip.startSec - 0.15 || video.currentTime >= clip.endSec) {
+      const endSec = getPreviewEndSec(video, clip);
+      if (video.currentTime < clip.startSec - 0.15 || video.currentTime >= endSec) {
         video.currentTime = clip.startSec;
       }
       if (untrack(() => shouldPlayPreview)) {
@@ -424,7 +472,12 @@
       }
     };
 
-    if (Hls.isSupported()) {
+    if (clip.isDirectVideo) {
+      video.src = clip.streamUrl;
+      video.load();
+      trySeekAndPlay();
+      video.addEventListener('loadedmetadata', trySeekAndPlay, { once: true });
+    } else if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
@@ -439,6 +492,7 @@
       hls.on(Hls.Events.MANIFEST_PARSED, trySeekAndPlay);
       hls.on(Hls.Events.ERROR, (_ev, data) => {
         if (data.fatal) {
+          markHeroMediaReady();
           destroyPreviewStream();
         }
       });
@@ -460,7 +514,8 @@
     if (!video || !clip) return;
     untrack(() => {
       if (play) {
-        if (video.currentTime < clip.startSec - 0.15 || video.currentTime >= clip.endSec) {
+        const endSec = getPreviewEndSec(video, clip);
+        if (video.currentTime < clip.startSec - 0.15 || video.currentTime >= endSec) {
           video.currentTime = clip.startSec;
         }
         unmuteFadeStartMs = performance.now();
@@ -504,7 +559,7 @@
   });
 
   $effect(() => {
-    const el = previewStripEl;
+    const el = heroBgEl;
     if (!el || typeof IntersectionObserver === 'undefined') return;
     const io = new IntersectionObserver(
       (entries) => {
@@ -527,10 +582,6 @@
 
   onMount(async () =>
   {
-    if (spotlight.length > 0 && spotlight[activeIndex]?.bg)
-    {
-      onselectbg?.(spotlight[activeIndex].bg);
-    }
     startAutoCycle();
 
     const feeds = await loadHomeFeeds();
@@ -538,10 +589,6 @@
     {
       spotlight = feeds.spotlight;
       activeIndex = 0;
-      if (feeds.spotlight[0]?.bg)
-      {
-        onselectbg?.(feeds.spotlight[0].bg);
-      }
     }
   });
 
@@ -602,289 +649,294 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<section
-  class="hero-container"
-  onmouseenter={() => { isPaused = true; }}
-  onmouseleave={() => { isPaused = false; }}
->
-  <!-- 3-screenshot horizontal gallery strip with stretched full-width opening video preview -->
-  <div
-    class="preview-strip"
-    bind:this={previewStripEl}
-    onmouseleave={() => { opBarDismissed = false; }}
-  >
-    {#if activeHero}
-      {#key activeHero.shikiId}
-        <div
-          class="preview-set"
-          transition:fade={{ duration: 280, easing: cubicOut }}
-        >
-          {#if activeHero.previews.length >= 3}
-            <img src={activeHero.previews[0]} alt="{activeHero.title} preview 1" class="preview-img img-1" decoding="async" />
-            <img src={activeHero.previews[1]} alt="{activeHero.title} preview 2" class="preview-img img-2" decoding="async" />
-            <img src={activeHero.previews[2]} alt="{activeHero.title} preview 3" class="preview-img img-3" decoding="async" />
-          {/if}
-        </div>
-      {/key}
-    {/if}
+<div class="hero-bg-wrapper" bind:this={heroBgEl}>
+  {#if displayedBgImage}
+    {#key displayedBgImage}
+      <div
+        class="hero-bg-image"
+        style="background-image: url('{displayedBgImage}');"
+        in:bgSlideIn
+        out:bgSlideOut
+      ></div>
+    {/key}
+  {/if}
 
-    <div
-      class="preview-video-stage"
-      class:is-ready={videoReady}
-      class:is-switching={isSwitchingOpening}
-    >
-      <video
-        bind:this={previewVideoEl}
-        class="preview-video"
-        muted={videoMuted}
-        playsinline
-        preload="auto"
-        onplaying={() => {
-          if (previewClip && previewVideoEl && previewVideoEl.currentTime >= previewClip.startSec - 0.2) {
-            if (!videoReady) {
-              unmuteFadeStartMs = performance.now();
-              isSwitchingOpening = false;
-              switchFadeStartMs = 0;
-            }
-            videoReady = true;
-            applyPreviewAudioEnvelope();
-          }
-        }}
-        ontimeupdate={() => {
-          if (!previewClip || !previewVideoEl) return;
-          const t = previewVideoEl.currentTime;
-          if (!previewVideoEl.seeking && t < previewClip.startSec - 0.15) {
-            previewVideoEl.volume = 0;
-            previewVideoEl.currentTime = previewClip.startSec;
-            return;
-          }
-          if (!videoReady && t >= previewClip.startSec - 0.2) {
-            videoReady = true;
+  <!-- Opening video playing full-bleed behind overlays & text -->
+  <div
+    class="hero-bg-video-stage"
+    class:is-ready={videoReady && showOpeningBg}
+    class:is-switching={isSwitchingOpening}
+  >
+    <video
+      bind:this={previewVideoEl}
+      class="hero-bg-video"
+      muted={videoMuted}
+      playsinline
+      preload="auto"
+      onplaying={() => {
+        if (previewClip && previewVideoEl && previewVideoEl.currentTime >= previewClip.startSec - 0.2) {
+          if (!videoReady) {
+            unmuteFadeStartMs = performance.now();
             isSwitchingOpening = false;
             switchFadeStartMs = 0;
-            unmuteFadeStartMs = performance.now();
           }
-          if (t >= previewClip.endSec - 0.15) {
-            previewVideoEl.volume = 0;
-            previewVideoEl.currentTime = previewClip.startSec;
-            return;
-          }
+          videoReady = true;
+          markHeroMediaReady();
           applyPreviewAudioEnvelope();
-        }}
-      ></video>
-    </div>
-
-    {#if videoReady && previewClip}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="preview-sound-ctrl"
-        class:is-adjusting={isAdjustingVolume}
-        onwheel={(e) => {
-          e.preventDefault();
-          const delta = e.deltaY < 0 ? 0.05 : -0.05;
-          setPreviewVolume((videoMuted ? 0 : videoVolume) + delta);
-        }}
-      >
-        <div class="preview-volume-wrap">
-          <div
-            bind:this={volumeTrackEl}
-            class="preview-volume-track"
-            role="slider"
-            tabindex="0"
-            aria-label="Opening preview volume"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(effectiveVolume * 100)}
-            onpointerdown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              isAdjustingVolume = true;
-              e.currentTarget.setPointerCapture(e.pointerId);
-              setVolumeFromPointer(e.clientX);
-            }}
-            onpointermove={(e) => {
-              if (!isAdjustingVolume) return;
-              setVolumeFromPointer(e.clientX);
-            }}
-            onpointerup={(e) => {
-              if (!isAdjustingVolume) return;
-              isAdjustingVolume = false;
-              if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                e.currentTarget.releasePointerCapture(e.pointerId);
-              }
-            }}
-            onpointercancel={(e) => {
-              if (!isAdjustingVolume) return;
-              isAdjustingVolume = false;
-              if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                e.currentTarget.releasePointerCapture(e.pointerId);
-              }
-            }}
-            onkeydown={(e) => {
-              if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-                e.preventDefault();
-                setPreviewVolume((videoMuted ? 0 : videoVolume) + 0.05);
-              } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-                e.preventDefault();
-                setPreviewVolume((videoMuted ? 0 : videoVolume) - 0.05);
-              }
-            }}
-          >
-            <div class="preview-volume-bar">
-              <div
-                class="preview-volume-fill"
-                style="width: {Math.round(effectiveVolume * 100)}%"
-              ></div>
-              <div
-                class="preview-volume-thumb"
-                style="left: {Math.round(effectiveVolume * 100)}%"
-              ></div>
-            </div>
-          </div>
-        </div>
-        <button
-          type="button"
-          class="preview-sound-btn"
-          aria-label={videoMuted ? 'Unmute opening preview' : 'Mute opening preview'}
-          title={videoMuted ? 'Unmute opening' : `Volume: ${Math.round(effectiveVolume * 100)}%`}
-          onclick={togglePreviewMute}
-        >
-          {#if videoMuted || videoVolume <= 0}
-            <VolumeX size={15} strokeWidth={2} />
-          {:else}
-            <Volume2 size={15} strokeWidth={2} />
-          {/if}
-        </button>
-      </div>
-    {/if}
-
-    {#if heroOpenings.length > 1 && activeOpeningOption && (videoReady || isSwitchingOpening || previewClip)}
-      <div
-        class="preview-op-dock"
-        onmouseenter={() => { opBarDismissed = false; }}
-      >
-        <div
-          bind:this={opCtrlEl}
-          class="preview-op-ctrl"
-          class:is-open={opMenuOpen}
-          class:is-dismissed={opBarDismissed}
-        >
-          {#if opMenuOpen && heroOpenings.length > 6}
-            <div
-              class="preview-op-popover"
-              role="listbox"
-              aria-label="Choose anime opening"
-              transition:fly={{ y: 6, duration: 200, easing: cubicOut }}
-            >
-              <div class="preview-op-popover-head">
-                <span>Opening</span>
-                <span class="preview-op-popover-title">{activeOpeningOption.title}</span>
-              </div>
-              <div class="preview-op-grid">
-                {#each heroOpenings as op (op.number)}
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={op.number === activeOpeningOption.number}
-                    class="preview-op-grid-btn"
-                    class:is-active={op.number === activeOpeningOption.number}
-                    title={`${op.label} · ${op.title}`}
-                    onclick={(e) => selectHeroOpening(op.number, { triggerEl: e.currentTarget })}
-                  >
-                    {op.number}
-                  </button>
-                {/each}
-              </div>
-            </div>
-          {/if}
-
-          {#if heroOpenings.length <= 6}
-            <span class="preview-op-tag" title={activeOpeningOption.title}>OP</span>
-            <div class="preview-op-segments" role="tablist" aria-label="Opening selector">
-              <span
-                class="preview-op-pill"
-                aria-hidden="true"
-                style="transform: translateX({activeOpeningIndex * 28}px);"
-              ></span>
-              {#each heroOpenings as op (op.number)}
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={op.number === activeOpeningOption.number}
-                  class="preview-op-num"
-                  class:is-active={op.number === activeOpeningOption.number}
-                  title={`${op.label} · ${op.title}`}
-                  onclick={(e) => selectHeroOpening(op.number, { triggerEl: e.currentTarget })}
-                >
-                  {op.number}
-                </button>
-              {/each}
-            </div>
-          {:else}
-            <button
-              type="button"
-              class="preview-op-step"
-              aria-label="Previous opening"
-              title="Previous opening"
-              onclick={(e) => stepHeroOpening(-1, e.currentTarget)}
-            >
-              <ChevronLeft size={14} strokeWidth={2.2} />
-            </button>
-            <button
-              type="button"
-              class="preview-op-current"
-              aria-expanded={opMenuOpen}
-              title={activeOpeningOption.title}
-              onclick={() => {
-                opMenuOpen = !opMenuOpen;
-              }}
-            >
-              <span>{activeOpeningOption.label}</span>
-            </button>
-            <button
-              type="button"
-              class="preview-op-step"
-              aria-label="Next opening"
-              title="Next opening"
-              onclick={(e) => stepHeroOpening(1, e.currentTarget)}
-            >
-              <ChevronRight size={14} strokeWidth={2.2} />
-            </button>
-          {/if}
-        </div>
-      </div>
-    {/if}
+        }
+      }}
+      ontimeupdate={() => {
+        if (!previewClip || !previewVideoEl) return;
+        const t = previewVideoEl.currentTime;
+        if (!previewVideoEl.seeking && t < previewClip.startSec - 0.15) {
+          previewVideoEl.volume = 0;
+          previewVideoEl.currentTime = previewClip.startSec;
+          return;
+        }
+        if (!videoReady && t >= previewClip.startSec - 0.2) {
+          videoReady = true;
+          markHeroMediaReady();
+          isSwitchingOpening = false;
+          switchFadeStartMs = 0;
+          unmuteFadeStartMs = performance.now();
+        }
+        const endSec = getPreviewEndSec(previewVideoEl, previewClip);
+        if (t >= endSec - 0.15) {
+          previewVideoEl.volume = 0;
+          previewVideoEl.currentTime = previewClip.startSec;
+          return;
+        }
+        applyPreviewAudioEnvelope();
+      }}
+    ></video>
   </div>
 
-  <!-- Hero title + symmetric two-column body -->
-  <div class="hero-content">
-    {#if activeHero}
-      <h1 class="hero-title">{activeHero.title}</h1>
+  <!-- 1. Dark dimming & gradients over background opening video -->
+  <div class="bg-dark-overlay"></div>
+  <div class="bg-gradient-overlay"></div>
+  <div class="bg-fade-to-solid"></div>
 
-      <div class="hero-body">
-        <div class="hero-main-col">
-          <div class="hero-meta">
-            <MetaLine score={activeHero.score} tags={activeHero.metaTags} />
-          </div>
-          <p class="hero-description">{activeHero.description}</p>
+  <div class="hero-content-layer">
+    <section
+      class="hero-container"
+      onmouseenter={() => { isPaused = true; }}
+      onmouseleave={() => { isPaused = false; }}
+    >
+      {#if totalBgSlides > 1}
+        <button
+          type="button"
+          class="hero-bg-next-btn"
+          aria-label="Next background frame"
+          onclick={nextBgSlide}
+        >
+          <ChevronRight size={22} strokeWidth={1.75} />
+        </button>
+      {/if}
 
-          <!-- Action buttons with icons -->
-          <div class="hero-actions">
-            <MainButton loading={isWatchLoading || player.loading} onclick={handleWatchClick}>
-              {#snippet icon()}
-                <Play size={16} fill="currentColor" strokeWidth={0} />
-              {/snippet}
-              Watch
-            </MainButton>
+      <!-- Hero title + symmetric two-column body -->
+      <div class="hero-content">
+        {#if activeHero}
+          <h1 class="hero-title">{activeHero.title}</h1>
 
-            <SecondButton loading={isPlanLoading} onclick={handlePlanClick}>
-              {#snippet icon()}
-                <Bookmark size={16} strokeWidth={2} />
-              {/snippet}
-              Plan to Watch
-            </SecondButton>
-          </div>
-        </div>
+          <div class="hero-body">
+            <div class="hero-main-col">
+              <div class="hero-meta">
+                <MetaLine score={activeHero.score} tags={activeHero.metaTags} />
+              </div>
+              <p class="hero-description">{activeHero.description}</p>
+
+              <!-- Action buttons with icons + opening audio/selector controls -->
+              <div class="hero-actions">
+                <MainButton loading={isWatchLoading || player.loading} onclick={handleWatchClick}>
+                  {#snippet icon()}
+                    <Play size={16} fill="currentColor" strokeWidth={0} />
+                  {/snippet}
+                  Watch
+                </MainButton>
+
+                <SecondButton loading={isPlanLoading} onclick={handlePlanClick}>
+                  {#snippet icon()}
+                    <Bookmark size={16} strokeWidth={2} />
+                  {/snippet}
+                  Plan to Watch
+                </SecondButton>
+
+                {#if videoReady && previewClip}
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <div
+                    class="preview-sound-ctrl"
+                    class:is-adjusting={isAdjustingVolume}
+                    onwheel={(e) => {
+                      e.preventDefault();
+                      const delta = e.deltaY < 0 ? 0.05 : -0.05;
+                      setPreviewVolume((videoMuted ? 0 : videoVolume) + delta);
+                    }}
+                  >
+                    <button
+                      type="button"
+                      class="preview-sound-btn"
+                      aria-label={videoMuted ? 'Unmute opening preview' : 'Mute opening preview'}
+                      title={videoMuted ? 'Unmute opening' : `Volume: ${Math.round(effectiveVolume * 100)}%`}
+                      onclick={togglePreviewMute}
+                    >
+                      {#if videoMuted || videoVolume <= 0}
+                        <VolumeX size={16} strokeWidth={2} />
+                      {:else}
+                        <Volume2 size={16} strokeWidth={2} />
+                      {/if}
+                    </button>
+                    <div class="preview-volume-wrap">
+                      <div
+                        bind:this={volumeTrackEl}
+                        class="preview-volume-track"
+                        role="slider"
+                        tabindex="0"
+                        aria-label="Opening preview volume"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(effectiveVolume * 100)}
+                        onpointerdown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          isAdjustingVolume = true;
+                          e.currentTarget.setPointerCapture(e.pointerId);
+                          setVolumeFromPointer(e.clientX);
+                        }}
+                        onpointermove={(e) => {
+                          if (!isAdjustingVolume) return;
+                          setVolumeFromPointer(e.clientX);
+                        }}
+                        onpointerup={(e) => {
+                          if (!isAdjustingVolume) return;
+                          isAdjustingVolume = false;
+                          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                            e.currentTarget.releasePointerCapture(e.pointerId);
+                          }
+                        }}
+                        onpointercancel={(e) => {
+                          if (!isAdjustingVolume) return;
+                          isAdjustingVolume = false;
+                          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                            e.currentTarget.releasePointerCapture(e.pointerId);
+                          }
+                        }}
+                        onkeydown={(e) => {
+                          if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+                            e.preventDefault();
+                            setPreviewVolume((videoMuted ? 0 : videoVolume) + 0.05);
+                          } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+                            e.preventDefault();
+                            setPreviewVolume((videoMuted ? 0 : videoVolume) - 0.05);
+                          }
+                        }}
+                      >
+                        <div class="preview-volume-bar">
+                          <div
+                            class="preview-volume-fill"
+                            style="width: {Math.round(effectiveVolume * 100)}%"
+                          ></div>
+                          <div
+                            class="preview-volume-thumb"
+                            style="left: {Math.round(effectiveVolume * 100)}%"
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+
+                {#if heroOpenings.length > 1 && activeOpeningOption && (videoReady || isSwitchingOpening || previewClip)}
+                  <div
+                    bind:this={opCtrlEl}
+                    class="preview-op-ctrl"
+                    class:is-open={opMenuOpen}
+                  >
+                    {#if opMenuOpen && heroOpenings.length > 6}
+                      <div
+                        class="preview-op-popover"
+                        role="listbox"
+                        aria-label="Choose anime opening"
+                        transition:fly={{ y: 6, duration: 200, easing: cubicOut }}
+                      >
+                        <div class="preview-op-popover-head">
+                          <span>Opening</span>
+                          <span class="preview-op-popover-title">{activeOpeningOption.title}</span>
+                        </div>
+                        <div class="preview-op-grid">
+                          {#each heroOpenings as op (op.number)}
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={op.number === activeOpeningOption.number}
+                              class="preview-op-grid-btn"
+                              class:is-active={op.number === activeOpeningOption.number}
+                              title={`${op.label} · ${op.title}`}
+                              onclick={(e) => selectHeroOpening(op.number, { triggerEl: e.currentTarget })}
+                            >
+                              {op.number}
+                            </button>
+                          {/each}
+                        </div>
+                      </div>
+                    {/if}
+
+                    {#if heroOpenings.length <= 6}
+                      <span class="preview-op-tag" title={activeOpeningOption.title}>OP</span>
+                      <div class="preview-op-segments" role="tablist" aria-label="Opening selector">
+                        <span
+                          class="preview-op-pill"
+                          aria-hidden="true"
+                          style="transform: translateX({activeOpeningIndex * 28}px);"
+                        ></span>
+                        {#each heroOpenings as op (op.number)}
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={op.number === activeOpeningOption.number}
+                            class="preview-op-num"
+                            class:is-active={op.number === activeOpeningOption.number}
+                            title={`${op.label} · ${op.title}`}
+                            onclick={(e) => selectHeroOpening(op.number, { triggerEl: e.currentTarget })}
+                          >
+                            {op.number}
+                          </button>
+                        {/each}
+                      </div>
+                    {:else}
+                      <button
+                        type="button"
+                        class="preview-op-step"
+                        aria-label="Previous opening"
+                        title="Previous opening"
+                        onclick={(e) => stepHeroOpening(-1, e.currentTarget)}
+                      >
+                        <ChevronLeft size={14} strokeWidth={2.2} />
+                      </button>
+                      <button
+                        type="button"
+                        class="preview-op-current"
+                        aria-expanded={opMenuOpen}
+                        title={activeOpeningOption.title}
+                        onclick={() => {
+                          opMenuOpen = !opMenuOpen;
+                        }}
+                      >
+                        <span>{activeOpeningOption.label}</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="preview-op-step"
+                        aria-label="Next opening"
+                        title="Next opening"
+                        onclick={(e) => stepHeroOpening(1, e.currentTarget)}
+                      >
+                        <ChevronRight size={14} strokeWidth={2.2} />
+                      </button>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            </div>
 
         <!-- Bottom-right Mila-native panorama accordion strip -->
         <aside class="hero-strip-wrap" aria-label="Featured spotlight switcher">
@@ -916,7 +968,7 @@
                 {#if idx === activeIndex}
                   <span
                     class="strip-progress"
-                    class:is-paused={isPaused}
+                    class:is-paused={isPaused || opMenuOpen || bgSlideIndex > 0 || router.current !== 'home'}
                     style="animation-duration: {SPOTLIGHT_INTERVAL_MS}ms;"
                   ></span>
                 {/if}
@@ -928,13 +980,123 @@
     {/if}
   </div>
 
-  <!-- Bottom scroll indicator chevron -->
-  <button type="button" class="hero-bottom-arrow" aria-label="Scroll to releases" onclick={scrollBelowHero}>
-    <ChevronDown size={18} strokeWidth={2} class="arrow-icon" />
-  </button>
-</section>
+      <!-- Bottom scroll indicator chevron -->
+      <button type="button" class="hero-bottom-arrow" aria-label="Scroll to releases" onclick={scrollBelowHero}>
+        <ChevronDown size={18} strokeWidth={2} class="arrow-icon" />
+      </button>
+    </section>
+  </div>
+</div>
 
 <style>
+  .hero-bg-wrapper {
+    position: relative;
+    width: 100%;
+    min-height: 105vh;
+    padding-top: 72px;
+    background-color: #0c0c0c;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    overflow: hidden;
+    contain: layout style paint;
+  }
+
+  .hero-bg-image {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    z-index: 0;
+    pointer-events: none;
+    will-change: opacity;
+  }
+
+  .hero-bg-video-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0;
+    transform: scale(1.022);
+    filter: blur(6px);
+    transition:
+      opacity 0.52s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.56s cubic-bezier(0.22, 1, 0.36, 1),
+      filter 0.52s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform, filter;
+  }
+
+  .hero-bg-video-stage.is-ready {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0px);
+  }
+
+  .hero-bg-video-stage.is-ready.is-switching {
+    opacity: 0;
+    transform: scale(1.022);
+    filter: blur(6px);
+  }
+
+  .hero-bg-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center center;
+    display: block;
+  }
+
+  /* 52% base dark dimming so moving opening stays visible yet text remains crisp */
+  .bg-dark-overlay {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.52);
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  /* smooth vertical vignette */
+  .bg-gradient-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.5) 0%,
+      rgba(0, 0, 0, 0.1) 30%,
+      rgba(0, 0, 0, 0.32) 66%,
+      rgba(0, 0, 0, 0.82) 100%
+    );
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  /* bottom fade to solid #0C0C0C */
+  .bg-fade-to-solid {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(12, 12, 12, 0) 40%,
+      rgba(12, 12, 12, 0.6) 70%,
+      rgba(12, 12, 12, 0.95) 90%,
+      #0c0c0c 100%
+    );
+    z-index: 3;
+    pointer-events: none;
+  }
+
+  .hero-content-layer {
+    position: relative;
+    z-index: 4;
+    width: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
   .hero-container {
     width: 100%;
     min-height: calc(100vh - 72px);
@@ -946,132 +1108,73 @@
     z-index: 2;
   }
 
-  /* 3-screenshot horizontal gallery strip */
-  .preview-strip {
-    position: relative;
-    width: 100%;
-    height: clamp(260px, 38vh, 310px);
-    min-height: 250px;
-    border-radius: var(--radius-card);
-    overflow: hidden;
-    box-sizing: border-box;
-    flex-shrink: 0;
-    contain: layout style paint;
-    background: rgba(12, 12, 12, 0.45);
-  }
-
-  .preview-set {
+  .hero-bg-next-btn {
     position: absolute;
-    inset: 0;
-    display: flex;
-    gap: 8px;
-    width: 100%;
-    height: 100%;
-    background: #0c0c0c;
-  }
-
-  .preview-img {
-    flex: 1 1 0;
-    height: 100%;
-    min-width: 0;
-    border-radius: calc(var(--radius-card) - 2px);
-    object-fit: cover;
-    object-position: center 25%;
-    display: block;
-    user-select: none;
-    pointer-events: none;
-  }
-
-  .preview-video-stage {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
+    right: 16px;
+    top: 40%;
+    transform: translateY(-50%);
+    z-index: 6;
+    width: 40px;
+    height: 54px;
+    padding: 0;
+    border: none;
+    outline: none;
+    border-radius: 999px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.28);
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #0c0c0c;
-    pointer-events: none;
-    opacity: 0;
-    transform: scale(1.022);
-    filter: blur(6px);
+    cursor: pointer;
+    opacity: 0.5;
     transition:
-      opacity 0.42s cubic-bezier(0.22, 1, 0.36, 1),
-      transform 0.48s cubic-bezier(0.22, 1, 0.36, 1),
-      filter 0.42s cubic-bezier(0.22, 1, 0.36, 1);
-    will-change: opacity, transform, filter;
+      opacity 0.26s var(--ease-out),
+      color 0.22s var(--ease-out),
+      background-color 0.22s var(--ease-out),
+      transform 0.22s var(--ease-out);
   }
 
-  .preview-video-stage.is-ready {
+  .hero-bg-wrapper:hover .hero-bg-next-btn {
+    opacity: 0.72;
+  }
+
+  .hero-bg-next-btn:hover,
+  .hero-bg-next-btn:focus-visible {
     opacity: 1;
-    transform: scale(1);
-    filter: blur(0px);
+    color: rgba(255, 255, 255, 0.94);
+    background: transparent;
+    transform: translateY(-50%) translateX(2px);
   }
 
-  .preview-video-stage.is-ready.is-switching {
-    opacity: 0;
-    transform: scale(1.022);
-    filter: blur(6px);
-  }
-
-  .preview-video {
-    width: 100%;
-    height: 100%;
-    object-fit: fill;
-    display: block;
-  }
-
-  .preview-op-dock {
-    position: absolute;
-    left: 0;
-    bottom: 0;
-    z-index: 3;
-    padding: 14px 18px 12px 12px;
-    display: flex;
-    align-items: flex-end;
+  .hero-bg-next-btn:active {
+    transform: translateY(-50%) scale(0.94);
   }
 
   .preview-op-ctrl {
     position: relative;
-    height: 36px;
-    padding: 3px;
+    height: 38px;
+    padding: 4px;
     border-radius: 999px;
-    background: rgba(12, 12, 14, 0.72);
-    backdrop-filter: blur(8px);
+    background: transparent;
     display: flex;
     align-items: center;
     gap: 2px;
-    opacity: 0;
-    transform: translateY(16px);
-    pointer-events: none;
-    transition:
-      opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-      transform 0.34s cubic-bezier(0.22, 1, 0.36, 1),
-      background-color 0.18s ease;
+    opacity: 0.42;
+    transition: opacity 0.24s var(--ease-out);
   }
 
-  .preview-strip:hover .preview-op-ctrl:not(.is-dismissed),
-  .preview-op-dock:hover .preview-op-ctrl:not(.is-dismissed),
-  .preview-op-ctrl:has(:focus-visible),
+  .preview-op-ctrl:hover,
+  .preview-op-ctrl:focus-within,
   .preview-op-ctrl.is-open {
     opacity: 1;
-    transform: translateY(0);
-    pointer-events: auto;
-    transition-delay: 0s;
-  }
-
-  .preview-op-ctrl.is-dismissed:not(.is-open) {
-    opacity: 0;
-    transform: translateY(16px);
-    pointer-events: none;
-    transition-delay: 0.12s;
   }
 
   .preview-op-tag {
-    padding: 0 7px 0 9px;
+    padding: 0 6px 0 6px;
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(255, 255, 255, 0.48);
     user-select: none;
   }
 
@@ -1079,18 +1182,17 @@
     position: relative;
     display: flex;
     align-items: center;
-    height: 30px;
+    height: 28px;
   }
 
   .preview-op-pill {
     position: absolute;
     left: 0;
-    top: 1px;
+    top: 0;
     width: 28px;
     height: 28px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    background: rgba(255, 255, 255, 0.14);
     transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
     pointer-events: none;
   }
@@ -1105,9 +1207,9 @@
     outline: none;
     border-radius: 999px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.78);
+    color: rgba(255, 255, 255, 0.54);
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1;
     display: flex;
     align-items: center;
@@ -1118,43 +1220,42 @@
   }
 
   .preview-op-num:hover:not(.is-active) {
-    color: #ffffff;
+    color: rgba(255, 255, 255, 0.9);
   }
 
   .preview-op-num.is-active {
-    color: #0e0e11;
+    color: #ffffff;
     font-weight: 700;
   }
 
   .preview-op-step {
-    width: 26px;
-    height: 30px;
+    width: 24px;
+    height: 28px;
     padding: 0;
     border: none;
     outline: none;
     border-radius: 999px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.78);
+    color: rgba(255, 255, 255, 0.65);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background-color 0.18s ease, color 0.18s ease;
+    transition: color 0.18s ease, transform 0.16s ease;
   }
 
   .preview-op-step:hover {
-    background: rgba(255, 255, 255, 0.14);
     color: #ffffff;
   }
 
   .preview-op-current {
     height: 28px;
-    padding: 0 10px;
+    padding: 0 8px;
     border: none;
     outline: none;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.14);
-    color: #ffffff;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.84);
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.02em;
@@ -1163,18 +1264,20 @@
     justify-content: center;
     cursor: pointer;
     user-select: none;
-    transition: background-color 0.18s ease, transform 0.16s ease;
+    transition: background-color 0.18s ease, color 0.18s ease;
   }
 
   .preview-op-current:hover,
   .preview-op-ctrl.is-open .preview-op-current {
-    background: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
   }
 
   .preview-op-popover {
     position: absolute;
     left: 0;
-    bottom: calc(100% + 8px);
+    bottom: calc(100% + 10px);
+    z-index: 20;
     padding: 10px;
     border-radius: 14px;
     background: rgba(14, 14, 18, 0.9);
@@ -1236,30 +1339,20 @@
   }
 
   .preview-sound-ctrl {
-    position: absolute;
-    right: 12px;
-    bottom: 12px;
-    z-index: 2;
-    height: 36px;
-    padding: 3px;
+    height: 38px;
+    padding: 2px;
     border-radius: 999px;
-    background: rgba(12, 12, 14, 0.72);
-    backdrop-filter: blur(8px);
+    background: transparent;
     display: flex;
     align-items: center;
-    opacity: 0;
-    transform: translateY(4px);
-    transition:
-      opacity 0.22s var(--ease-out),
-      transform 0.22s var(--ease-out),
-      background-color 0.18s ease;
+    opacity: 0.42;
+    transition: opacity 0.24s var(--ease-out);
   }
 
-  .preview-strip:hover .preview-sound-ctrl,
+  .preview-sound-ctrl:hover,
   .preview-sound-ctrl:focus-within,
   .preview-sound-ctrl.is-adjusting {
     opacity: 1;
-    transform: translateY(0);
   }
 
   .preview-volume-wrap {
@@ -1278,13 +1371,13 @@
   .preview-sound-ctrl:hover .preview-volume-wrap,
   .preview-sound-ctrl:focus-within .preview-volume-wrap,
   .preview-sound-ctrl.is-adjusting .preview-volume-wrap {
-    width: 88px;
+    width: 84px;
     opacity: 1;
-    margin: 0 2px 0 6px;
+    margin: 0 4px 0 2px;
   }
 
   .preview-volume-track {
-    width: 76px;
+    width: 72px;
     height: 22px;
     margin: 0 6px;
     flex-shrink: 0;
@@ -1299,9 +1392,9 @@
   .preview-volume-bar {
     position: relative;
     width: 100%;
-    height: 4px;
+    height: 3px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.2);
   }
 
   .preview-volume-fill {
@@ -1310,48 +1403,44 @@
     top: 0;
     bottom: 0;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92);
+    background: rgba(255, 255, 255, 0.82);
     pointer-events: none;
   }
 
   .preview-volume-thumb {
     position: absolute;
     top: 50%;
-    width: 11px;
-    height: 11px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
-    background: #ffffff;
+    background: rgba(255, 255, 255, 0.92);
     transform: translate(-50%, -50%);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
     transition: transform 0.14s ease;
     pointer-events: none;
   }
 
   .preview-volume-track:hover .preview-volume-thumb,
   .preview-sound-ctrl.is-adjusting .preview-volume-thumb {
-    transform: translate(-50%, -50%) scale(1.15);
+    transform: translate(-50%, -50%) scale(1.18);
   }
 
   .preview-sound-btn {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     flex-shrink: 0;
     border: none;
     outline: none;
     border-radius: 50%;
     background: transparent;
-    color: rgba(255, 255, 255, 0.88);
+    color: rgba(255, 255, 255, 0.78);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition:
-      background-color 0.18s ease,
-      color 0.18s ease;
+    transition: color 0.18s ease, transform 0.18s ease;
   }
 
   .preview-sound-btn:hover {
-    background: rgba(255, 255, 255, 0.16);
     color: #ffffff;
   }
 
@@ -1360,24 +1449,24 @@
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
-    margin-top: 16px;
+    margin-top: auto;
+    padding-top: 120px;
     position: relative;
     z-index: 2;
   }
 
   .hero-title {
-    margin: 0 0 -0.08em 0;
-    padding: 0 0 0.08em 0;
+    margin: 0;
+    padding: 0;
+    max-width: min(100%, 960px);
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(34px, 4.4vw, 68px);
+    font-size: clamp(32px, 4.2vw, 64px);
     font-weight: 700;
     color: #ffffff;
-    line-height: 1.16;
+    line-height: 1.06;
     letter-spacing: -0.02em;
+    overflow-wrap: break-word;
     user-select: none;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .hero-body {
@@ -1419,6 +1508,7 @@
   .hero-actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 12px;
     margin-top: 16px;
   }
@@ -1426,7 +1516,7 @@
   /* Bottom-right Mila-native panorama accordion strip (gap: 0, edge-to-edge posters inside rounded clip) */
   .hero-strip-wrap {
     position: relative;
-    width: clamp(360px, 34vw, 470px);
+    width: clamp(390px, 38vw, 520px);
     height: 158px;
     flex-shrink: 0;
   }
@@ -1567,7 +1657,7 @@
   }
 
   .hero-bottom-arrow {
-    margin-top: auto;
+    margin-top: 18px;
     margin-bottom: 2px;
     padding: 4px 12px;
     border: none;

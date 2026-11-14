@@ -65,6 +65,8 @@ export interface HomeSpotlightItem {
   openingAlias?: string;
   openingEpisode?: number;
   openingStartOffsetSec?: number;
+  customPreviewUrl?: string;
+  customPreviewAspect?: '16:9' | 'fill';
   openings?: HeroOpeningOption[];
   defaultOpeningNumber?: number;
   searchQueries: string[];
@@ -168,6 +170,12 @@ function resolveLibUrl(raw?: string | null): string {
 
 async function fetchJsonWithTimeout<T>(url: string, init?: RequestInit, timeoutMs = 4500): Promise<T> {
   const ctrl = new AbortController();
+  const extSignal = init?.signal;
+  if (extSignal?.aborted) {
+    ctrl.abort();
+  }
+  const onAbort = () => ctrl.abort();
+  extSignal?.addEventListener('abort', onAbort, { once: true });
   const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, { ...init, signal: ctrl.signal });
@@ -177,6 +185,7 @@ async function fetchJsonWithTimeout<T>(url: string, init?: RequestInit, timeoutM
     return (await res.json()) as T;
   } finally {
     window.clearTimeout(timer);
+    extSignal?.removeEventListener('abort', onAbort);
   }
 }
 
@@ -686,18 +695,21 @@ interface RawLibFeedItem {
   id: number;
   alias: string;
   year?: number | null;
+  is_ongoing?: boolean;
+  type?: { value?: string | null; description?: string | null } | null;
   episodes_total?: number | null;
   description?: string | null;
   is_blocked_by_copyrights?: boolean;
   name?: { main?: string | null; english?: string | null } | null;
   shikimori?: { id?: number | null; rating?: number | null } | null;
   mal?: { rating?: number | null } | null;
+  rating?: { average?: number | null } | null;
   poster?: {
     src?: string | null;
     preview?: string | null;
     optimized?: { src?: string | null } | null;
   } | null;
-  genres?: Array<{ name?: string | null }> | null;
+  genres?: Array<{ id?: number | null; name?: string | null }> | null;
   latest_episode?: { ordinal?: number | null } | null;
 }
 
@@ -750,33 +762,16 @@ function pickHighlightPreviews(shots: readonly string[], posterOriginal: string)
   return [shots[0] ?? posterOriginal, shots[1] ?? shots[0] ?? posterOriginal, shots[2] ?? shots[0] ?? posterOriginal];
 }
 
-interface HeroSpotlightSpec {
-  shikiId: number;
-  releaseAlias?: string;
-  defaultOpeningNumber?: number;
-  openings?: HeroOpeningOption[];
-}
+const HERO_SPOTLIGHT_LIMIT = 6;
 
-function mapShikiToSpotlight(
-  art: ShikiArtwork,
-  releaseAlias?: string,
-  spec?: Pick<HeroSpotlightSpec, 'openings' | 'defaultOpeningNumber'>
-): HomeSpotlightItem {
+function mapShikiToSpotlight(art: ShikiArtwork, releaseAlias?: string): HomeSpotlightItem {
   const shots = art.screenshots;
   const previews = pickHighlightPreviews(shots, art.posterOriginal);
-  const openings = spec?.openings;
-  const defaultOpeningNumber = spec?.defaultOpeningNumber ?? openings?.[0]?.number;
-  const defaultOp = openings?.find((op) => op.number === defaultOpeningNumber) ?? openings?.[0];
 
   return {
     shikiId: art.id,
     title: art.english || art.name || art.russian || 'Anime',
     releaseAlias,
-    openingAlias: defaultOp?.alias,
-    openingEpisode: defaultOp?.episode,
-    openingStartOffsetSec: defaultOp?.startOffsetSec,
-    openings,
-    defaultOpeningNumber,
     searchQueries: [art.name, art.english, art.russian].filter(Boolean),
     bg: shots[0] ?? art.posterOriginal ?? '',
     previews,
@@ -791,90 +786,6 @@ export function getCachedHomeFeeds(): HomeFeeds | null {
   return homeFeedsCache;
 }
 
-const HERO_SPOTLIGHT_SPEC: ReadonlyArray<HeroSpotlightSpec> = [
-  {
-    shikiId: 40748,
-    releaseAlias: 'jujutsu-kaisen',
-    defaultOpeningNumber: 3,
-    openings: [
-      { number: 1, label: 'OP 1', title: 'Kaikai Kitan (S1)', alias: 'jujutsu-kaisen', episode: 2 },
-      { number: 2, label: 'OP 2', title: 'VIVID VICE (S1)', alias: 'jujutsu-kaisen', episode: 15 },
-      {
-        number: 3,
-        label: 'OP 3',
-        title: 'Ao no Sumika (S2)',
-        alias: 'jujutsu-kaisen-season-2',
-        episode: 2,
-        startOffsetSec: 3.5
-      },
-      { number: 4, label: 'OP 4', title: 'SPECIALZ (S2)', alias: 'jujutsu-kaisen-season-2', episode: 7 },
-      {
-        number: 5,
-        label: 'OP 5',
-        title: 'Culling Game (S3)',
-        alias: 'jujutsu-kaisen-shimetsu-kaiyuu-zenpen',
-        episode: 2
-      }
-    ]
-  },
-  {
-    shikiId: 57334,
-    releaseAlias: 'dandadan',
-    defaultOpeningNumber: 1,
-    openings: [
-      { number: 1, label: 'OP 1', title: 'Otonoke', alias: 'dandadan', episode: 2, startOffsetSec: 6.5 }
-    ]
-  },
-  {
-    shikiId: 269,
-    releaseAlias: 'bleach',
-    defaultOpeningNumber: 13,
-    openings: [
-      { number: 1, label: 'OP 1', title: '*~Asterisk~', episode: 2 },
-      { number: 2, label: 'OP 2', title: 'D-tecnoLife', episode: 27 },
-      { number: 3, label: 'OP 3', title: 'Ichirin no Hana', episode: 53 },
-      { number: 4, label: 'OP 4', title: 'TONIGHT, TONIGHT, TONIGHT', episode: 76 },
-      { number: 5, label: 'OP 5', title: 'Rolling star', episode: 99 },
-      { number: 6, label: 'OP 6', title: 'ALONES', episode: 122 },
-      { number: 7, label: 'OP 7', title: 'After Dark', episode: 145 },
-      { number: 8, label: 'OP 8', title: 'CHU-BURA', episode: 169 },
-      { number: 9, label: 'OP 9', title: 'Velonica', episode: 191 },
-      { number: 10, label: 'OP 10', title: 'Shoujo S', episode: 216 },
-      { number: 11, label: 'OP 11', title: 'Anima Rossa', episode: 244 },
-      { number: 12, label: 'OP 12', title: 'chAngE', episode: 267 },
-      { number: 13, label: 'OP 13', title: 'Ranbu no Melody', episode: 297 },
-      { number: 14, label: 'OP 14', title: 'BLUE', episode: 318 },
-      { number: 15, label: 'OP 15', title: 'HARUKAZE', episode: 344 }
-    ]
-  },
-  {
-    shikiId: 52299,
-    releaseAlias: 'ore-dake-level-up-na-ken',
-    defaultOpeningNumber: 2,
-    openings: [
-      { number: 1, label: 'OP 1', title: 'LEveL (S1)', alias: 'ore-dake-level-up-na-ken', episode: 2 },
-      {
-        number: 2,
-        label: 'OP 2',
-        title: 'ReawakeR (S2)',
-        alias: 'ore-dake-level-up-na-ken-season-2-arise-from-the-shadow',
-        episode: 2
-      }
-    ]
-  },
-  {
-    shikiId: 22319,
-    releaseAlias: 'tokyo-ghoul',
-    defaultOpeningNumber: 1,
-    openings: [
-      { number: 1, label: 'OP 1', title: 'Unravel (S1)', alias: 'tokyo-ghoul', episode: 6, startOffsetSec: 2.5 },
-      { number: 2, label: 'OP 2', title: 'Munou (√A)', alias: 'tokyo-ghoul-a', episode: 2 },
-      { number: 3, label: 'OP 3', title: 'asphyxia (:re)', alias: 'tokyo-ghoul-re', episode: 2 },
-      { number: 4, label: 'OP 4', title: 'katharsis (:re)', alias: 'tokyo-ghoul-re', episode: 15 }
-    ]
-  }
-];
-
 // Loads curated top-5 Spotlight plus live AniLiberty New Releases and Recommendations.
 export async function loadHomeFeeds(): Promise<HomeFeeds> {
   if (homeFeedsCache) {
@@ -885,14 +796,7 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
   }
 
   homeFeedsPromise = (async () => {
-    const heroIds = HERO_SPOTLIGHT_SPEC.map((item) => item.shikiId).join(',');
     const shikiQuery = `{
-      hero: animes(ids: "${heroIds}", limit: ${HERO_SPOTLIGHT_SPEC.length}, censored: false) {
-        id name russian english description score status episodes episodesAired
-        airedOn { year } genres { name }
-        poster { originalUrl main2xUrl mainUrl }
-        screenshots { originalUrl }
-      }
       ongoing: animes(order: popularity, status: "ongoing", kind: "tv", limit: 18, censored: false) {
         id name russian english description score status episodes episodesAired
         airedOn { year } genres { name }
@@ -923,7 +827,7 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
         undefined,
         7000
       ),
-      fetchJsonWithTimeout<{ data?: { hero?: ShikiGqlNode[]; ongoing?: ShikiGqlNode[]; ranked?: ShikiGqlNode[] } }>(
+      fetchJsonWithTimeout<{ data?: { ongoing?: ShikiGqlNode[]; ranked?: ShikiGqlNode[] } }>(
         SHIKI_GRAPHQL,
         {
           method: 'POST',
@@ -938,16 +842,8 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
     const recRaw = recRes.status === 'fulfilled' && Array.isArray(recRes.value) ? recRes.value : [];
     const topCatRaw =
       topCatRes.status === 'fulfilled' && Array.isArray(topCatRes.value?.data) ? topCatRes.value.data : [];
-    const heroNodes = shikiRes.status === 'fulfilled' ? shikiRes.value.data?.hero ?? [] : [];
     const ongoingNodes = shikiRes.status === 'fulfilled' ? shikiRes.value.data?.ongoing ?? [] : [];
     const rankedNodes = shikiRes.status === 'fulfilled' ? shikiRes.value.data?.ranked ?? [] : [];
-
-    for (const node of heroNodes) {
-      const mapped = mapShikiNode(node);
-      if (mapped) {
-        shikiCache.set(mapped.id, mapped);
-      }
-    }
 
     const ongoingArts: ShikiArtwork[] = [];
     for (const node of ongoingNodes) {
@@ -982,15 +878,13 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
     }
 
     const libShikiIds = [
-      ...HERO_SPOTLIGHT_SPEC.map((item) => item.shikiId),
-      ...[
-        ...topCatRaw.slice(0, 16),
-        ...latestRaw.slice(0, 8),
-        ...recRaw.slice(0, 8)
-      ]
-        .filter((item) => !item.is_blocked_by_copyrights)
-        .map((item) => item.shikimori?.id ?? 0)
-    ].filter((id) => id > 0 && !shikiCache.has(id));
+      ...topCatRaw.slice(0, 16),
+      ...latestRaw.slice(0, 8),
+      ...recRaw.slice(0, 8)
+    ]
+      .filter((item) => !item.is_blocked_by_copyrights)
+      .map((item) => item.shikimori?.id ?? 0)
+      .filter((id) => id > 0 && !shikiCache.has(id));
     if (libShikiIds.length > 0) {
       await ensureShikimoriArtwork(libShikiIds).catch(() => {});
     }
@@ -1005,22 +899,8 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
     const usedShikiIds = new Set<number>();
     const usedFranchises = new Set<string>();
 
-    // 1. Spotlight (requested top 4 in exact order, falling back to popular live titles if any is missing)
+    // 1. Spotlight (fully dynamic live titles from Shikimori ongoing/ranked & AniLiberty top catalog)
     const spotlight: HomeSpotlightItem[] = [];
-    for (const spec of HERO_SPOTLIGHT_SPEC) {
-      const art = shikiCache.get(spec.shikiId);
-      if (!art) continue;
-      const key = franchiseKey(art.english || art.name);
-      usedShikiIds.add(art.id);
-      if (key) usedFranchises.add(key);
-      spotlight.push(
-        mapShikiToSpotlight(
-          art,
-          spec.releaseAlias ?? aliasByShikiId.get(art.id),
-          spec
-        )
-      );
-    }
     const spotlightCandidates = [
       ...ongoingArts.filter(
         (a) => aliasByShikiId.has(a.id) && (a.year ?? 0) >= 2022 && a.screenshots.length >= 3 && a.posterOriginal
@@ -1031,7 +911,7 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
       ...rankedArts.filter((a) => a.screenshots.length >= 3 && a.posterOriginal)
     ];
     for (const art of spotlightCandidates) {
-      if (spotlight.length >= HERO_SPOTLIGHT_SPEC.length) break;
+      if (spotlight.length >= HERO_SPOTLIGHT_LIMIT) break;
       const key = franchiseKey(art.english || art.name);
       if (usedShikiIds.has(art.id) || (key && usedFranchises.has(key))) continue;
       usedShikiIds.add(art.id);
@@ -1169,11 +1049,38 @@ export interface AnimeSeasonEntry {
   poster: string;
 }
 
+export type SearchFilterMode = 'all' | 'library' | 'ongoing';
+
+export interface CatalogGenreOption {
+  id: number;
+  name: string;
+  totalReleases?: number;
+}
+
+export interface SearchQueryOptions {
+  signal?: AbortSignal;
+  filter?: SearchFilterMode;
+  fromYear?: number;
+  toYear?: number;
+  minEpisodes?: number;
+  maxEpisodes?: number;
+  minScore?: number;
+  type?: '' | 'TV' | 'MOVIE' | 'OVA';
+  genreIds?: number[];
+  sorting?: '' | 'RATING_DESC' | 'FRESH_AT_DESC';
+}
+
 export interface SearchGroupItem {
   id: string;
   title: string;
   subTitle?: string;
   year?: number;
+  score?: number;
+  typeLabel?: string;
+  isOngoing?: boolean;
+  episodesTotal?: number;
+  genres?: string[];
+  genreIds?: number[];
   poster: string;
   posterPosition?: string;
   shikiId?: number;
@@ -1369,53 +1276,192 @@ function releaseCandidateToSearchItem(
     r.name?.main ?? ''
   ].filter(Boolean);
 
+  const shikiId = targetSeason?.shikiId ?? r.shikimori?.id ?? undefined;
+  const shiki = shikiId ? shikiCache.get(shikiId) : undefined;
+
+  const rawScore =
+    (shiki?.score && shiki.score > 0 ? shiki.score : 0) ||
+    r.shikimori?.rating ||
+    r.mal?.rating ||
+    r.rating?.average ||
+    0;
+  const libGenres = (r.genres ?? [])
+    .map((g) => g?.name?.trim())
+    .filter((g): g is string => Boolean(g));
+  const genres = libGenres.length > 0 ? libGenres : (shiki?.genres ?? []);
+  const genreIds = (r.genres ?? [])
+    .map((g) => g?.id)
+    .filter((id): id is number => typeof id === 'number' && id > 0);
+  const epCount =
+    (typeof targetSeason?.episodesTotal === 'number' && targetSeason.episodesTotal > 0
+      ? targetSeason.episodesTotal
+      : undefined) ??
+    (typeof r.episodes_total === 'number' && r.episodes_total > 0 ? r.episodes_total : undefined) ??
+    (typeof r.latest_episode?.ordinal === 'number' && r.latest_episode.ordinal > 0
+      ? r.latest_episode.ordinal
+      : undefined) ??
+    (shiki?.episodes && shiki.episodes > 0 ? shiki.episodes : undefined) ??
+    (shiki?.episodesAired && shiki.episodesAired > 0 ? shiki.episodesAired : undefined);
+
   return {
     id: franchise ? `fr-${franchise.id}` : `rel-${r.id}`,
     title: cleanTitle,
     subTitle: franchise?.name && franchise.name !== cleanTitle ? franchise.name : undefined,
-    year: targetSeason?.year ?? r.year ?? undefined,
+    year: targetSeason?.year ?? r.year ?? shiki?.year ?? undefined,
+    score: rawScore > 0 ? Number(rawScore.toFixed(1)) : undefined,
+    typeLabel: targetSeason?.typeLabel ?? r.type?.value ?? r.type?.description ?? 'TV',
+    isOngoing: r.is_ongoing,
+    episodesTotal: epCount,
+    genres: genres.length > 0 ? genres : undefined,
+    genreIds: genreIds.length > 0 ? genreIds : undefined,
     poster,
-    shikiId: targetSeason?.shikiId ?? r.shikimori?.id ?? undefined,
+    shikiId,
     releaseAlias: targetSeason?.alias ?? r.alias,
     searchQueries: Array.from(new Set(queries)),
     seasonCount: Math.max(seasons.length, extraSeasonCount)
   };
 }
 
-export async function searchGroupedAnime(rawQuery: string): Promise<SearchGroupItem[]> {
-  const query = rawQuery.trim();
-  if (query.length < 2) return [];
+let catalogGenresCache: CatalogGenreOption[] | null = null;
+let catalogGenresPending: Promise<CatalogGenreOption[]> | null = null;
 
-  const cacheKey = query.toLowerCase();
+export async function loadCatalogGenres(signal?: AbortSignal): Promise<CatalogGenreOption[]> {
+  if (catalogGenresCache) return catalogGenresCache;
+  if (catalogGenresPending) return catalogGenresPending;
+
+  catalogGenresPending = (async () => {
+    try {
+      const raw = await fetchJsonWithTimeout<
+        Array<{ id?: number; name?: string | null; total_releases?: number | null }>
+      >(`${ANILIBERTY_BASE}/anime/catalog/references/genres`, { signal }, 4500);
+      if (!Array.isArray(raw)) return [];
+      const mapped = raw
+        .filter((g): g is { id: number; name: string; total_releases?: number | null } =>
+          Boolean(g && typeof g.id === 'number' && g.name?.trim())
+        )
+        .map((g) => ({
+          id: g.id,
+          name: g.name.trim(),
+          totalReleases: typeof g.total_releases === 'number' ? g.total_releases : undefined
+        }))
+        .sort((a, b) => (b.totalReleases ?? 0) - (a.totalReleases ?? 0));
+      if (mapped.length > 0) catalogGenresCache = mapped;
+      return mapped;
+    } catch {
+      return [];
+    } finally {
+      catalogGenresPending = null;
+    }
+  })();
+
+  return catalogGenresPending;
+}
+
+export async function searchGroupedAnime(
+  rawQuery: string,
+  opts?: AbortSignal | SearchQueryOptions
+): Promise<SearchGroupItem[]> {
+  const signal = opts instanceof AbortSignal ? opts : opts?.signal;
+  const o: SearchQueryOptions = opts && !(opts instanceof AbortSignal) ? opts : {};
+  const filter: SearchFilterMode = o.filter ?? 'all';
+  const query = rawQuery.trim();
+  const hasAdvancedFilter = Boolean(
+    o.fromYear ||
+      o.toYear ||
+      o.minScore ||
+      o.minEpisodes ||
+      o.maxEpisodes ||
+      o.type ||
+      (o.genreIds && o.genreIds.length > 0) ||
+      o.sorting
+  );
+  if (filter === 'library' || signal?.aborted) return [];
+
+  const sortedGenres = o.genreIds?.length ? [...o.genreIds].sort((a, b) => a - b).join(',') : '';
+  const cacheKey = [
+    filter,
+    query.toLowerCase(),
+    o.fromYear ?? '',
+    o.toYear ?? '',
+    o.minEpisodes ?? '',
+    o.maxEpisodes ?? '',
+    o.minScore ?? '',
+    o.type ?? '',
+    sortedGenres,
+    o.sorting ?? ''
+  ].join('|');
+
   const cached = groupedSearchCache.get(cacheKey);
   if (cached) return cached;
 
-  const [appRes, catRes] = await Promise.allSettled([
-    fetchJsonWithTimeout<RawLibFeedItem[]>(
-      `${ANILIBERTY_BASE}/app/search/releases?query=${encodeURIComponent(query)}`,
-      undefined,
-      4500
-    ),
-    fetchJsonWithTimeout<{ data?: RawLibFeedItem[] }>(
-      `${ANILIBERTY_BASE}/anime/catalog/releases?f[search]=${encodeURIComponent(query)}&limit=15`,
-      undefined,
-      4500
-    )
+  const catalogParams = new URLSearchParams({ limit: '50', page: '1' });
+  if (query.length >= 2) catalogParams.set('f[search]', query);
+  if (filter === 'ongoing') {
+    catalogParams.set('f[publish_statuses]', 'IS_ONGOING');
+  }
+  if (o.fromYear) catalogParams.set('f[years][from_year]', String(o.fromYear));
+  if (o.toYear) catalogParams.set('f[years][to_year]', String(o.toYear));
+  if (o.type) catalogParams.set('f[types]', o.type);
+  if (sortedGenres) catalogParams.set('f[genres]', sortedGenres);
+
+  const effectiveSort =
+    o.sorting ||
+    (o.minScore && o.minScore > 0
+      ? 'RATING_DESC'
+      : filter === 'ongoing'
+        ? 'FRESH_AT_DESC'
+        : query.length === 0
+          ? 'RATING_DESC'
+          : '');
+  if (effectiveSort) catalogParams.set('f[sorting]', effectiveSort);
+
+  const catalogParamsPage2 = new URLSearchParams(catalogParams);
+  catalogParamsPage2.set('page', '2');
+
+  const catalogUrl1 = `${ANILIBERTY_BASE}/anime/catalog/releases?${catalogParams.toString()}`;
+  const catalogUrl2 = `${ANILIBERTY_BASE}/anime/catalog/releases?${catalogParamsPage2.toString()}`;
+  const useAppSearch = filter === 'all' && !hasAdvancedFilter && query.length >= 2;
+  const needPage2 = query.length < 2 || hasAdvancedFilter || filter === 'ongoing';
+
+  const [appRes, catRes1, catRes2] = await Promise.allSettled([
+    useAppSearch
+      ? fetchJsonWithTimeout<RawLibFeedItem[]>(
+          `${ANILIBERTY_BASE}/app/search/releases?query=${encodeURIComponent(query)}`,
+          { signal },
+          4500
+        )
+      : Promise.resolve([] as RawLibFeedItem[]),
+    fetchJsonWithTimeout<{ data?: RawLibFeedItem[] }>(catalogUrl1, { signal }, 5000),
+    needPage2
+      ? fetchJsonWithTimeout<{ data?: RawLibFeedItem[] }>(catalogUrl2, { signal }, 5000)
+      : Promise.resolve({ data: [] as RawLibFeedItem[] })
   ]);
+  if (signal?.aborted) return [];
 
   const rawHits: RawLibFeedItem[] = [];
   const seenIds = new Set<number>();
   for (const item of [
-    ...(catRes.status === 'fulfilled' && Array.isArray(catRes.value?.data) ? catRes.value.data : []),
-    ...(appRes.status === 'fulfilled' && Array.isArray(appRes.value) ? appRes.value : [])
+    ...(catRes1.status === 'fulfilled' && Array.isArray(catRes1.value?.data) ? catRes1.value.data : []),
+    ...(appRes.status === 'fulfilled' && Array.isArray(appRes.value) ? appRes.value : []),
+    ...(catRes2.status === 'fulfilled' && Array.isArray(catRes2.value?.data) ? catRes2.value.data : [])
   ]) {
     if (!item?.id || !item.alias || item.is_blocked_by_copyrights || seenIds.has(item.id)) continue;
     seenIds.add(item.id);
     rawHits.push(item);
   }
 
-  const candidates = rawHits.slice(0, 12);
-  const resolvedList = await Promise.all(candidates.map((hit) => resolveFranchiseByReleaseId(hit.id)));
+  const candidates = rawHits.slice(0, 90);
+
+  // Batch-enrich any candidates missing ratings that have a Shikimori ID
+  const missingScoreShikiIds = candidates
+    .filter((hit) => !(hit.shikimori?.rating || hit.mal?.rating || hit.rating?.average) && hit.shikimori?.id)
+    .map((hit) => hit.shikimori!.id!)
+    .filter((id) => id > 0 && !shikiCache.has(id))
+    .slice(0, 40);
+  if (missingScoreShikiIds.length > 0) {
+    await ensureShikimoriArtwork(missingScoreShikiIds).catch(() => {});
+  }
+  if (signal?.aborted) return [];
 
   interface PendingGroup {
     item: SearchGroupItem;
@@ -1429,7 +1475,7 @@ export async function searchGroupedAnime(rawQuery: string): Promise<SearchGroupI
 
   for (let i = 0; i < candidates.length; i += 1) {
     const hit = candidates[i];
-    const franchise = resolvedList[i];
+    const franchise = franchiseByReleaseCache.get(hit.id) ?? null;
     const fallbackTitle = hit.name?.english || hit.name?.main || '';
     const fKey = franchiseKey(fallbackTitle);
     const groupKey = franchise
@@ -1438,11 +1484,12 @@ export async function searchGroupedAnime(rawQuery: string): Promise<SearchGroupI
         ? `title:${fKey}`
         : `rel:${hit.id}`;
 
+    const candidateItem = releaseCandidateToSearchItem(hit, franchise, 1);
     const existing = groups.get(groupKey);
     if (!existing) {
       orderedKeys.push(groupKey);
       groups.set(groupKey, {
-        item: releaseCandidateToSearchItem(hit, franchise, 1),
+        item: candidateItem,
         earliestYear: hit.year ?? 9999,
         count: 1,
         hasFranchise: Boolean(franchise)
@@ -1451,18 +1498,51 @@ export async function searchGroupedAnime(rawQuery: string): Promise<SearchGroupI
     }
 
     existing.count += 1;
+    if (!existing.item.score && candidateItem.score) {
+      existing.item.score = candidateItem.score;
+    }
+    if (!existing.item.episodesTotal && candidateItem.episodesTotal) {
+      existing.item.episodesTotal = candidateItem.episodesTotal;
+    }
+    if ((!existing.item.genres || existing.item.genres.length === 0) && candidateItem.genres) {
+      existing.item.genres = candidateItem.genres;
+    }
     if (!existing.hasFranchise) {
       const hitYear = hit.year ?? 9999;
       if (hitYear < existing.earliestYear) {
+        const prevScore = existing.item.score;
+        const prevEp = existing.item.episodesTotal;
+        const prevGenres = existing.item.genres;
         existing.earliestYear = hitYear;
         existing.item = releaseCandidateToSearchItem(hit, franchise, existing.count);
+        if (!existing.item.score && prevScore) existing.item.score = prevScore;
+        if (!existing.item.episodesTotal && prevEp) existing.item.episodesTotal = prevEp;
+        if ((!existing.item.genres || existing.item.genres.length === 0) && prevGenres) {
+          existing.item.genres = prevGenres;
+        }
       } else {
         existing.item.seasonCount = Math.max(existing.item.seasonCount, existing.count);
       }
     }
   }
 
-  const grouped = orderedKeys.map((k) => groups.get(k)!.item).slice(0, 10);
+  const grouped = orderedKeys
+    .map((k) => groups.get(k)!.item)
+    .filter((item) => {
+      if (o.fromYear && item.year && item.year < o.fromYear) return false;
+      if (o.toYear && item.year && item.year > o.toYear) return false;
+      if (o.minScore && o.minScore > 0) {
+        if (!item.score || item.score < o.minScore) return false;
+      }
+      if (o.minEpisodes && o.minEpisodes > 1) {
+        if (item.episodesTotal != null && item.episodesTotal < o.minEpisodes) return false;
+      }
+      if (o.maxEpisodes && o.maxEpisodes > 0) {
+        if (item.episodesTotal != null && item.episodesTotal > o.maxEpisodes) return false;
+      }
+      return true;
+    })
+    .slice(0, 50);
   if (grouped.length > 0) {
     groupedSearchCache.set(cacheKey, grouped);
   }
@@ -1541,20 +1621,126 @@ export async function findVoiceOptions(
 
 export interface HeroOpeningPreview {
   streamUrl: string;
+  streamUrlFast?: string;
   startSec: number;
   endSec: number;
   episodeOrdinal: number;
+  isDirectVideo?: boolean;
+  aspectRatio?: '16:9' | 'fill';
 }
+
+export type HeroOpeningTarget = WatchTarget & {
+  openingAlias?: string;
+  openingEpisode?: number;
+  openingStartOffsetSec?: number;
+  customPreviewUrl?: string;
+  customPreviewAspect?: '16:9' | 'fill';
+};
 
 const heroOpeningCache = new Map<string, HeroOpeningPreview | null>();
 const heroOpeningPending = new Map<string, Promise<HeroOpeningPreview | null>>();
+const warmedPlaylists = new Set<string>();
+
+function buildOpeningCacheKey(target: HeroOpeningTarget): string {
+  const previewAlias = target.openingAlias ?? target.releaseAlias;
+  const offsetTag =
+    target.openingStartOffsetSec != null ? String(Math.max(0, target.openingStartOffsetSec)) : 'mid';
+  return `${previewAlias || (target.shikiId ? `shiki:${target.shikiId}` : target.title.toLowerCase())}#${target.openingEpisode ?? 'auto'}+${offsetTag}`;
+}
+
+export function getCachedHeroOpeningPreview(
+  target: HeroOpeningTarget
+): HeroOpeningPreview | null | undefined {
+  if (target.customPreviewUrl) {
+    return {
+      streamUrl: target.customPreviewUrl,
+      streamUrlFast: target.customPreviewUrl,
+      startSec: 0,
+      endSec: 48,
+      episodeOrdinal: 0,
+      isDirectVideo: true,
+      aspectRatio: target.customPreviewAspect ?? 'fill'
+    };
+  }
+  const key = buildOpeningCacheKey(target);
+  if (!heroOpeningCache.has(key)) return undefined;
+  return heroOpeningCache.get(key) ?? null;
+}
+
+async function warmOpeningHlsCache(clip: HeroOpeningPreview): Promise<void> {
+  const url = clip.streamUrlFast || clip.streamUrl;
+  if (!url || clip.isDirectVideo) return;
+  const cacheKey = `${url}#${Math.floor(clip.startSec)}`;
+  if (warmedPlaylists.has(cacheKey)) return;
+  warmedPlaylists.add(cacheKey);
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const text = await res.text();
+    const lines = text.split(/\r?\n/);
+    let accSec = 0;
+    let pendingDur = 0;
+    let warmedSegments = 0;
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (line.startsWith('#EXTINF:')) {
+        const durMatch = line.match(/#EXTINF:([\d.]+)/);
+        pendingDur = durMatch ? parseFloat(durMatch[1]) || 0 : 0;
+        continue;
+      }
+      if (line.startsWith('#')) continue;
+
+      const segEnd = accSec + pendingDur;
+      accSec = segEnd;
+      pendingDur = 0;
+
+      if (segEnd >= clip.startSec) {
+        const segUrl = new URL(line, url).href;
+        void fetch(segUrl).catch(() => {});
+        warmedSegments += 1;
+        if (warmedSegments >= 2) break;
+      }
+    }
+  } catch {
+    // Ignore background cache warming errors
+  }
+}
+
+export function warmHeroOpeningPreview(target: HeroOpeningTarget): void {
+  const cached = getCachedHeroOpeningPreview(target);
+  if (cached) {
+    void warmOpeningHlsCache(cached);
+    return;
+  }
+  if (cached === null) return;
+  void resolveHeroOpeningPreview(target)
+    .then((clip) => {
+      if (clip) {
+        void warmOpeningHlsCache(clip);
+      }
+    })
+    .catch(() => {});
+}
 
 export async function resolveHeroOpeningPreview(
-  target: WatchTarget & { openingAlias?: string; openingEpisode?: number; openingStartOffsetSec?: number }
+  target: HeroOpeningTarget
 ): Promise<HeroOpeningPreview | null> {
+  if (target.customPreviewUrl) {
+    return {
+      streamUrl: target.customPreviewUrl,
+      streamUrlFast: target.customPreviewUrl,
+      startSec: 0,
+      endSec: 48,
+      episodeOrdinal: 0,
+      isDirectVideo: true,
+      aspectRatio: target.customPreviewAspect ?? 'fill'
+    };
+  }
   const previewAlias = target.openingAlias ?? target.releaseAlias;
-  const offsetSec = Math.max(0, target.openingStartOffsetSec ?? 0);
-  const key = `${previewAlias || (target.shikiId ? `shiki:${target.shikiId}` : target.title.toLowerCase())}#${target.openingEpisode ?? 'auto'}+${offsetSec}`;
+  const key = buildOpeningCacheKey(target);
   if (heroOpeningCache.has(key)) {
     return heroOpeningCache.get(key) ?? null;
   }
@@ -1576,37 +1762,64 @@ export async function resolveHeroOpeningPreview(
         ep.opening.stop > ep.opening.start + minDuration &&
         Boolean(ep.hls_720 || ep.hls_480 || ep.hls_1080);
 
-      // Honor explicit target opening episode (e.g. JJK OP3, Bleach OP13) before generic ep-2+ fallback.
+      // Prefer episodes 2+ with full openings (since Episode 1 often omits OP or places it over ending credits).
       const opEp =
         (target.openingEpisode != null
           ? rel.episodes.find((ep) => ep.ordinal === target.openingEpisode && hasValidOpening(ep, 6))
           : undefined) ??
         rel.episodes.find((ep) => ep.ordinal >= 2 && hasValidOpening(ep, 45)) ??
+        rel.episodes.find((ep) => ep.ordinal >= 2 && hasValidOpening(ep, 18)) ??
         rel.episodes.find((ep) => ep.ordinal >= 2 && hasValidOpening(ep, 6)) ??
+        rel.episodes.find((ep) => hasValidOpening(ep, 18)) ??
         rel.episodes.find((ep) => hasValidOpening(ep, 6));
 
       if (opEp?.opening?.start != null && opEp.opening.stop != null) {
         const streamUrl = opEp.hls_720 || opEp.hls_480 || opEp.hls_1080 || '';
+        const streamUrlFast = opEp.hls_480 || opEp.hls_720 || opEp.hls_1080 || '';
         if (streamUrl) {
-          const trimmedStart = Math.min(opEp.opening.start + offsetSec, Math.max(opEp.opening.start, opEp.opening.stop - 8));
+          const opLen = Math.max(0, opEp.opening.stop - opEp.opening.start);
+          // Start around the middle (~46%) of the opening by default to skip intro sponsor/staff credits and drop straight into the chorus.
+          const defaultMidOffset =
+            opLen >= 50
+              ? Math.round(opLen * 0.46)
+              : opLen >= 24
+                ? Math.round(opLen * 0.4)
+                : Math.max(0, Math.round(opLen * 0.25));
+          const effectiveOffset =
+            target.openingStartOffsetSec != null
+              ? Math.max(0, target.openingStartOffsetSec)
+              : defaultMidOffset;
+          const trimmedStart = Math.min(
+            opEp.opening.start + effectiveOffset,
+            Math.max(opEp.opening.start, opEp.opening.stop - 14)
+          );
           const result: HeroOpeningPreview = {
             streamUrl,
+            streamUrlFast: streamUrlFast || streamUrl,
             startSec: trimmedStart,
             endSec: opEp.opening.stop,
             episodeOrdinal: opEp.ordinal
           };
           heroOpeningCache.set(key, result);
+          if (previewAlias && rel.alias && rel.alias !== previewAlias) {
+            heroOpeningCache.set(buildOpeningCacheKey({ ...target, releaseAlias: rel.alias }), result);
+          }
           return result;
         }
       }
 
-      const fallbackEp = rel.episodes.find((ep) => Boolean(ep.hls_720 || ep.hls_480 || ep.hls_1080));
+      // If no opening markers exist on the release, prefer Episode 2 (where regular TV OP sits around 1:35) over Episode 1.
+      const fallbackEp =
+        rel.episodes.find((ep) => ep.ordinal >= 2 && Boolean(ep.hls_720 || ep.hls_480 || ep.hls_1080)) ??
+        rel.episodes.find((ep) => Boolean(ep.hls_720 || ep.hls_480 || ep.hls_1080));
       const fallbackUrl = fallbackEp?.hls_720 || fallbackEp?.hls_480 || fallbackEp?.hls_1080;
+      const fallbackFast = fallbackEp?.hls_480 || fallbackEp?.hls_720 || fallbackEp?.hls_1080;
       if (fallbackEp && fallbackUrl && (fallbackEp.duration === 0 || fallbackEp.duration >= 150)) {
         const result: HeroOpeningPreview = {
           streamUrl: fallbackUrl,
-          startSec: 90,
-          endSec: 120,
+          streamUrlFast: fallbackFast || fallbackUrl,
+          startSec: 96,
+          endSec: 138,
           episodeOrdinal: fallbackEp.ordinal
         };
         heroOpeningCache.set(key, result);

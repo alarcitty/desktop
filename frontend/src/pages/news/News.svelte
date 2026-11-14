@@ -185,25 +185,8 @@
   function selectTab(index: number)
   {
     if (activeTab === index) return;
-    measureTabs();
     hasSwitchedTab = true;
     activeTab = index;
-  }
-
-  function cardEnter(_node: Element, params: { index: number })
-  {
-    if (!hasSwitchedTab)
-    {
-      return { duration: 0 };
-    }
-    const stagger = Math.min(params.index, 6) * 45;
-    return {
-      delay: 110 + stagger,
-      duration: 320,
-      easing: cubicOut,
-      css: (t: number) =>
-        `opacity: ${t}; transform: translate3d(0, ${(1 - t) * 14}px, 0) scale(${0.96 + 0.04 * t});`
-    };
   }
 
   function stageEnter(_node: Element)
@@ -213,11 +196,11 @@
       return { duration: 0 };
     }
     return {
-      delay: 90,
-      duration: 280,
+      delay: 70,
+      duration: 240,
       easing: cubicOut,
       css: (t: number) =>
-        `opacity: ${t}; transform: translate3d(0, ${(1 - t) * 12}px, 0);`
+        `opacity: ${t}; transform: translate3d(0, ${(1 - t) * 10}px, 0);`
     };
   }
 
@@ -401,7 +384,8 @@
         {#key activeTab}
           <div
             class="news-masonry"
-            out:fly={{ y: -10, duration: 150, easing: cubicIn }}
+            in:stageEnter
+            out:fly={{ y: -8, duration: 120, easing: cubicIn }}
           >
             {#each masonryColumns as col, colIdx (colIdx)}
               <div class="news-col">
@@ -412,7 +396,6 @@
                   <div
                     class="story-card"
                     class:is-compact={!item.image}
-                    in:cardEnter|global={{ index: entry.index }}
                     onclick={() => openStory(item)}
                   >
                     {#if item.image}
@@ -890,6 +873,8 @@
     cursor: pointer;
     isolation: isolate;
     contain: layout paint;
+    content-visibility: auto;
+    contain-intrinsic-size: 1px 360px;
     transition: transform 0.3s var(--ease-out);
   }
 

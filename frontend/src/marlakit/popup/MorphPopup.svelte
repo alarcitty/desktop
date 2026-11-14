@@ -27,10 +27,10 @@
   let {
     open,
     getAnchor,
-    width = 680,
+    width = 760,
     height = 320,
     top = 96,
-    duration = 560,
+    duration = 480,
     onclose,
     onclosed,
     children
@@ -38,12 +38,13 @@
 
   let mounted = $state(false);
   let expanded = $state(false);
+  let fullyExpanded = $state(false);
   let from = $state<Rect>({ left: 0, top: 0, width: 320, height: 38 });
   let vw = $state(1024);
+  let panelEl = $state<HTMLDivElement | null>(null);
 
   let timer: number | undefined;
   let raf1 = 0;
-  let raf2 = 0;
 
   const panelWidth = $derived(Math.min(width, vw - 48));
 
@@ -66,18 +67,23 @@
   {
     window.clearTimeout(timer);
     cancelAnimationFrame(raf1);
-    cancelAnimationFrame(raf2);
     snapshot();
+    fullyExpanded = false;
     expanded = false;
     mounted = true;
     await tick();
-    // two frames: make sure the collapsed state is painted so the transition runs
+    // Force synchronous layout flush on the collapsed anchor geometry so the morph transition starts on the very next frame
+    void panelEl?.getBoundingClientRect();
     raf1 = requestAnimationFrame(() =>
     {
-      raf2 = requestAnimationFrame(() =>
+      expanded = true;
+      timer = window.setTimeout(() =>
       {
-        expanded = true;
-      });
+        if (expanded)
+        {
+          fullyExpanded = true;
+        }
+      }, duration);
     });
   }
 
@@ -88,15 +94,15 @@
       return;
     }
     cancelAnimationFrame(raf1);
-    cancelAnimationFrame(raf2);
     snapshot();
+    fullyExpanded = false;
     expanded = false;
     window.clearTimeout(timer);
     timer = window.setTimeout(() =>
     {
       mounted = false;
       onclosed?.();
-    }, duration + 40);
+    }, duration + 16);
   }
 
   $effect(() =>
@@ -111,7 +117,6 @@
     {
       window.clearTimeout(timer);
       cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
     };
   });
 
@@ -138,8 +143,10 @@
   ></div>
 
   <div
+    bind:this={panelEl}
     class="popup-panel"
     class:expanded
+    class:fully-expanded={fullyExpanded}
     style={panelStyle}
     style:--popup-duration="{duration}ms"
     role="dialog"
@@ -156,12 +163,12 @@
     position: fixed;
     inset: 0;
     z-index: 1000;
-    background: rgba(0, 0, 0, 0.4);
-    -webkit-backdrop-filter: blur(12px);
-    backdrop-filter: blur(12px);
+    background: rgba(5, 5, 7, 0.62);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
     opacity: 0;
     will-change: opacity;
-    transition: opacity var(--popup-duration) var(--ease-out);
+    transition: opacity var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .popup-backdrop.visible
@@ -176,30 +183,36 @@
     box-sizing: border-box;
     overflow: hidden;
     contain: layout style;
-    will-change: left, top, width, height, opacity;
+    will-change: left, top, width, height, padding, border-radius, background-color;
     padding: 0;
+    border: none;
     border-radius: 9px;
-    opacity: 0;
-    background: rgba(18, 18, 18, 0.55);
-    -webkit-backdrop-filter: blur(22px);
-    backdrop-filter: blur(22px);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0), 0 30px 80px rgba(0, 0, 0, 0);
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.08);
+    -webkit-backdrop-filter: blur(28px);
+    backdrop-filter: blur(28px);
+    box-shadow: 0 36px 100px rgba(0, 0, 0, 0);
     transition:
-      left var(--popup-duration) var(--ease-out),
-      top var(--popup-duration) var(--ease-out),
-      width var(--popup-duration) var(--ease-out),
-      height var(--popup-duration) var(--ease-out),
-      padding var(--popup-duration) var(--ease-out),
-      border-radius var(--popup-duration) var(--ease-out),
-      opacity calc(var(--popup-duration) * 0.65) var(--ease-out),
-      box-shadow var(--popup-duration) var(--ease-out);
+      left var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1),
+      top var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1),
+      width var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1),
+      height var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1),
+      padding var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1),
+      border-radius var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1),
+      background-color var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .popup-panel.expanded
   {
-    padding: 14px;
-    border-radius: 22px;
-    opacity: 1;
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 30px 80px rgba(0, 0, 0, 0.5);
+    padding: 16px;
+    border-radius: var(--radius-card, 16px);
+    background: rgba(12, 12, 14, 0.96);
+    box-shadow: 0 36px 100px rgba(0, 0, 0, 0.85);
+  }
+
+  .popup-panel.fully-expanded
+  {
+    overflow: visible;
   }
 </style>

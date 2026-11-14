@@ -1,19 +1,41 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { pages, getPage, type PageId } from '../pages';
   import { router } from './router.svelte';
 
-  const CACHED_PAGES = new Set<PageId>(pages.map((p) => p.id));
-  const LEAVE_MS = 280;
+  interface Props {
+    onBeforeEnter?: (pageId: PageId) => void;
+  }
 
-  // Keep visited main tabs mounted once opened so switching Home <-> Library <-> News
-  // does not tear down heavy DOM trees or re-decode posters, while animating smoothly.
+  let { onBeforeEnter }: Props = $props();
+
+  const CACHED_PAGES = new Set<PageId>(pages.map((p) => p.id));
+  const LEAVE_MS = 130;
+  const ENTER_SETTLE_MS = 300;
+
+  // Keep visited main tabs mounted once opened (hidden via visibility/height:0 instead of
+  // display:none) so Blink/WebView2 retains layout boxes and decoded GPU image layers.
   let visited = $state<PageId[]>(
     CACHED_PAGES.has(router.current) ? [router.current] : ['home']
   );
   let currentTracked: PageId = router.current;
   let leavingId = $state<PageId | null>(null);
   let hasSwitched = $state(false);
+  let enterReady = $state(true);
+  let isTransitioning = $state(false);
   let leaveTimer: number | undefined;
+  let settleTimer: number | undefined;
+  let enterRaf = 0;
+  let switchToken = 0;
+
+  function clearTimers() {
+    window.clearTimeout(leaveTimer);
+    window.clearTimeout(settleTimer);
+    if (enterRaf) {
+      window.cancelAnimationFrame(enterRaf);
+      enterRaf = 0;
+    }
+  }
 
   $effect(() => {
     const next = router.current;
@@ -21,18 +43,34 @@
       visited = [...visited, next];
     }
     if (next !== currentTracked) {
-      window.clearTimeout(leaveTimer);
+      const token = ++switchToken;
+      clearTimers();
       leavingId = currentTracked;
       currentTracked = next;
       hasSwitched = true;
+      enterReady = false;
+      isTransitioning = true;
+
       leaveTimer = window.setTimeout(() => {
+        if (token !== switchToken) return;
         leavingId = null;
+        untrack(() => onBeforeEnter?.(next));
+        enterRaf = window.requestAnimationFrame(() => {
+          enterRaf = 0;
+          if (token !== switchToken) return;
+          enterReady = true;
+          settleTimer = window.setTimeout(() => {
+            if (token === switchToken) {
+              isTransitioning = false;
+            }
+          }, ENTER_SETTLE_MS);
+        });
       }, LEAVE_MS);
     }
   });
 
   $effect(() => () => {
-    window.clearTimeout(leaveTimer);
+    clearTimers();
   });
 </script>
 
@@ -44,7 +82,9 @@
     <div
       class="page-slot"
       class:is-active={active}
-      class:is-animated={active && hasSwitched}
+      class:is-animating={active && hasSwitched && isTransitioning}
+      class:is-pre-enter={active && hasSwitched && !enterReady}
+      class:is-entered={active && (!hasSwitched || enterReady)}
       class:is-leaving={leaving}
       class:is-hidden={!active && !leaving}
       aria-hidden={!active}
@@ -56,7 +96,11 @@
   {#if !CACHED_PAGES.has(router.current)}
     {#key router.current}
       {@const Page = getPage(router.current).component}
-      <div class="page-slot is-active is-animated">
+      <div
+        class="page-slot is-active is-animating"
+        class:is-pre-enter={!enterReady}
+        class:is-entered={enterReady}
+      >
         <Page />
       </div>
     {/key}
@@ -75,7 +119,14 @@
   }
 
   .page-slot.is-hidden {
-    display: none;
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    contain: strict;
   }
 
   .page-slot.is-active {
@@ -83,8 +134,23 @@
     z-index: 2;
   }
 
-  .page-slot.is-animated {
-    animation: pageEnter 0.46s cubic-bezier(0.16, 1, 0.3, 1) 0.06s both;
+  .page-slot.is-animating {
+    will-change: opacity, transform;
+    backface-visibility: hidden;
+  }
+
+  .page-slot.is-pre-enter {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+    pointer-events: none;
+  }
+
+  .page-slot.is-entered {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    transition:
+      opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .page-slot.is-leaving {
@@ -92,18 +158,9 @@
     inset: 0 0 auto 0;
     z-index: 1;
     pointer-events: none;
-    animation: pageLeave 0.28s cubic-bezier(0.4, 0, 0.2, 1) both;
-  }
-
-  @keyframes pageEnter {
-    from {
-      opacity: 0;
-      transform: translate3d(0, 16px, 0);
-    }
-    to {
-      opacity: 1;
-      transform: translate3d(0, 0, 0);
-    }
+    will-change: opacity, transform;
+    backface-visibility: hidden;
+    animation: pageLeave 0.13s cubic-bezier(0.4, 0, 1, 1) both;
   }
 
   @keyframes pageLeave {
@@ -113,7 +170,7 @@
     }
     to {
       opacity: 0;
-      transform: translate3d(0, -10px, 0);
+      transform: translate3d(0, -6px, 0);
     }
   }
 </style>

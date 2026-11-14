@@ -16,3 +16,8 @@ func ThreeQuarterSize() (int, int) {
 func ClearWindowBlur(className, title string) bool {
 	return true
 }
+
+// no-op on non-windows
+func SetWindowFullscreen(className, title string, fullscreen bool) bool {
+	return true
+}
