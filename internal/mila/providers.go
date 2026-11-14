@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ const (
 	animeVostBaseURL      = "https://api.animevost.org/v1"
 	dreamCastBaseURL      = "https://dreamerscast.com"
 	dreamCastMediaBaseURL = "https://play.dreamerscast.com"
+	kodikAPIBaseURL       = "https://kodik-api.com"
 	maxProxyBodyBytes     = 1 << 20
 	maxPlaylistBytes      = 4 << 20
 )
@@ -39,6 +41,7 @@ func defaultProviderRoutes() []providerRoute {
 		{prefix: "/ext/animevost", upstream: animeVostBaseURL},
 		{prefix: "/ext/dreamerscast", upstream: dreamCastBaseURL},
 		{prefix: "/ext/play-dc", upstream: dreamCastMediaBaseURL, rewriteM3U8: true},
+		{prefix: "/ext/kodik", upstream: kodikAPIBaseURL},
 	}
 }
 
@@ -84,6 +87,14 @@ func (m *Mila) AnimeVostPlaylist(id int) (string, error) {
 	params := url.Values{}
 	params.Set("id", strconv.Itoa(id))
 	return postProviderForm(animeVostBaseURL+"/playlist", params)
+}
+
+// GetKodikToken returns an optional user-configured Kodik API token from the OS environment.
+func (m *Mila) GetKodikToken() string {
+	if tok := strings.TrimSpace(os.Getenv("MILA_KODIK_TOKEN")); tok != "" {
+		return tok
+	}
+	return strings.TrimSpace(os.Getenv("KODIK_TOKEN"))
 }
 
 // NewProviderHandler serves same-origin `/ext/*` reverse-proxy routes for provider APIs and HLS streams inside Wails.

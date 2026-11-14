@@ -80,6 +80,11 @@ export default defineConfig({
         target: 'https://dreamerscast.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ext\/dreamerscast/, '') || '/'
+      },
+      '/ext/kodik': {
+        target: 'https://kodik-api.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ext\/kodik/, '')
       }
     }
   }

@@ -2,6 +2,7 @@ import type { HlsSources, SkipRange, VoiceTrackOption } from '../marlakit/player
 import { fetchAnimeVostEpisodes, findAnimeVostMatch } from './providers/animevost';
 import { fetchAnixartEpisodes, findAnixartDiscovery } from './providers/anixart';
 import { fetchDreamCastEpisodes, findDreamCastMatch } from './providers/dreamcast';
+import { findKodikDiscovery, getCachedKodikEpisodes } from './providers/kodik';
 import {
   dedupeSearchQueries,
   fetchJsonWithTimeout,
@@ -1649,6 +1650,30 @@ export async function resolveVoiceTrackRelease(
     };
   }
 
+  if (voice.provider === 'kodik') {
+    const elementId = String(voice.sourceId ?? '');
+    const episodes = getCachedKodikEpisodes(elementId);
+    if (episodes.length === 0) {
+      throw new Error(`${voice.label}: нет доступных серий Kodik`);
+    }
+    return {
+      ...(baseRelease ?? {
+        id: Number(voice.providerId) || 0,
+        title: shikiArt?.english || shikiArt?.name || target.title,
+        titleEnglish: shikiArt?.english || shikiArt?.name,
+        year: shikiArt?.year,
+        poster: shikiArt?.posterOriginal || shikiArt?.posterMain,
+        banner: shikiArt?.screenshots?.[0]
+      }),
+      id: Number(voice.providerId) || baseRelease?.id || 0,
+      alias: voice.id,
+      provider: 'kodik',
+      voiceLabel: voice.label,
+      voiceActors: undefined,
+      episodes
+    };
+  }
+
   if (voice.provider === 'anixart') {
     const releaseId = Number(voice.providerId);
     const typeId = Number(voice.sourceId);
@@ -1732,10 +1757,17 @@ export async function findVoiceOptions(
     hasNativeDreamCast: primaryProvider === 'dreamcast'
   });
 
-  const [libSettled, dcSettled, avSettled, axSettled] = await Promise.allSettled([
+  const kodikPromise = findKodikDiscovery(shikiId, searchTitles, shikiArt?.year ?? primary.year ?? null, {
+    hasNativeAniLiberty: primaryProvider === 'aniliberty',
+    hasNativeAnimeVost: primaryProvider === 'animevost',
+    hasNativeDreamCast: primaryProvider === 'dreamcast'
+  });
+
+  const [libSettled, dcSettled, avSettled, kodikSettled, axSettled] = await Promise.allSettled([
     libPromise,
     dcPromise,
     avPromise,
+    kodikPromise,
     axPromise
   ]);
 
@@ -1787,13 +1819,27 @@ export async function findVoiceOptions(
     options.push(avSettled.value.voice);
   }
 
+  const seenExternalLabels = new Set<string>();
+  if (kodikSettled.status === 'fulfilled' && Array.isArray(kodikSettled.value)) {
+    for (const kVoice of kodikSettled.value) {
+      const kLower = kVoice.label.trim().toLowerCase();
+      if (hasNativeAnimeVost && kLower === 'animevost') continue;
+      if (hasNativeDreamCast && (kLower === 'dream cast' || kLower === 'dreamcast')) continue;
+      if (seenIds.has(kVoice.id) || seenExternalLabels.has(kLower)) continue;
+      seenIds.add(kVoice.id);
+      seenExternalLabels.add(kLower);
+      options.push(kVoice);
+    }
+  }
+
   if (axSettled.status === 'fulfilled' && axSettled.value) {
     for (const axVoice of axSettled.value.voices) {
       const axLower = axVoice.label.trim().toLowerCase();
       if (hasNativeAnimeVost && axLower === 'animevost') continue;
       if (hasNativeDreamCast && (axLower === 'dream cast' || axLower === 'dreamcast')) continue;
-      if (seenIds.has(axVoice.id)) continue;
+      if (seenIds.has(axVoice.id) || seenExternalLabels.has(axLower)) continue;
       seenIds.add(axVoice.id);
+      seenExternalLabels.add(axLower);
       options.push(axVoice);
     }
   }

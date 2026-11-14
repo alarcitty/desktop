@@ -5,6 +5,8 @@ export function AnimeVostPlaylist(arg1:number):Promise<string>;
 
 export function AnimeVostSearch(arg1:string):Promise<string>;
 
+export function GetKodikToken():Promise<string>;
+
 export function SetFullscreen(arg1:boolean):Promise<void>;
 
 export function SetFullscreenFocus(arg1:boolean):Promise<void>;

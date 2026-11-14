@@ -10,6 +10,10 @@ export function AnimeVostSearch(arg1) {
   return window['go']['mila']['Mila']['AnimeVostSearch'](arg1);
 }
 
+export function GetKodikToken() {
+  return window['go']['mila']['Mila']['GetKodikToken']();
+}
+
 export function SetFullscreen(arg1) {
   return window['go']['mila']['Mila']['SetFullscreen'](arg1);
 }
