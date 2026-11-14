@@ -8,6 +8,14 @@
   import { router, navigate } from "../../app/router.svelte";
   import { search, openSearch, setSearchAnchor } from "../../app/search.svelte";
 
+  interface Props {
+    hidden?: boolean;
+    scrolled?: boolean;
+  }
+
+  let { hidden = false, scrolled = false }: Props = $props();
+  const isHidden = $derived(hidden && !search.active);
+
   let searchWrap = $state<HTMLElement | null>(null);
 
   // the popup morphs out of (and back into) this element
@@ -37,7 +45,7 @@
   }
 </script>
 
-<header class="header">
+<header class="header" class:is-hidden={isHidden} class:is-scrolled={scrolled}>
   <div class="header-left">
     <div class="logo-wrap">
       <img src={logoSrc} alt="mila" class="logo-img" decoding="async" />
@@ -134,8 +142,39 @@
     --wails-draggable: drag;
     user-select: none;
     z-index: 50;
-    transform: translateZ(0);
+    transform: translate3d(0, 0, 0);
+    will-change: transform, opacity;
     contain: layout style;
+    transition:
+      transform 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .header::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 -18px 0;
+    background: linear-gradient(
+      180deg,
+      rgba(12, 12, 12, 0.86) 0%,
+      rgba(12, 12, 12, 0.56) 62%,
+      rgba(12, 12, 12, 0) 100%
+    );
+    opacity: 0;
+    pointer-events: none;
+    z-index: -1;
+    transition: opacity 0.26s ease;
+  }
+
+  .header.is-scrolled::before {
+    opacity: 1;
+  }
+
+  .header.is-hidden {
+    transform: translate3d(0, -100%, 0);
+    opacity: 0;
+    pointer-events: none;
+    --wails-draggable: no-drag;
   }
 
   .header-left {

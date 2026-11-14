@@ -13,9 +13,50 @@
   import type { PageId } from '../pages';
 
   let scrollArea = $state<ReturnType<typeof ScrollArea> | null>(null);
+  let headerHidden = $state(false);
+  let headerScrolled = $state(false);
+  let lastScrollTop = 0;
+  let downScrollAccum = 0;
+  let upScrollAccum = 0;
+
+  function handleViewportScroll(scrollTop: number) {
+    const top = Math.max(0, scrollTop);
+    headerScrolled = top > 28;
+
+    if (top <= 18) {
+      headerHidden = false;
+      downScrollAccum = 0;
+      upScrollAccum = 0;
+      lastScrollTop = top;
+      return;
+    }
+
+    const delta = top - lastScrollTop;
+    lastScrollTop = top;
+    if (Math.abs(delta) < 0.5) return;
+
+    if (delta > 0) {
+      upScrollAccum = 0;
+      downScrollAccum += delta;
+      if (top > 72 && downScrollAccum >= 14) {
+        headerHidden = true;
+      }
+    } else {
+      downScrollAccum = 0;
+      upScrollAccum += -delta;
+      if (upScrollAccum >= 4) {
+        headerHidden = false;
+      }
+    }
+  }
 
   function handlePageBeforeEnter(pageId: PageId) {
     const targetTop = getSavedPageScroll(pageId);
+    lastScrollTop = targetTop;
+    downScrollAccum = 0;
+    upScrollAccum = 0;
+    headerHidden = false;
+    headerScrolled = targetTop > 28;
     scrollArea?.setScrollTop(targetTop);
   }
 
@@ -38,8 +79,8 @@
   class:is-os-pip={bindings.osPipActive}
 >
   <div class="content-layer">
-    <Header />
-    <ScrollArea bind:this={scrollArea}>
+    <Header hidden={headerHidden} scrolled={headerScrolled} />
+    <ScrollArea bind:this={scrollArea} onscroll={handleViewportScroll}>
       <PageHost onBeforeEnter={handlePageBeforeEnter} />
     </ScrollArea>
   </div>

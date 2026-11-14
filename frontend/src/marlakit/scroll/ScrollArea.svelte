@@ -5,9 +5,10 @@
     children?: Snippet;
     class?: string;
     maxHeight?: number | null;
+    onscroll?: (scrollTop: number) => void;
   }
 
-  let { children, class: className = '', maxHeight = null }: Props = $props();
+  let { children, class: className = '', maxHeight = null, onscroll }: Props = $props();
 
   let viewportRef = $state<HTMLDivElement | null>(null);
   let contentRef = $state<HTMLDivElement | null>(null);
@@ -50,6 +51,7 @@
     smoothTop = clamped;
     targetTop = clamped;
     syncMetrics();
+    onscroll?.(viewportRef.scrollTop);
   }
 
   export function scrollToTop() {
@@ -291,7 +293,10 @@
     bind:this={viewportRef}
     class="marlakit-scroll-viewport"
     style:max-height={maxHeight ? `${maxHeight}px` : undefined}
-    onscroll={() => { if (!wheelRafId) scheduleThumbUpdate(true); }}
+    onscroll={() => {
+      if (!wheelRafId) scheduleThumbUpdate(true);
+      if (viewportRef) onscroll?.(viewportRef.scrollTop);
+    }}
   >
     <div bind:this={contentRef} class="marlakit-scroll-content">
       {#if children}
