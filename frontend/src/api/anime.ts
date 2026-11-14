@@ -500,7 +500,7 @@ function mapLibRelease(r: RawLibRelease, shikiArt?: ShikiArtwork): PlayableRelea
     titleEnglish: r.name?.english || shikiArt?.english,
     year: r.year ?? undefined,
     typeLabel: inferReleaseTypeValue(r.type?.value, r.name?.main, r.name?.english, r.alias),
-    voiceLabel: 'AniLiberty',
+    voiceLabel: 'AniLibria',
     voiceActors,
     poster: shikiArt?.posterOriginal || resolveLibUrl(r.poster?.src || r.poster?.preview),
     banner: shikiArt?.screenshots[0] || shikiArt?.posterOriginal || resolveLibUrl(r.poster?.src),
@@ -2036,7 +2036,7 @@ export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption 
       ? 'Dream Cast'
       : provider === 'animevost'
         ? 'AnimeVost'
-        : 'AniLiberty';
+        : 'AniLibria';
   const sublabel = cast || [epPart, kindTag].filter(Boolean).join(' · ') || undefined;
   return {
     id: rel.alias,
@@ -2132,10 +2132,10 @@ export async function findVoiceOptions(
     ...(extraTitles ?? [])
   ]);
   const primaryProvider = primary.provider ?? 'aniliberty';
-  const libSearchTerm = (primary.titleEnglish || primary.title || '').trim();
+  const libSearchTerm = (primary.titleEnglish || primary.title || shikiArt?.russian || '').trim();
 
   const libPromise =
-    primaryProvider === 'aniliberty' && shikiId && libSearchTerm.length >= 2
+    shikiId && libSearchTerm.length >= 2
       ? Promise.allSettled([
           fetchLibJson<LibSearchCandidate[]>(
             `/app/search/releases?query=${encodeURIComponent(libSearchTerm)}`,
@@ -2188,9 +2188,15 @@ export async function findVoiceOptions(
       if (!rel || rel.alias === primary.alias || rel.episodes.length === 0 || seenIds.has(rel.alias)) continue;
       seenIds.add(rel.alias);
       const altCast = rel.voiceActors?.slice(0, 3).join(', ');
+      const isPrimaryAnilibria = primaryProvider === 'aniliberty';
+      const label = !isPrimaryAnilibria
+        ? 'AniLibria'
+        : rel.title && rel.title !== primary.title
+          ? `AniLibria · ${rel.title}`
+          : `AniLibria · ${rel.alias}`;
       options.push({
         id: rel.alias,
-        label: rel.title && rel.title !== primary.title ? `AniLiberty · ${rel.title}` : `AniLiberty · ${rel.alias}`,
+        label,
         sublabel: altCast || `${rel.episodes.length} ep`,
         releaseAlias: rel.alias,
         provider: 'aniliberty',

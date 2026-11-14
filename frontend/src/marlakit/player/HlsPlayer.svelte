@@ -195,8 +195,7 @@
 
     if (voices.length > 0) {
       out.push({
-        id: 'voiceover-internal',
-        title: 'Internal',
+        id: 'voiceover',
         options: voices.map((v) => ({
           value: `voice:${v.id}`,
           label: v.label,
