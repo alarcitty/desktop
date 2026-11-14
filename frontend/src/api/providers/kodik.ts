@@ -1,13 +1,10 @@
+import { invokeGetKodikToken } from '../../app/bindings.svelte';
 import type { VoiceTrackOption } from '../../marlakit/player/types';
 import type { PlayableEpisode } from '../anime';
 import { dedupeSearchQueries, fetchJsonWithTimeout, scoreTitleSimilarity } from './shared';
 
 const KODIK_PROXY_BASE = '/ext/kodik';
 const KODIK_TOKEN_STORAGE_KEY = 'mila_kodik_token';
-
-interface WailsMilaTokenBridge {
-  GetKodikToken?: () => Promise<string>;
-}
 
 export interface KodikTranslation {
   id: number;
@@ -134,17 +131,10 @@ export async function getKodikToken(): Promise<string> {
 
   if (cachedEnvToken !== null) return cachedEnvToken;
 
-  if (typeof window !== 'undefined') {
-    const goObj = (window as { go?: { mila?: { Mila?: WailsMilaTokenBridge } } }).go;
-    const bridge = goObj?.mila?.Mila;
-    if (bridge?.GetKodikToken) {
-      try {
-        cachedEnvToken = (await bridge.GetKodikToken()).trim();
-        return cachedEnvToken;
-      } catch {
-        // Fall through to empty
-      }
-    }
+  const boundToken = await invokeGetKodikToken();
+  if (boundToken !== null) {
+    cachedEnvToken = boundToken;
+    return cachedEnvToken;
   }
 
   cachedEnvToken = '';

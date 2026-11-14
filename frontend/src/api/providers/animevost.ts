@@ -1,19 +1,9 @@
+import { invokeAnimeVostPlaylist, invokeAnimeVostSearch } from '../../app/bindings.svelte';
 import type { VoiceTrackOption } from '../../marlakit/player/types';
 import type { PlayableEpisode } from '../anime';
 import { dedupeSearchQueries, fetchJsonWithTimeout, scoreTitleSimilarity } from './shared';
 
 const ANIMEVOST_PROXY_BASE = '/ext/animevost';
-
-interface WailsMilaBridge {
-  AnimeVostSearch?: (query: string) => Promise<string>;
-  AnimeVostPlaylist?: (id: number) => Promise<string>;
-}
-
-function getWailsMilaBridge(): WailsMilaBridge | null {
-  if (typeof window === 'undefined') return null;
-  const goObj = (window as { go?: { mila?: { Mila?: WailsMilaBridge } } }).go;
-  return goObj?.mila?.Mila ?? null;
-}
 
 async function fetchAnimeVostViaProxy<T>(path: string, formBody: string, timeoutMs: number): Promise<T> {
   return fetchJsonWithTimeout<T>(
@@ -84,10 +74,9 @@ export async function searchAnimeVost(query: string): Promise<RawAnimeVostItem[]
   const cached = avSearchCache.get(key);
   if (cached) return cached;
 
-  const bridge = getWailsMilaBridge();
+  const rawJson = await invokeAnimeVostSearch(clean);
   let payload: RawAnimeVostSearchResponse;
-  if (bridge?.AnimeVostSearch) {
-    const rawJson = await bridge.AnimeVostSearch(clean);
+  if (rawJson) {
     payload = JSON.parse(rawJson) as RawAnimeVostSearchResponse;
   } else {
     payload = await fetchAnimeVostViaProxy<RawAnimeVostSearchResponse>(
@@ -105,10 +94,9 @@ export async function fetchAnimeVostEpisodes(releaseId: number): Promise<Playabl
   const cached = avPlaylistCache.get(releaseId);
   if (cached) return cached;
 
-  const bridge = getWailsMilaBridge();
+  const rawJson = await invokeAnimeVostPlaylist(releaseId);
   let list: RawAnimeVostPlaylistItem[];
-  if (bridge?.AnimeVostPlaylist) {
-    const rawJson = await bridge.AnimeVostPlaylist(releaseId);
+  if (rawJson) {
     list = JSON.parse(rawJson) as RawAnimeVostPlaylistItem[];
   } else {
     list = await fetchAnimeVostViaProxy<RawAnimeVostPlaylistItem[]>(

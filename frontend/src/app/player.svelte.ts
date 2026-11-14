@@ -14,7 +14,13 @@ import {
 } from '../api/anime';
 import type { VoiceTrackOption } from '../marlakit/player/types';
 import { recordHistoryEntry } from './history.svelte';
-import { navigate } from './router.svelte';
+import {
+  navigate,
+  onRouteRestore,
+  router,
+  updateCurrentRouteParams,
+  type RouteParams
+} from './router.svelte';
 
 export const player = $state<{
   loading: boolean;
@@ -166,6 +172,16 @@ async function loadTargetIntoPlayer(
     );
 
     const activeEp = rel.episodes[player.episodeIndex];
+    if (router.current === 'anime') {
+      updateCurrentRouteParams({
+        shikiId: player.shikiArt?.id ?? target.shikiId,
+        alias: rel.alias,
+        title: player.title,
+        searchQueries: target.searchQueries,
+        episode: player.episodeIndex,
+        episodeOrdinal: activeEp?.ordinal
+      });
+    }
     syncPlayerHistory(player.resumeTime, activeEp?.duration ?? 0);
     lastHistorySyncMs = Date.now();
     return rel;
@@ -253,7 +269,17 @@ export async function openWatch(
 ): Promise<void> {
   const token = ++activeRequestToken;
   player.seasons = [];
-  navigate('anime');
+  navigate({
+    page: 'anime',
+    shikiId: target.shikiId,
+    alias: target.releaseAlias,
+    title: target.title,
+    searchQueries: target.searchQueries,
+    autoPlay: true,
+    episode: opts?.episodeIndex,
+    episodeOrdinal: opts?.episodeOrdinal,
+    resumeTime: opts?.resumeTime
+  });
 
   const rel = await loadTargetIntoPlayer(token, target, {
     preserveEpisodeOrdinal: opts?.episodeOrdinal,
@@ -282,8 +308,78 @@ export async function switchSeason(season: AnimeSeasonEntry): Promise<void> {
     releaseAlias: season.alias,
     searchQueries: [season.titleEnglish ?? '', season.title].filter(Boolean)
   };
-  await loadTargetIntoPlayer(token, target);
+  navigate({
+    page: 'anime',
+    shikiId: target.shikiId,
+    alias: target.releaseAlias,
+    title: target.title,
+    searchQueries: target.searchQueries,
+    autoPlay: true,
+    episode: 0
+  });
+  const rel = await loadTargetIntoPlayer(token, target);
+  if (rel && token === activeRequestToken && player.seasons.length === 0) {
+    loadFranchiseSeasons(rel.id)
+      .then((seasons) => {
+        if (token === activeRequestToken) {
+          player.seasons = seasons;
+        }
+      })
+      .catch(() => {});
+  }
 }
+
+async function restoreRouteTarget(params: RouteParams): Promise<void> {
+  const matchesCurrentRelease = Boolean(
+    player.release &&
+      ((params.alias && player.release.alias === params.alias) ||
+        (!params.alias &&
+          params.shikiId &&
+          (player.shikiArt?.id === params.shikiId || player.target?.shikiId === params.shikiId)))
+  );
+
+  if (matchesCurrentRelease && player.release) {
+    const nextIdx = applyPreservedEpisode(
+      player.release,
+      params.episodeOrdinal,
+      params.episode ?? player.episodeIndex
+    );
+    if (nextIdx !== player.episodeIndex) {
+      player.episodeIndex = nextIdx;
+    }
+    return;
+  }
+
+  const title = params.title || params.alias || player.title || 'Anime';
+  const target: WatchTarget = {
+    title,
+    shikiId: params.shikiId,
+    releaseAlias: params.alias,
+    searchQueries: params.searchQueries
+  };
+  const token = ++activeRequestToken;
+  player.seasons = [];
+  const rel = await loadTargetIntoPlayer(token, target, {
+    preserveEpisodeOrdinal: params.episodeOrdinal,
+    preserveEpisodeIndex: params.episode,
+    preserveTime: params.resumeTime
+  });
+  if (!rel || token !== activeRequestToken) return;
+
+  loadFranchiseSeasons(rel.id)
+    .then((seasons) => {
+      if (token === activeRequestToken) {
+        player.seasons = seasons;
+      }
+    })
+    .catch(() => {});
+}
+
+onRouteRestore((entry) => {
+  if (entry.page === 'anime' && entry.params) {
+    void restoreRouteTarget(entry.params);
+  }
+});
 
 export async function retryWatch(): Promise<void> {
   if (!player.target) return;
@@ -308,6 +404,13 @@ export function selectEpisode(index: number): void {
   player.autoplay = true;
   player.episodeIndex = index;
   const ep = player.release.episodes[index];
+  if (router.current === 'anime') {
+    updateCurrentRouteParams({
+      episode: index,
+      episodeOrdinal: ep?.ordinal,
+      resumeTime: 0
+    });
+  }
   syncPlayerHistory(0, ep?.duration ?? 0);
   lastHistorySyncMs = Date.now();
 }
@@ -320,6 +423,13 @@ export function nextEpisode(): void {
     player.autoplay = true;
     player.episodeIndex += 1;
     const ep = player.release.episodes[player.episodeIndex];
+    if (router.current === 'anime') {
+      updateCurrentRouteParams({
+        episode: player.episodeIndex,
+        episodeOrdinal: ep?.ordinal,
+        resumeTime: 0
+      });
+    }
     syncPlayerHistory(0, ep?.duration ?? 0);
     lastHistorySyncMs = Date.now();
   }

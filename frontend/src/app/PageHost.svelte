@@ -19,6 +19,7 @@
     CACHED_PAGES.has(router.current) ? [router.current] : ['home']
   );
   let currentTracked: PageId = router.current;
+  let currentRouteKeyTracked: string = router.routeKey;
   let leavingId = $state<PageId | null>(null);
   let hasSwitched = $state(false);
   let enterReady = $state(true);
@@ -39,6 +40,7 @@
 
   $effect(() => {
     const next = router.current;
+    const nextKey = router.routeKey;
     if (CACHED_PAGES.has(next) && !visited.includes(next)) {
       visited = [...visited, next];
     }
@@ -47,6 +49,7 @@
       clearTimers();
       leavingId = currentTracked;
       currentTracked = next;
+      currentRouteKeyTracked = nextKey;
       hasSwitched = true;
       enterReady = false;
       isTransitioning = true;
@@ -66,6 +69,9 @@
           }, ENTER_SETTLE_MS);
         });
       }, LEAVE_MS);
+    } else if (nextKey !== currentRouteKeyTracked) {
+      currentRouteKeyTracked = nextKey;
+      untrack(() => onBeforeEnter?.(next));
     }
   });
 

@@ -1,0 +1,419 @@
+import {
+  back,
+  forward,
+  getLastHistoryNavTimestamp,
+  router,
+  stepToHistoryIndex
+} from './router.svelte';
+import { closeSearch, openSearch, search } from './search.svelte';
+
+export type BindingActionId =
+  | 'nav.back'
+  | 'nav.forward'
+  | 'app.fullscreen'
+  | 'search.open'
+  | 'search.close';
+
+export interface BindingDescriptor {
+  id: BindingActionId;
+  label: string;
+  keys: string[];
+  mouseButton?: number;
+  allowInInput?: boolean;
+  handler: () => void | boolean | Promise<void | boolean>;
+}
+
+interface WailsMilaGoBindings {
+  SetFullscreen?: (fullscreen: boolean) => Promise<void>;
+  SetFullscreenFocus?: (focused: boolean) => Promise<void>;
+  AnimeVostSearch?: (query: string) => Promise<string>;
+  AnimeVostPlaylist?: (id: number) => Promise<string>;
+  GetKodikToken?: () => Promise<string>;
+}
+
+interface WailsRuntimeBridge {
+  WindowFullscreen?: () => void;
+  WindowUnfullscreen?: () => void;
+  WindowIsFullscreen?: () => Promise<boolean>;
+  WindowIsMaximised?: () => Promise<boolean>;
+  BrowserOpenURL?: (url: string) => void;
+}
+
+interface WindowWithBridges extends Window {
+  chrome?: { webview?: unknown };
+  runtime?: WailsRuntimeBridge;
+  go?: {
+    mila?: {
+      Mila?: WailsMilaGoBindings;
+    };
+  };
+}
+
+function getWindowBridge(): WindowWithBridges | null {
+  if (typeof window === 'undefined') return null;
+  return window as unknown as WindowWithBridges;
+}
+
+export function getWailsMilaBindings(): WailsMilaGoBindings | null {
+  return getWindowBridge()?.go?.mila?.Mila ?? null;
+}
+
+export function getWailsRuntime(): WailsRuntimeBridge | null {
+  return getWindowBridge()?.runtime ?? null;
+}
+
+export function detectDesktopApp(): boolean {
+  const w = getWindowBridge();
+  if (!w) return false;
+  return Boolean(w.chrome?.webview || w.runtime || w.go?.mila?.Mila);
+}
+
+export const bindings = $state<{
+  isApp: boolean;
+  isWindowSharp: boolean;
+  appFullscreen: boolean;
+}>({
+  isApp: detectDesktopApp(),
+  isWindowSharp: false,
+  appFullscreen: false
+});
+
+export function isEditableElement(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (target.isContentEditable) return true;
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
+}
+
+export async function refreshWindowCornerState(): Promise<boolean> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return false;
+  }
+
+  bindings.isApp = detectDesktopApp();
+  const runtime = getWailsRuntime();
+
+  let sharp =
+    document.body.classList.contains('is-player-fullscreen') ||
+    document.fullscreenElement !== null ||
+    Boolean(window.matchMedia?.('(display-mode: fullscreen)').matches) ||
+    bindings.appFullscreen;
+
+  if (!sharp && bindings.isApp && window.screen) {
+    if (
+      window.innerWidth >= window.screen.width - 2 &&
+      window.innerHeight >= window.screen.height - 2
+    ) {
+      sharp = true;
+    }
+    if (!sharp && typeof runtime?.WindowIsFullscreen === 'function') {
+      sharp = Boolean(await runtime.WindowIsFullscreen().catch(() => false));
+    }
+    if (!sharp && typeof runtime?.WindowIsMaximised === 'function') {
+      sharp = Boolean(await runtime.WindowIsMaximised().catch(() => false));
+    }
+  }
+
+  bindings.isWindowSharp = sharp;
+  document.body.classList.toggle('is-window-fullscreen', sharp);
+  return sharp;
+}
+
+export async function setAppFullscreen(
+  next: boolean,
+  opts?: { playerMode?: boolean; domTarget?: HTMLElement | null }
+): Promise<void> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+  bindings.isApp = detectDesktopApp();
+  if (opts?.playerMode !== undefined) {
+    document.body.classList.toggle('is-player-fullscreen', next && opts.playerMode);
+  } else if (!next) {
+    document.body.classList.remove('is-player-fullscreen');
+  }
+  document.body.classList.toggle('is-window-fullscreen', next);
+  bindings.appFullscreen = next;
+  bindings.isWindowSharp = next;
+
+  const goMila = getWailsMilaBindings();
+  const runtime = getWailsRuntime();
+
+  if (typeof goMila?.SetFullscreen === 'function') {
+    await goMila.SetFullscreen(next).catch(() => {});
+  } else if (next && typeof runtime?.WindowFullscreen === 'function') {
+    runtime.WindowFullscreen();
+  } else if (!next && typeof runtime?.WindowUnfullscreen === 'function') {
+    runtime.WindowUnfullscreen();
+  }
+
+  const domEl = opts?.domTarget ?? (!bindings.isApp ? document.documentElement : null);
+  if (next && domEl && document.fullscreenElement !== domEl && typeof domEl.requestFullscreen === 'function') {
+    await domEl.requestFullscreen().catch(() => {});
+  } else if (!next && document.fullscreenElement && typeof document.exitFullscreen === 'function') {
+    await document.exitFullscreen().catch(() => {});
+  }
+
+  await refreshWindowCornerState();
+}
+
+export async function toggleAppFullscreen(): Promise<boolean> {
+  const next = !bindings.isWindowSharp && !document.fullscreenElement;
+  await setAppFullscreen(next);
+  return next;
+}
+
+export async function setAppFullscreenFocus(focused: boolean): Promise<void> {
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.SetFullscreenFocus === 'function') {
+    await goMila.SetFullscreenFocus(focused).catch(() => {});
+  }
+}
+
+export function openExternalUrl(url: string): void {
+  const clean = url.trim();
+  if (!clean || typeof window === 'undefined') return;
+  const runtime = getWailsRuntime();
+  if (typeof runtime?.BrowserOpenURL === 'function') {
+    runtime.BrowserOpenURL(clean);
+    return;
+  }
+  window.open(clean, '_blank', 'noopener,noreferrer');
+}
+
+export async function invokeAnimeVostSearch(query: string): Promise<string | null> {
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.AnimeVostSearch !== 'function') return null;
+  try {
+    return await goMila.AnimeVostSearch(query);
+  } catch {
+    return null;
+  }
+}
+
+export async function invokeAnimeVostPlaylist(id: number): Promise<string | null> {
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.AnimeVostPlaylist !== 'function') return null;
+  try {
+    return await goMila.AnimeVostPlaylist(id);
+  } catch {
+    return null;
+  }
+}
+
+export async function invokeGetKodikToken(): Promise<string | null> {
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.GetKodikToken !== 'function') return null;
+  try {
+    return (await goMila.GetKodikToken()).trim();
+  } catch {
+    return null;
+  }
+}
+
+const bindingRegistry: BindingDescriptor[] = [
+  {
+    id: 'nav.back',
+    label: 'Navigate Back',
+    keys: ['Alt+ArrowLeft', 'BrowserBack'],
+    mouseButton: 3,
+    allowInInput: false,
+    handler: () => back()
+  },
+  {
+    id: 'nav.forward',
+    label: 'Navigate Forward',
+    keys: ['Alt+ArrowRight', 'BrowserForward'],
+    mouseButton: 4,
+    allowInInput: false,
+    handler: () => forward()
+  },
+  {
+    id: 'app.fullscreen',
+    label: 'Toggle Fullscreen',
+    keys: ['F11'],
+    allowInInput: true,
+    handler: () => toggleAppFullscreen()
+  },
+  {
+    id: 'search.open',
+    label: 'Open Search',
+    keys: ['Ctrl+KeyK', 'Meta+KeyK', '/'],
+    allowInInput: false,
+    handler: () => openSearch()
+  },
+  {
+    id: 'search.close',
+    label: 'Close Search',
+    keys: ['Escape'],
+    allowInInput: true,
+    handler: () => {
+      if (search.open) {
+        closeSearch();
+        return true;
+      }
+      return false;
+    }
+  }
+];
+
+export function getRegisteredBindings(): readonly BindingDescriptor[] {
+  return bindingRegistry;
+}
+
+export function triggerBinding(id: BindingActionId): void | boolean | Promise<void | boolean> {
+  const found = bindingRegistry.find((b) => b.id === id);
+  return found?.handler();
+}
+
+export function mountBindingsController(): () => void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return () => {};
+  }
+
+  bindings.isApp = detectDesktopApp();
+  void refreshWindowCornerState();
+
+  let lastSideMouseTriggerTs = 0;
+
+  const handleSideMouseButton = (e: MouseEvent, execute: boolean) => {
+    if (e.button !== 3 && e.button !== 4) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!execute) return;
+    const now = performance.now();
+    if (now - lastSideMouseTriggerTs < 90) return;
+    lastSideMouseTriggerTs = now;
+
+    if (search.open) {
+      closeSearch();
+    }
+
+    if (e.button === 3) {
+      back();
+    } else if (e.button === 4) {
+      forward();
+    }
+  };
+
+  const onMouseDown = (e: MouseEvent) => {
+    if (e.button === 3 || e.button === 4) {
+      handleSideMouseButton(e, false);
+    }
+  };
+
+  const onMouseUp = (e: MouseEvent) => {
+    if (e.button === 3 || e.button === 4) {
+      handleSideMouseButton(e, true);
+    }
+  };
+
+  const onAuxClick = (e: MouseEvent) => {
+    if (e.button === 3 || e.button === 4) {
+      handleSideMouseButton(e, true);
+    }
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.defaultPrevented) return;
+
+    if (e.key === 'F11') {
+      e.preventDefault();
+      void toggleAppFullscreen();
+      return;
+    }
+
+    if (e.key === 'Escape' && search.open) {
+      e.preventDefault();
+      closeSearch();
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === 'KeyK' || e.key.toLowerCase() === 'k')) {
+      e.preventDefault();
+      if (search.open) {
+        closeSearch();
+      } else {
+        openSearch();
+      }
+      return;
+    }
+
+    if (isEditableElement(e.target)) {
+      return;
+    }
+
+    if (e.key === 'BrowserBack' || (e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowLeft')) {
+      e.preventDefault();
+      if (search.open) closeSearch();
+      back();
+      return;
+    }
+
+    if (e.key === 'BrowserForward' || (e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowRight')) {
+      e.preventDefault();
+      if (search.open) closeSearch();
+      forward();
+      return;
+    }
+
+    if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !search.open) {
+      e.preventDefault();
+      openSearch();
+    }
+  };
+
+  const onPopState = (e: PopStateEvent) => {
+    const now = performance.now();
+    // Ignore duplicate browser popstate when Mouse4/Mouse5 already handled the step.
+    if (now - getLastHistoryNavTimestamp() < 140 || now - lastSideMouseTriggerTs < 140) {
+      try {
+        const active = router.stack[router.index];
+        if (active) {
+          window.history.replaceState({ milaIdx: router.index, key: active.key, page: active.page }, '');
+        }
+      } catch {
+        // Ignore
+      }
+      return;
+    }
+
+    const state = e.state as { milaIdx?: number } | null;
+    if (state && typeof state.milaIdx === 'number') {
+      if (search.open) closeSearch();
+      stepToHistoryIndex(state.milaIdx);
+    }
+  };
+
+  const onCheck = () => void refreshWindowCornerState();
+  const onFocus = () => {
+    void setAppFullscreenFocus(true);
+    onCheck();
+  };
+  const onBlur = () => {
+    void setAppFullscreenFocus(false);
+  };
+
+  window.addEventListener('mousedown', onMouseDown, { capture: true });
+  window.addEventListener('mouseup', onMouseUp, { capture: true });
+  window.addEventListener('auxclick', onAuxClick, { capture: true });
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('popstate', onPopState);
+  window.addEventListener('resize', onCheck);
+  document.addEventListener('fullscreenchange', onCheck);
+  window.addEventListener('focus', onFocus);
+  window.addEventListener('blur', onBlur);
+
+  return () => {
+    window.removeEventListener('mousedown', onMouseDown, { capture: true });
+    window.removeEventListener('mouseup', onMouseUp, { capture: true });
+    window.removeEventListener('auxclick', onAuxClick, { capture: true });
+    window.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('popstate', onPopState);
+    window.removeEventListener('resize', onCheck);
+    document.removeEventListener('fullscreenchange', onCheck);
+    window.removeEventListener('focus', onFocus);
+    window.removeEventListener('blur', onBlur);
+  };
+}

@@ -7,102 +7,30 @@
   import PageHost from './PageHost.svelte';
   import SearchPopup from '../section/search/SearchPopup.svelte';
   import { bootState, initBootGate } from './boot.svelte';
-  import { router } from './router.svelte';
+  import { bindings, mountBindingsController } from './bindings.svelte';
+  import { getSavedPageScroll, registerScrollBridge } from './router.svelte';
   import type { PageId } from '../pages';
 
   let scrollArea = $state<ReturnType<typeof ScrollArea> | null>(null);
-  const scrollByPage = new Map<PageId, number>();
-  let activePage: PageId = router.current;
-
-  // Save outgoing tab scroll position cleanly; restore incoming tab scroll only after
-  // the outgoing fade-out completes so leaving content never jumps mid-animation.
-  $effect(() => {
-    const next = router.current;
-    if (next !== activePage) {
-      if (activePage !== 'anime' && scrollArea) {
-        scrollByPage.set(activePage, scrollArea.getScrollTop());
-      }
-      activePage = next;
-    }
-  });
 
   function handlePageBeforeEnter(pageId: PageId) {
-    const targetTop = pageId === 'anime' ? 0 : (scrollByPage.get(pageId) ?? 0);
+    const targetTop = getSavedPageScroll(pageId);
     scrollArea?.setScrollTop(targetTop);
   }
 
-  // detect if running inside native desktop app (Wails / WebView2)
-  let isApp = $state(false);
-  let isWindowSharp = $state(false);
-  let appFullscreen = false;
-
-  async function refreshWindowCornerState() {
-    if (typeof window === 'undefined' || typeof document === 'undefined') return;
-    const w = window as any;
-    let sharp =
-      document.body.classList.contains('is-player-fullscreen') ||
-      document.fullscreenElement !== null ||
-      window.matchMedia?.('(display-mode: fullscreen)').matches ||
-      appFullscreen;
-
-    if (!sharp && isApp && window.screen) {
-      if (window.innerWidth >= window.screen.width - 2 && window.innerHeight >= window.screen.height - 2) {
-        sharp = true;
-      }
-      if (!sharp && typeof w.runtime?.WindowIsFullscreen === 'function') {
-        sharp = Boolean(await w.runtime.WindowIsFullscreen().catch(() => false));
-      }
-      if (!sharp && typeof w.runtime?.WindowIsMaximised === 'function') {
-        sharp = Boolean(await w.runtime.WindowIsMaximised().catch(() => false));
-      }
-    }
-
-    isWindowSharp = sharp;
-    document.body.classList.toggle('is-window-fullscreen', sharp);
-  }
-
-  $effect(() => {
-    // @ts-ignore
-    isApp = typeof window !== 'undefined' && !!(window.chrome?.webview || window.runtime);
-  });
-
   onMount(() => {
     initBootGate();
-    void refreshWindowCornerState();
+    const unregisterScroll = registerScrollBridge(() => scrollArea?.getScrollTop() ?? 0);
+    const unmountBindings = mountBindingsController();
 
-    const onCheck = () => void refreshWindowCornerState();
-    const onFocus = () => {
-      void (window as any).go?.mila?.Mila?.SetFullscreenFocus?.(true);
-      onCheck();
-    };
-    const onBlur = () => {
-      void (window as any).go?.mila?.Mila?.SetFullscreenFocus?.(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'F11' || !isApp) return;
-      const w = window as any;
-      if (typeof w.go?.mila?.Mila?.SetFullscreen !== 'function') return;
-      e.preventDefault();
-      appFullscreen = !isWindowSharp;
-      void w.go.mila.Mila.SetFullscreen(appFullscreen).then(() => refreshWindowCornerState());
-    };
-
-    window.addEventListener('resize', onCheck);
-    document.addEventListener('fullscreenchange', onCheck);
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('blur', onBlur);
-    window.addEventListener('keydown', onKeyDown);
     return () => {
-      window.removeEventListener('resize', onCheck);
-      document.removeEventListener('fullscreenchange', onCheck);
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('blur', onBlur);
-      window.removeEventListener('keydown', onKeyDown);
+      unregisterScroll();
+      unmountBindings();
     };
   });
 </script>
 
-<div class="viewport" class:is-app={isApp} class:is-fullscreen={isWindowSharp}>
+<div class="viewport" class:is-app={bindings.isApp} class:is-fullscreen={bindings.isWindowSharp}>
   <div class="content-layer">
     <Header />
     <ScrollArea bind:this={scrollArea}>

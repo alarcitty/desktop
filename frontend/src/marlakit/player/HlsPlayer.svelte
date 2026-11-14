@@ -487,30 +487,18 @@
     }
     if (nativeFsActive === next) return;
     nativeFsActive = next;
-    const w = window as any;
-    if (typeof w.go?.mila?.Mila?.SetFullscreen === 'function') {
-      await w.go.mila.Mila.SetFullscreen(next).catch(() => {});
-    } else if (next && typeof w.runtime?.WindowFullscreen === 'function') {
-      w.runtime.WindowFullscreen();
-    } else if (!next && typeof w.runtime?.WindowUnfullscreen === 'function') {
-      w.runtime.WindowUnfullscreen();
-    }
+    const { setAppFullscreen } = await import('../../app/bindings.svelte');
+    await setAppFullscreen(next, { playerMode: true, domTarget: rootEl });
   }
 
   async function enterFullscreen() {
     if (!rootEl) return;
     isFullscreen = true;
     await setNativeWindowFullscreen(true);
-    if (document.fullscreenElement !== rootEl && typeof rootEl.requestFullscreen === 'function') {
-      await rootEl.requestFullscreen().catch(() => {});
-    }
   }
 
   async function exitFullscreen() {
     isFullscreen = false;
-    if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
-      await document.exitFullscreen().catch(() => {});
-    }
     await setNativeWindowFullscreen(false);
   }
 
