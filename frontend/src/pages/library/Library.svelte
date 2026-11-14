@@ -926,7 +926,8 @@
     display: grid;
     width: 100%;
     min-width: 0;
-    overflow-x: hidden;
+    overflow: clip;
+    scrollbar-width: none;
     contain: layout style;
     isolation: isolate;
     transform: translate3d(0, 0, 0);
@@ -960,6 +961,7 @@
   .library-list {
     grid-area: 1 / 1;
     position: relative;
+    min-width: 0;
     list-style: none;
     margin: 0 var(--page-pad-x) 48px var(--page-pad-x);
     padding: 0;
@@ -967,11 +969,12 @@
     flex-direction: column;
     border-radius: var(--radius-card);
     overflow: hidden;
+    transform: translateZ(0);
   }
 
   .library-row {
     position: relative;
-    height: 267px;
+    height: 268px;
     overflow: hidden;
     background: #0c0c0c;
     isolation: isolate;
@@ -982,6 +985,7 @@
     box-sizing: border-box;
     flex-shrink: 0;
     contain: layout paint;
+    transform: translateZ(0);
     cursor: pointer;
     outline: none;
   }
@@ -1008,9 +1012,11 @@
 
   .row-dim {
     position: absolute;
-    inset: -2px;
+    inset: -4px;
     z-index: 1;
     background: rgba(4, 4, 4, 0.78);
+    transform: translate3d(0, 0, 0);
+    backface-visibility: hidden;
     pointer-events: none;
     transition: background-color var(--hover-dur) var(--ease-out);
   }
@@ -1158,6 +1164,7 @@
   .library-grid {
     grid-area: 1 / 1;
     position: relative;
+    min-width: 0;
     list-style: none;
     margin: 0 var(--page-pad-x) 48px var(--page-pad-x);
     padding: 0;

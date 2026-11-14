@@ -13,11 +13,9 @@
   const LEAVE_MS = 130;
   const ENTER_SETTLE_MS = 300;
 
-  // Keep visited main tabs mounted once opened (hidden via visibility/height:0 instead of
-  // display:none) so Blink/WebView2 retains layout boxes and decoded GPU image layers.
-  let visited = $state<PageId[]>(
-    CACHED_PAGES.has(router.current) ? [router.current] : ['home']
-  );
+  // Pre-mount all main tabs at startup (hidden tabs use visibility/height:0 rather than
+  // display:none) so Blink/WebView2 retains layout boxes and GPU image layers with zero tab-switch stutter.
+  let visited = $state<PageId[]>(Array.from(CACHED_PAGES));
   let currentTracked: PageId = router.current;
   let currentRouteKeyTracked: string = router.routeKey;
   let leavingId = $state<PageId | null>(null);

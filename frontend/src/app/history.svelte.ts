@@ -1,3 +1,5 @@
+import { buildMetaTags, ensureShikimoriArtwork } from '../api/anime';
+
 export interface WatchHistoryEntry {
   id: string;
   shikiId?: number;
@@ -159,4 +161,38 @@ export function removeHistoryEntry(id: string): void {
 export function clearWatchHistory(): void {
   watchHistory.entries = [];
   saveHistory([]);
+}
+
+let enrichedHistoryArtwork = false;
+export async function enrichHistoryArtwork(): Promise<void> {
+  if (enrichedHistoryArtwork) return;
+  enrichedHistoryArtwork = true;
+  const ids = Array.from(
+    new Set(watchHistory.entries.map((e) => e.shikiId ?? 0).filter((id) => id > 0))
+  );
+  if (ids.length === 0) return;
+  const map = await ensureShikimoriArtwork(ids);
+  const next = watchHistory.entries.map((entry) => {
+    const shiki = entry.shikiId ? map.get(entry.shikiId) : undefined;
+    if (!shiki) return entry;
+    const nextTags = buildMetaTags(shiki);
+    const mergedQueries = Array.from(
+      new Set([
+        ...(entry.searchQueries ?? []),
+        shiki.name,
+        shiki.english,
+        shiki.russian
+      ].filter(Boolean))
+    );
+    return {
+      ...entry,
+      searchQueries: mergedQueries.length > 0 ? mergedQueries : entry.searchQueries,
+      poster: shiki.posterOriginal || shiki.posterMain || entry.poster,
+      description: shiki.description ? shiki.description : entry.description,
+      score: shiki.score > 0 ? Number(shiki.score.toFixed(1)) : entry.score,
+      tags: nextTags.length > 0 ? nextTags : entry.tags
+    };
+  });
+  watchHistory.entries = next;
+  saveHistory(next);
 }

@@ -1,9 +1,12 @@
-import { loadHomeFeeds } from '../api/anime';
+import { loadCatalogGenres, loadHomeFeeds, warmHeroOpeningPreview } from '../api/anime';
+import { loadNewsFeed } from '../api/news';
+import { enrichHistoryArtwork, watchHistory } from './history.svelte';
+import { enrichLibraryArtwork, localLibrary } from './library.svelte';
 import { router } from './router.svelte';
 
-const IMAGE_PRELOAD_TIMEOUT_MS = 3200;
+const IMAGE_PRELOAD_TIMEOUT_MS = 4200;
 const HERO_VIDEO_TIMEOUT_MS = 4500;
-const HARD_BOOT_TIMEOUT_MS = 8000;
+const HARD_BOOT_TIMEOUT_MS = 9000;
 
 export const bootState = $state<{ ready: boolean }>({
   ready: false
@@ -43,7 +46,14 @@ function preloadImage(url: string): Promise<void> {
   return new Promise((resolve) => {
     const img = new Image();
     img.decoding = 'async';
-    img.onload = () => resolve();
+    const finish = () => {
+      if (typeof img.decode === 'function') {
+        void img.decode().catch(() => undefined).finally(resolve);
+      } else {
+        resolve();
+      }
+    };
+    img.onload = finish;
     img.onerror = () => resolve();
     img.src = url;
   });
@@ -79,7 +89,16 @@ export function initBootGate(): void {
   void (async () => {
     try {
       const fontsPromise = waitForFonts();
-      const feeds = await loadHomeFeeds().catch(() => null);
+      const [feedsRes, , newsRes] = await Promise.allSettled([
+        loadHomeFeeds(),
+        loadCatalogGenres(),
+        loadNewsFeed(),
+        enrichLibraryArtwork(),
+        enrichHistoryArtwork()
+      ]);
+
+      const feeds = feedsRes.status === 'fulfilled' ? feedsRes.value : null;
+      const newsFeed = newsRes.status === 'fulfilled' ? newsRes.value : null;
 
       const criticalUrls: string[] = [];
       if (feeds) {
@@ -87,15 +106,39 @@ export function initBootGate(): void {
         if (firstHero) {
           if (firstHero.bg) criticalUrls.push(firstHero.bg);
           if (firstHero.poster) criticalUrls.push(firstHero.poster);
+          warmHeroOpeningPreview({
+            shikiId: firstHero.shikiId,
+            title: firstHero.title,
+            releaseAlias: firstHero.releaseAlias,
+            searchQueries: firstHero.searchQueries,
+            openingAlias: firstHero.openingAlias,
+            openingEpisode: firstHero.openingEpisode,
+            openingStartOffsetSec: firstHero.openingStartOffsetSec,
+            customPreviewUrl: firstHero.customPreviewUrl,
+            customPreviewAspect: firstHero.customPreviewAspect
+          });
         }
         for (const s of feeds.spotlight.slice(1, 5)) {
           if (s.poster) criticalUrls.push(s.poster);
         }
-        for (const r of feeds.releases.slice(0, 4)) {
+        for (const r of feeds.releases.slice(0, 8)) {
           if (r.poster) criticalUrls.push(r.poster);
         }
-        for (const rec of feeds.recommendations.slice(0, 5)) {
+        for (const rec of feeds.recommendations.slice(0, 6)) {
           if (rec.poster) criticalUrls.push(rec.poster);
+        }
+      }
+
+      for (const entry of watchHistory.entries.slice(0, 16)) {
+        if (entry.poster) criticalUrls.push(entry.poster);
+      }
+      for (const item of localLibrary.items.slice(0, 16)) {
+        if (item.poster) criticalUrls.push(item.poster);
+      }
+      if (newsFeed) {
+        for (const n of newsFeed.items.slice(0, 8)) {
+          if (n.image) criticalUrls.push(n.image);
+          if (n.poster) criticalUrls.push(n.poster);
         }
       }
 

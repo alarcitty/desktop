@@ -82,7 +82,40 @@ interface RawLibLatestRelease {
   } | null;
 }
 
-let cachedFeed: NewsFeed | null = null;
+const NEWS_CACHE_KEY = 'mila.cache.news.v1';
+const NEWS_CACHE_FRESH_MS = 15 * 60 * 1000;
+const NEWS_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+function readPersistedNews(): NewsFeed | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(NEWS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as NewsFeed | null;
+    if (
+      !parsed ||
+      !Array.isArray(parsed.items) ||
+      typeof parsed.fetchedAt !== 'number' ||
+      Date.now() - parsed.fetchedAt > NEWS_CACHE_MAX_AGE_MS
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedNews(feed: NewsFeed): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify(feed));
+  } catch {
+    // Ignore storage quota errors.
+  }
+}
+
+let cachedFeed: NewsFeed | null = readPersistedNews();
 let inflightPromise: Promise<NewsFeed> | null = null;
 
 function resolveShikiAsset(raw?: string | null): string {
@@ -242,7 +275,10 @@ function buildHashtags(parts: {
 }
 
 export async function loadNewsFeed(force = false): Promise<NewsFeed> {
-  if (!force && cachedFeed && Date.now() - cachedFeed.fetchedAt < 120_000) {
+  if (!force && cachedFeed) {
+    if (Date.now() - cachedFeed.fetchedAt > NEWS_CACHE_FRESH_MS && !inflightPromise) {
+      void loadNewsFeed(true);
+    }
     return cachedFeed;
   }
   if (!force && inflightPromise) {
@@ -389,6 +425,9 @@ export async function loadNewsFeed(force = false): Promise<NewsFeed> {
       if (i < releaseItems.length) combined.push(releaseItems[i]);
     }
     cachedFeed = { items: combined, fetchedAt: Date.now() };
+    if (combined.length > 0) {
+      writePersistedNews(cachedFeed);
+    }
     return cachedFeed;
   })();
 

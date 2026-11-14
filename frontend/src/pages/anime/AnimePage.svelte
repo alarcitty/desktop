@@ -366,12 +366,13 @@
               class="season-tab"
               class:active={isActive}
               class:is-static={displaySeasons.length === 1}
+              title={season.title}
               aria-current={isActive ? 'page' : undefined}
               onclick={() => {
                 if (isInteractive) void switchSeason(season);
               }}
             >
-              <span>{season.shortLabel}</span>
+              <span class="season-label">{season.shortLabel}</span>
               {#if season.year}
                 <span class="season-year">{season.year}</span>
               {/if}
@@ -736,27 +737,32 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 18px;
+    gap: 22px;
     margin-top: 24px;
   }
 
   .season-tab {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    border: 0;
-    border-radius: 0;
+    justify-content: center;
+    gap: 6px;
     padding: 4px 0;
+    border: none;
+    outline: none;
+    border-radius: 0;
     background: transparent;
-    color: rgba(255, 255, 255, 0.5);
-    font-family: inherit;
-    font-size: 13.5px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
+    color: rgba(255, 255, 255, 0.46);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 1;
+    letter-spacing: 0;
+    white-space: nowrap;
     cursor: pointer;
+    user-select: none;
     transition:
       color 180ms var(--ease-out),
-      transform 180ms var(--ease-out);
+      transform 140ms var(--ease-out);
   }
 
   .season-tab:hover {
@@ -771,30 +777,40 @@
   .season-tab.active {
     background: transparent;
     color: #ffffff;
-    font-weight: 600;
+  }
+
+  .season-tab.active:hover {
+    background: transparent;
+    color: #ffffff;
   }
 
   .season-tab.is-static {
     cursor: default;
   }
 
-  .season-tab.is-static:hover {
-    background: transparent;
-    color: #ffffff;
-  }
-
   .season-tab.is-static:active {
     transform: none;
   }
 
+  .season-label {
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
+  }
+
   .season-year {
-    font-size: 12px;
-    font-weight: 500;
-    opacity: 0.56;
+    display: inline-flex;
+    align-items: center;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: inherit;
+    opacity: 0.62;
   }
 
   .season-tab.active .season-year {
-    opacity: 0.65;
+    opacity: 0.72;
   }
 
   /* Atmospheric borderless poster showcase on right side of hero */

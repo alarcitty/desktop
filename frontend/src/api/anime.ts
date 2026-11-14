@@ -154,10 +154,85 @@ export interface HomeFeeds {
   recommendations: HomeRecommendationItem[];
 }
 
+const HOME_CACHE_KEY = 'mila.cache.home.v2';
+const HOME_CACHE_FRESH_MS = 20 * 60 * 1000;
+const HOME_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const SHIKI_CACHE_KEY = 'mila.cache.shiki.v1';
+const SHIKI_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const SHIKI_CACHE_MAX_ITEMS = 240;
+const GENRES_CACHE_KEY = 'mila.cache.genres.v1';
+const GENRES_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+interface PersistedEnvelope<T> {
+  ts: number;
+  data: T;
+}
+
+function readPersistedCache<T>(key: string, maxAgeMs: number): PersistedEnvelope<T> | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedEnvelope<T> | null;
+    if (!parsed || typeof parsed.ts !== 'number' || Date.now() - parsed.ts > maxAgeMs) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedCache<T>(key: string, data: T): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const payload: PersistedEnvelope<T> = { ts: Date.now(), data };
+    localStorage.setItem(key, JSON.stringify(payload));
+  } catch {
+    // Ignore storage quota or serialization errors.
+  }
+}
+
 const shikiCache = new Map<number, ShikiArtwork>();
+let shikiPersistTimer: number | undefined;
+
+function hydrateShikiCache(): void {
+  const cached = readPersistedCache<ShikiArtwork[]>(SHIKI_CACHE_KEY, SHIKI_CACHE_TTL_MS);
+  if (!cached || !Array.isArray(cached.data)) return;
+  for (const item of cached.data) {
+    if (item && typeof item.id === 'number' && item.id > 0) {
+      shikiCache.set(item.id, item);
+    }
+  }
+}
+
+function schedulePersistShikiCache(): void {
+  if (typeof window === 'undefined') return;
+  if (shikiPersistTimer !== undefined) {
+    window.clearTimeout(shikiPersistTimer);
+  }
+  shikiPersistTimer = window.setTimeout(() => {
+    shikiPersistTimer = undefined;
+    const entries = Array.from(shikiCache.values()).slice(-SHIKI_CACHE_MAX_ITEMS);
+    writePersistedCache(SHIKI_CACHE_KEY, entries);
+  }, 200);
+}
+
+function setShikiCached(art: ShikiArtwork): void {
+  if (shikiCache.has(art.id)) {
+    shikiCache.delete(art.id);
+  }
+  shikiCache.set(art.id, art);
+  schedulePersistShikiCache();
+}
+
+hydrateShikiCache();
+
+const initialHomeEnvelope = readPersistedCache<HomeFeeds>(HOME_CACHE_KEY, HOME_CACHE_MAX_AGE_MS);
 let batchPromise: Promise<void> | null = null;
 let backendAvailable: boolean | null = null;
-let homeFeedsCache: HomeFeeds | null = null;
+let homeFeedsCache: HomeFeeds | null = initialHomeEnvelope?.data ?? null;
+let homeFeedsCacheTs = initialHomeEnvelope?.ts ?? 0;
 let homeFeedsPromise: Promise<HomeFeeds> | null = null;
 
 function cleanBBCode(raw: string | null | undefined): string {
@@ -321,7 +396,7 @@ export async function ensureShikimoriArtwork(ids: readonly number[]): Promise<Ma
         for (const item of payload.data?.animes ?? []) {
           const mapped = mapShikiNode(item);
           if (mapped) {
-            shikiCache.set(mapped.id, mapped);
+            setShikiCached(mapped);
           }
         }
       } finally {
@@ -872,9 +947,16 @@ export function getCachedHomeFeeds(): HomeFeeds | null {
   return homeFeedsCache;
 }
 
+export function isHomeFeedsStale(): boolean {
+  return !homeFeedsCache || Date.now() - homeFeedsCacheTs > HOME_CACHE_FRESH_MS;
+}
+
 // Loads curated top-5 Spotlight plus live AniLiberty New Releases and Recommendations.
-export async function loadHomeFeeds(): Promise<HomeFeeds> {
-  if (homeFeedsCache) {
+export async function loadHomeFeeds(forceRefresh = false): Promise<HomeFeeds> {
+  if (!forceRefresh && homeFeedsCache) {
+    if (isHomeFeedsStale() && !homeFeedsPromise) {
+      void loadHomeFeeds(true);
+    }
     return homeFeedsCache;
   }
   if (homeFeedsPromise) {
@@ -935,7 +1017,7 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
     for (const node of ongoingNodes) {
       const mapped = mapShikiNode(node);
       if (mapped) {
-        shikiCache.set(mapped.id, mapped);
+        setShikiCached(mapped);
         ongoingArts.push(mapped);
       }
     }
@@ -944,7 +1026,7 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
     for (const node of rankedNodes) {
       const mapped = mapShikiNode(node);
       if (mapped) {
-        shikiCache.set(mapped.id, mapped);
+        setShikiCached(mapped);
         rankedArts.push(mapped);
       }
     }
@@ -1113,6 +1195,8 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
     const result: HomeFeeds = { spotlight, releases, recommendations };
     if (spotlight.length > 0 || releases.length > 0 || recommendations.length > 0) {
       homeFeedsCache = result;
+      homeFeedsCacheTs = Date.now();
+      writePersistedCache(HOME_CACHE_KEY, result);
     }
     return result;
   })().finally(() => {
@@ -1408,7 +1492,8 @@ function releaseCandidateToSearchItem(
   };
 }
 
-let catalogGenresCache: CatalogGenreOption[] | null = null;
+let catalogGenresCache: CatalogGenreOption[] | null =
+  readPersistedCache<CatalogGenreOption[]>(GENRES_CACHE_KEY, GENRES_CACHE_TTL_MS)?.data ?? null;
 let catalogGenresPending: Promise<CatalogGenreOption[]> | null = null;
 
 export async function loadCatalogGenres(signal?: AbortSignal): Promise<CatalogGenreOption[]> {
@@ -1431,7 +1516,10 @@ export async function loadCatalogGenres(signal?: AbortSignal): Promise<CatalogGe
           totalReleases: typeof g.total_releases === 'number' ? g.total_releases : undefined
         }))
         .sort((a, b) => (b.totalReleases ?? 0) - (a.totalReleases ?? 0));
-      if (mapped.length > 0) catalogGenresCache = mapped;
+      if (mapped.length > 0) {
+        catalogGenresCache = mapped;
+        writePersistedCache(GENRES_CACHE_KEY, mapped);
+      }
       return mapped;
     } catch {
       return [];

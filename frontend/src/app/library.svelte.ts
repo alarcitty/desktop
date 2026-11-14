@@ -248,8 +248,17 @@ export async function enrichLibraryArtwork(): Promise<void> {
     const shiki = map.get(item.shikiId);
     if (!shiki) return item;
     const nextTags = buildMetaTags(shiki);
+    const mergedQueries = Array.from(
+      new Set([
+        ...(item.searchQueries ?? []),
+        shiki.name,
+        shiki.english,
+        shiki.russian
+      ].filter(Boolean))
+    );
     return {
       ...item,
+      searchQueries: mergedQueries.length > 0 ? mergedQueries : item.searchQueries,
       poster: shiki.posterOriginal || shiki.posterMain || item.poster,
       description: shiki.description ? shiki.description : item.description,
       score: shiki.score > 0 ? Number(shiki.score.toFixed(1)) : item.score,
