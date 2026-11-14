@@ -1,6 +1,7 @@
 import type { HlsSources, SkipRange, VoiceTrackOption } from '../marlakit/player/types';
 import { fetchAnimeVostEpisodes, findAnimeVostMatch } from './providers/animevost';
 import { fetchAnixartEpisodes, findAnixartDiscovery } from './providers/anixart';
+import { fetchDreamCastEpisodes, findDreamCastMatch } from './providers/dreamcast';
 import {
   dedupeSearchQueries,
   fetchJsonWithTimeout,
@@ -54,7 +55,7 @@ export interface PlayableRelease {
   titleEnglish?: string;
   year?: number;
   typeLabel?: string;
-  provider?: 'aniliberty' | 'animevost' | 'anixart' | string;
+  provider?: 'aniliberty' | 'dreamcast' | 'animevost' | 'anixart' | string;
   voiceLabel?: string;
   voiceActors?: string[];
   poster?: string;
@@ -635,6 +636,23 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
     shikiArt?.name,
     ...(target.searchQueries ?? [])
   ]);
+
+  const dcMatch = await findDreamCastMatch(providerTitles, shikiArt?.year ?? null).catch(() => null);
+  if (dcMatch && dcMatch.episodes.length > 0) {
+    return {
+      id: dcMatch.releaseId,
+      alias: dcMatch.voice.id,
+      title: shikiArt?.english || shikiArt?.name || dcMatch.title || target.title,
+      titleEnglish: shikiArt?.english || shikiArt?.name,
+      year: shikiArt?.year ?? dcMatch.year,
+      provider: 'dreamcast',
+      voiceLabel: dcMatch.voice.label,
+      voiceActors: dcMatch.voiceActors,
+      poster: shikiArt?.posterOriginal || shikiArt?.posterMain || dcMatch.poster,
+      banner: shikiArt?.screenshots?.[0] || dcMatch.poster,
+      episodes: dcMatch.episodes
+    };
+  }
 
   const avMatch = await findAnimeVostMatch(providerTitles, shikiArt?.year ?? null).catch(() => null);
   if (avMatch && avMatch.episodes.length > 0) {
@@ -1550,11 +1568,24 @@ export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption 
   const provider = rel.provider ?? 'aniliberty';
   const cast = rel.voiceActors?.slice(0, 3).join(', ');
   const epPart = rel.episodes.length > 0 ? `${rel.episodes.length} ep` : '';
-  const kindTag = provider === 'animevost' ? 'MP4' : provider === 'anixart' ? 'Mirror' : '';
+  const kindTag =
+    provider === 'dreamcast'
+      ? '1080p HLS'
+      : provider === 'animevost'
+        ? 'MP4'
+        : provider === 'anixart'
+          ? 'Mirror'
+          : '';
+  const defaultLabel =
+    provider === 'dreamcast'
+      ? 'Dream Cast'
+      : provider === 'animevost'
+        ? 'AnimeVost'
+        : 'AniLiberty';
   const sublabel = cast || [epPart, kindTag].filter(Boolean).join(' · ') || undefined;
   return {
     id: rel.alias,
-    label: rel.voiceLabel || (provider === 'animevost' ? 'AnimeVost' : 'AniLiberty'),
+    label: rel.voiceLabel || defaultLabel,
     sublabel,
     releaseAlias: provider === 'aniliberty' ? rel.alias : undefined,
     provider,
@@ -1569,6 +1600,31 @@ export async function resolveVoiceTrackRelease(
   target: WatchTarget
 ): Promise<PlayableRelease> {
   const shikiArt = target.shikiId ? shikiCache.get(target.shikiId) : undefined;
+  if (voice.provider === 'dreamcast') {
+    const releaseId = Number(voice.providerId);
+    const releaseUrl = typeof voice.sourceId === 'string' ? voice.sourceId : '';
+    const episodes = await fetchDreamCastEpisodes(releaseId, releaseUrl);
+    if (episodes.length === 0) {
+      throw new Error(`Dream Cast: нет доступных серий для ${target.title}`);
+    }
+    return {
+      ...(baseRelease ?? {
+        id: releaseId,
+        title: shikiArt?.english || shikiArt?.name || target.title,
+        titleEnglish: shikiArt?.english || shikiArt?.name,
+        year: shikiArt?.year,
+        poster: shikiArt?.posterOriginal || shikiArt?.posterMain,
+        banner: shikiArt?.screenshots?.[0]
+      }),
+      id: releaseId,
+      alias: voice.id,
+      provider: 'dreamcast',
+      voiceLabel: voice.label,
+      voiceActors: undefined,
+      episodes
+    };
+  }
+
   if (voice.provider === 'animevost') {
     const releaseId = Number(voice.providerId);
     const episodes = await fetchAnimeVostEpisodes(releaseId);
@@ -1660,6 +1716,11 @@ export async function findVoiceOptions(
         ])
       : Promise.resolve(null);
 
+  const dcPromise =
+    primaryProvider !== 'dreamcast'
+      ? findDreamCastMatch(searchTitles, shikiArt?.year ?? primary.year ?? null)
+      : Promise.resolve(null);
+
   const avPromise =
     primaryProvider !== 'animevost'
       ? findAnimeVostMatch(searchTitles, shikiArt?.year ?? primary.year ?? null)
@@ -1667,11 +1728,13 @@ export async function findVoiceOptions(
 
   const axPromise = findAnixartDiscovery(searchTitles, shikiArt?.year ?? primary.year ?? null, {
     hasNativeAniLiberty: primaryProvider === 'aniliberty',
-    hasNativeAnimeVost: primaryProvider === 'animevost'
+    hasNativeAnimeVost: primaryProvider === 'animevost',
+    hasNativeDreamCast: primaryProvider === 'dreamcast'
   });
 
-  const [libSettled, avSettled, axSettled] = await Promise.allSettled([
+  const [libSettled, dcSettled, avSettled, axSettled] = await Promise.allSettled([
     libPromise,
+    dcPromise,
     avPromise,
     axPromise
   ]);
@@ -1710,6 +1773,13 @@ export async function findVoiceOptions(
     }
   }
 
+  let hasNativeDreamCast = primaryProvider === 'dreamcast';
+  if (dcSettled.status === 'fulfilled' && dcSettled.value && !seenIds.has(dcSettled.value.voice.id)) {
+    seenIds.add(dcSettled.value.voice.id);
+    hasNativeDreamCast = true;
+    options.push(dcSettled.value.voice);
+  }
+
   let hasNativeAnimeVost = primaryProvider === 'animevost';
   if (avSettled.status === 'fulfilled' && avSettled.value && !seenIds.has(avSettled.value.voice.id)) {
     seenIds.add(avSettled.value.voice.id);
@@ -1719,7 +1789,9 @@ export async function findVoiceOptions(
 
   if (axSettled.status === 'fulfilled' && axSettled.value) {
     for (const axVoice of axSettled.value.voices) {
-      if (hasNativeAnimeVost && axVoice.label.trim().toLowerCase() === 'animevost') continue;
+      const axLower = axVoice.label.trim().toLowerCase();
+      if (hasNativeAnimeVost && axLower === 'animevost') continue;
+      if (hasNativeDreamCast && (axLower === 'dream cast' || axLower === 'dreamcast')) continue;
       if (seenIds.has(axVoice.id)) continue;
       seenIds.add(axVoice.id);
       options.push(axVoice);

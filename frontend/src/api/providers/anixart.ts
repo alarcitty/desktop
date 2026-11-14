@@ -156,7 +156,7 @@ export interface AnixartDiscovery {
 export async function findAnixartDiscovery(
   targetTitles: string[],
   targetYear?: number | null,
-  opts?: { hasNativeAniLiberty?: boolean; hasNativeAnimeVost?: boolean }
+  opts?: { hasNativeAniLiberty?: boolean; hasNativeAnimeVost?: boolean; hasNativeDreamCast?: boolean }
 ): Promise<AnixartDiscovery | null> {
   const queries = dedupeSearchQueries(targetTitles).slice(0, 2);
   if (queries.length === 0) return null;
@@ -204,6 +204,7 @@ export async function findAnixartDiscovery(
     const lower = rawName.toLowerCase();
 
     if (opts?.hasNativeAnimeVost && lower === 'animevost') continue;
+    if (opts?.hasNativeDreamCast && (lower === 'dream cast' || lower === 'dreamcast')) continue;
     if (seenNames.has(lower)) continue;
     seenNames.add(lower);
 

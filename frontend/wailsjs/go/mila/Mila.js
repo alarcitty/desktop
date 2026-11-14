@@ -13,3 +13,7 @@ export function AnimeVostSearch(arg1) {
 export function SetFullscreen(arg1) {
   return window['go']['mila']['Mila']['SetFullscreen'](arg1);
 }
+
+export function SetFullscreenFocus(arg1) {
+  return window['go']['mila']['Mila']['SetFullscreenFocus'](arg1);
+}

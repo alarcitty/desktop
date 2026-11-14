@@ -3,6 +3,7 @@
 package screen
 
 import (
+	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -40,12 +41,24 @@ const (
 
 	monitorDefaultToNearest = 2
 
+	swpNoSize        = 0x0001
+	swpNoMove        = 0x0002
+	swpNoActivate    = 0x0010
 	swpNoOwnerZOrder = 0x0200
 	swpFrameChanged  = 0x0020
 	swpShowWindow    = 0x0040
 
+	dwmwaWindowCornerPreference = 33
+	dwmwcpDefault               = 0
+	dwmwcpDoNotRound            = 1
+
 	coinitApartmentThreaded = 0x2
 	clsctxInprocServer      = 0x1
+)
+
+var (
+	hwndTopmost   = ^uintptr(0) // (HWND)-1
+	hwndNotopmost = ^uintptr(1) // (HWND)-2
 )
 
 type monitorInfo struct {
@@ -81,6 +94,7 @@ type iTaskbarList2 struct {
 var (
 	user32                        = syscall.NewLazyDLL("user32.dll")
 	ole32                         = syscall.NewLazyDLL("ole32.dll")
+	dwmapi                        = syscall.NewLazyDLL("dwmapi.dll")
 	getSystemMetrics              = user32.NewProc("GetSystemMetrics")
 	systemParametersInfo          = user32.NewProc("SystemParametersInfoW")
 	findWindowW                   = user32.NewProc("FindWindowW")
@@ -90,8 +104,11 @@ var (
 	monitorFromWindow             = user32.NewProc("MonitorFromWindow")
 	getMonitorInfoW               = user32.NewProc("GetMonitorInfoW")
 	setWindowPos                  = user32.NewProc("SetWindowPos")
+	setForegroundWindow           = user32.NewProc("SetForegroundWindow")
 	coInitializeEx                = ole32.NewProc("CoInitializeEx")
+	coUninitialize                = ole32.NewProc("CoUninitialize")
 	coCreateInstance              = ole32.NewProc("CoCreateInstance")
+	dwmSetWindowAttribute         = dwmapi.NewProc("DwmSetWindowAttribute")
 
 	clsidTaskbarList = guid{
 		data1: 0x56FDF344,
@@ -158,35 +175,58 @@ func findAppWindow(className, title string) uintptr {
 	return hwnd
 }
 
+func setWindowCornerPreference(hwnd uintptr, preference uint32) {
+	if hwnd == 0 {
+		return
+	}
+	_, _, _ = dwmSetWindowAttribute.Call(
+		hwnd,
+		uintptr(dwmwaWindowCornerPreference),
+		uintptr(unsafe.Pointer(&preference)),
+		unsafe.Sizeof(preference),
+	)
+}
+
 func markTaskbarFullscreen(hwnd uintptr, fullscreen bool) {
 	if hwnd == 0 {
 		return
 	}
-	_, _, _ = coInitializeEx.Call(0, uintptr(coinitApartmentThreaded))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
 
-	var obj *iTaskbarList2
-	hr, _, _ := coCreateInstance.Call(
-		uintptr(unsafe.Pointer(&clsidTaskbarList)),
-		0,
-		uintptr(clsctxInprocServer),
-		uintptr(unsafe.Pointer(&iidITaskbarList2)),
-		uintptr(unsafe.Pointer(&obj)),
-	)
-	if hr != 0 || obj == nil || obj.lpVtbl == nil {
-		return
-	}
-	defer syscall.SyscallN(obj.lpVtbl.Release, uintptr(unsafe.Pointer(obj)))
+		hrCom, _, _ := coInitializeEx.Call(0, uintptr(coinitApartmentThreaded))
+		if hrCom == 0 || hrCom == 1 {
+			defer coUninitialize.Call()
+		}
 
-	hrInit, _, _ := syscall.SyscallN(obj.lpVtbl.HrInit, uintptr(unsafe.Pointer(obj)))
-	if hrInit != 0 {
-		return
-	}
+		var obj *iTaskbarList2
+		hr, _, _ := coCreateInstance.Call(
+			uintptr(unsafe.Pointer(&clsidTaskbarList)),
+			0,
+			uintptr(clsctxInprocServer),
+			uintptr(unsafe.Pointer(&iidITaskbarList2)),
+			uintptr(unsafe.Pointer(&obj)),
+		)
+		if hr != 0 || obj == nil || obj.lpVtbl == nil {
+			return
+		}
+		defer syscall.SyscallN(obj.lpVtbl.Release, uintptr(unsafe.Pointer(obj)))
 
-	var flag uintptr
-	if fullscreen {
-		flag = 1
-	}
-	_, _, _ = syscall.SyscallN(obj.lpVtbl.MarkFullscreenWindow, uintptr(unsafe.Pointer(obj)), hwnd, flag)
+		hrInit, _, _ := syscall.SyscallN(obj.lpVtbl.HrInit, uintptr(unsafe.Pointer(obj)))
+		if hrInit != 0 {
+			return
+		}
+
+		var flag uintptr
+		if fullscreen {
+			flag = 1
+		}
+		_, _, _ = syscall.SyscallN(obj.lpVtbl.MarkFullscreenWindow, uintptr(unsafe.Pointer(obj)), hwnd, flag)
+	}()
+	<-done
 }
 
 // SetWindowFullscreen ensures the native HWND covers the entire physical monitor (including the taskbar).
@@ -201,6 +241,7 @@ func SetWindowFullscreen(className, title string, fullscreen bool) bool {
 		style, _, _ := getWindowLongW.Call(hwnd, uintptr(styleIdx))
 		cleanStyle := (uint32(style) & ^uint32(wsOverlappedWindow|wsMaximize)) | wsPopup | wsVisible
 		_, _, _ = setWindowLongW.Call(hwnd, uintptr(styleIdx), uintptr(cleanStyle))
+		setWindowCornerPreference(hwnd, dwmwcpDoNotRound)
 
 		monitor, _, _ := monitorFromWindow.Call(hwnd, uintptr(monitorDefaultToNearest))
 		if monitor != 0 {
@@ -211,7 +252,7 @@ func SetWindowFullscreen(className, title string, fullscreen bool) bool {
 				h := mi.rcMonitor.bottom - mi.rcMonitor.top
 				_, _, _ = setWindowPos.Call(
 					hwnd,
-					0,
+					hwndTopmost,
 					uintptr(mi.rcMonitor.left),
 					uintptr(mi.rcMonitor.top),
 					uintptr(w),
@@ -220,11 +261,44 @@ func SetWindowFullscreen(className, title string, fullscreen bool) bool {
 				)
 			}
 		}
+		_, _, _ = setForegroundWindow.Call(hwnd)
 		markTaskbarFullscreen(hwnd, true)
 		return true
 	}
 
+	_, _, _ = setWindowPos.Call(
+		hwnd,
+		hwndNotopmost,
+		0,
+		0,
+		0,
+		0,
+		uintptr(swpNoMove|swpNoSize|swpNoOwnerZOrder|swpNoActivate),
+	)
+	setWindowCornerPreference(hwnd, dwmwcpDefault)
 	markTaskbarFullscreen(hwnd, false)
+	return true
+}
+
+// SetWindowTopmost toggles TOPMOST vs NOTOPMOST without moving or activating, so Alt+Tab works cleanly in fullscreen.
+func SetWindowTopmost(className, title string, topmost bool) bool {
+	hwnd := findAppWindow(className, title)
+	if hwnd == 0 {
+		return false
+	}
+	zOrder := hwndNotopmost
+	if topmost {
+		zOrder = hwndTopmost
+	}
+	_, _, _ = setWindowPos.Call(
+		hwnd,
+		zOrder,
+		0,
+		0,
+		0,
+		0,
+		uintptr(swpNoMove|swpNoSize|swpNoOwnerZOrder|swpNoActivate),
+	)
 	return true
 }
 

@@ -34,7 +34,8 @@ func main() {
 		MinHeight: 651,
 		Frameless: true,
 		AssetServer: &assetserver.Options{
-			Assets: assets,
+			Assets:  assets,
+			Handler: mila.NewProviderHandler(),
 		},
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0}, // transparent for rounded corners
 		OnStartup:        m.Startup,

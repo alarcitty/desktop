@@ -479,16 +479,17 @@
 
   let nativeFsActive = false;
 
-  function setNativeWindowFullscreen(next: boolean) {
+  async function setNativeWindowFullscreen(next: boolean) {
     if (typeof window === 'undefined') return;
     if (typeof document !== 'undefined') {
       document.body.classList.toggle('is-player-fullscreen', next);
+      document.body.classList.toggle('is-window-fullscreen', next);
     }
     if (nativeFsActive === next) return;
     nativeFsActive = next;
     const w = window as any;
     if (typeof w.go?.mila?.Mila?.SetFullscreen === 'function') {
-      void w.go.mila.Mila.SetFullscreen(next);
+      await w.go.mila.Mila.SetFullscreen(next).catch(() => {});
     } else if (next && typeof w.runtime?.WindowFullscreen === 'function') {
       w.runtime.WindowFullscreen();
     } else if (!next && typeof w.runtime?.WindowUnfullscreen === 'function') {
@@ -499,7 +500,7 @@
   async function enterFullscreen() {
     if (!rootEl) return;
     isFullscreen = true;
-    setNativeWindowFullscreen(true);
+    await setNativeWindowFullscreen(true);
     if (document.fullscreenElement !== rootEl && typeof rootEl.requestFullscreen === 'function') {
       await rootEl.requestFullscreen().catch(() => {});
     }
@@ -507,10 +508,10 @@
 
   async function exitFullscreen() {
     isFullscreen = false;
-    setNativeWindowFullscreen(false);
     if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
       await document.exitFullscreen().catch(() => {});
     }
+    await setNativeWindowFullscreen(false);
   }
 
   $effect(() => {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -13,8 +14,9 @@ import (
 )
 
 type Mila struct {
-	ctx context.Context
-	log *logger.Logger
+	ctx          context.Context
+	log          *logger.Logger
+	isFullscreen atomic.Bool
 }
 
 // make_unique mila instance
@@ -78,6 +80,7 @@ func (m *Mila) SetFullscreen(fullscreen bool) {
 	if m.ctx == nil {
 		return
 	}
+	m.isFullscreen.Store(fullscreen)
 	if fullscreen {
 		wailsRuntime.WindowFullscreen(m.ctx)
 		screen.SetWindowFullscreen("milaWindow", "mila", true)
@@ -86,4 +89,12 @@ func (m *Mila) SetFullscreen(fullscreen bool) {
 		wailsRuntime.WindowUnfullscreen(m.ctx)
 		screen.ClearWindowBlur("milaWindow", "mila")
 	}
+}
+
+// SetFullscreenFocus adjusts topmost state on Alt+Tab while in fullscreen so the taskbar stays hidden only when active.
+func (m *Mila) SetFullscreenFocus(focused bool) {
+	if m.ctx == nil || !m.isFullscreen.Load() {
+		return
+	}
+	screen.SetWindowTopmost("milaWindow", "mila", focused)
 }

@@ -17,7 +17,12 @@ func ClearWindowBlur(className, title string) bool {
 	return true
 }
 
-// no-op on non-windows
+// SetWindowFullscreen ensures the native HWND covers the entire physical monitor (no-op on non-windows).
 func SetWindowFullscreen(className, title string, fullscreen bool) bool {
+	return true
+}
+
+// SetWindowTopmost toggles TOPMOST vs NOTOPMOST (no-op on non-windows).
+func SetWindowTopmost(className, title string, topmost bool) bool {
 	return true
 }

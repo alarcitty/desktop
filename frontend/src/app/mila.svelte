@@ -33,6 +33,33 @@
 
   // detect if running inside native desktop app (Wails / WebView2)
   let isApp = $state(false);
+  let isWindowSharp = $state(false);
+  let appFullscreen = false;
+
+  async function refreshWindowCornerState() {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const w = window as any;
+    let sharp =
+      document.body.classList.contains('is-player-fullscreen') ||
+      document.fullscreenElement !== null ||
+      window.matchMedia?.('(display-mode: fullscreen)').matches ||
+      appFullscreen;
+
+    if (!sharp && isApp && window.screen) {
+      if (window.innerWidth >= window.screen.width - 2 && window.innerHeight >= window.screen.height - 2) {
+        sharp = true;
+      }
+      if (!sharp && typeof w.runtime?.WindowIsFullscreen === 'function') {
+        sharp = Boolean(await w.runtime.WindowIsFullscreen().catch(() => false));
+      }
+      if (!sharp && typeof w.runtime?.WindowIsMaximised === 'function') {
+        sharp = Boolean(await w.runtime.WindowIsMaximised().catch(() => false));
+      }
+    }
+
+    isWindowSharp = sharp;
+    document.body.classList.toggle('is-window-fullscreen', sharp);
+  }
 
   $effect(() => {
     // @ts-ignore
@@ -41,10 +68,41 @@
 
   onMount(() => {
     initBootGate();
+    void refreshWindowCornerState();
+
+    const onCheck = () => void refreshWindowCornerState();
+    const onFocus = () => {
+      void (window as any).go?.mila?.Mila?.SetFullscreenFocus?.(true);
+      onCheck();
+    };
+    const onBlur = () => {
+      void (window as any).go?.mila?.Mila?.SetFullscreenFocus?.(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'F11' || !isApp) return;
+      const w = window as any;
+      if (typeof w.go?.mila?.Mila?.SetFullscreen !== 'function') return;
+      e.preventDefault();
+      appFullscreen = !isWindowSharp;
+      void w.go.mila.Mila.SetFullscreen(appFullscreen).then(() => refreshWindowCornerState());
+    };
+
+    window.addEventListener('resize', onCheck);
+    document.addEventListener('fullscreenchange', onCheck);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('resize', onCheck);
+      document.removeEventListener('fullscreenchange', onCheck);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('keydown', onKeyDown);
+    };
   });
 </script>
 
-<div class="viewport" class:is-app={isApp}>
+<div class="viewport" class:is-app={isApp} class:is-fullscreen={isWindowSharp}>
   <div class="content-layer">
     <Header />
     <ScrollArea bind:this={scrollArea}>
@@ -92,8 +150,11 @@
     border-radius: 15px;
   }
 
-  :global(body.is-player-fullscreen) .viewport.is-app {
-    border-radius: 0;
+  :global(body.is-player-fullscreen) .viewport.is-app,
+  :global(body.is-window-fullscreen) .viewport.is-app,
+  .viewport.is-app.is-fullscreen {
+    border-radius: 0 !important;
+    transform: none;
   }
 
   .content-layer {

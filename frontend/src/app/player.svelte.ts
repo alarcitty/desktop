@@ -236,8 +236,9 @@ export async function fallbackVoice(autoFromFailure = false): Promise<boolean> {
 
   if (candidates.length === 0) return false;
 
-  // Prefer native MP4 stream first, then top non-sub Anixart dub, then any working source.
+  // Prefer native Dream Cast 1080p HLS, then native AnimeVost MP4, then top non-sub Anixart dub.
   const chosen =
+    candidates.find((v) => v.provider === 'dreamcast') ??
     candidates.find((v) => v.provider === 'animevost') ??
     candidates.find((v) => v.provider === 'anixart' && !v.isSub) ??
     candidates[0];
