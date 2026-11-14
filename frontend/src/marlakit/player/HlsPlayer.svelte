@@ -13,6 +13,8 @@
   import AudioLines from '@lucide/svelte/icons/audio-lines';
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
   import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left';
+  import ArrowUpLeft from '@lucide/svelte/icons/arrow-up-left';
+  import X from '@lucide/svelte/icons/x';
   import { untrack } from 'svelte';
   import { fly, scale } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
@@ -48,12 +50,18 @@
     ending?: SkipRange | null;
     hasNext?: boolean;
     hasFallback?: boolean;
+    isPip?: boolean;
     onnext?: () => void;
     onended?: () => void;
     ontimeprogress?: (currentTime: number, duration: number, force?: boolean) => void;
     onselectvoice?: (voice: VoiceTrackOption, currentTime: number) => void;
     onfallback?: () => void;
     onerror?: (message: string) => void;
+    onpip?: () => void;
+    onexpandpip?: () => void;
+    onclosepip?: () => void;
+    onplaychange?: (playing: boolean) => void;
+    onpipdragstart?: (e: PointerEvent) => void;
     class?: string;
   }
 
@@ -72,12 +80,18 @@
     ending = null,
     hasNext = false,
     hasFallback = false,
+    isPip = false,
     onnext,
     onended,
     ontimeprogress,
     onselectvoice,
     onfallback,
     onerror,
+    onpip,
+    onexpandpip,
+    onclosepip,
+    onplaychange,
+    onpipdragstart,
     class: className = ''
   }: Props = $props();
 
@@ -122,6 +136,25 @@
   let draggingVolume = $state(false);
   let hideTimer: number | undefined;
   let networkRetries = 0;
+  let reparentingGuard = false;
+  let suppressNextVideoClick = false;
+
+  export function pause(): void {
+    videoEl?.pause();
+  }
+
+  export function beginReparent(): boolean {
+    const wasPlaying = Boolean(videoEl && !videoEl.paused) || playing;
+    reparentingGuard = true;
+    return wasPlaying;
+  }
+
+  export function endReparent(wasPlaying: boolean): void {
+    reparentingGuard = false;
+    if (wasPlaying && videoEl && videoEl.paused) {
+      void videoEl.play().catch(() => {});
+    }
+  }
 
   function readSavedVolume(): number {
     if (typeof localStorage === 'undefined') return 1;
@@ -645,12 +678,31 @@
   }
 
   async function togglePiP() {
+    if (onpip) {
+      onpip();
+      scheduleHideControls();
+      return;
+    }
     if (!videoEl || !document.pictureInPictureEnabled) return;
     if (document.pictureInPictureElement === videoEl) {
       await document.exitPictureInPicture().catch(() => {});
     } else {
       await videoEl.requestPictureInPicture().catch(() => {});
     }
+  }
+
+  function handlePipDragTrigger(e: PointerEvent) {
+    if (!isPip || !onpipdragstart || e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('button, .seek-track, .volume-track, .combo-root')) return;
+    onpipdragstart(e);
+  }
+
+  export function notifyPipDragged(): void {
+    suppressNextVideoClick = true;
+    window.setTimeout(() => {
+      suppressNextVideoClick = false;
+    }, 80);
   }
 
   function seekFromPointer(clientX: number) {
@@ -793,6 +845,7 @@
   bind:this={rootEl}
   class="hls-player {className}"
   class:is-fullscreen={isFullscreen}
+  class:is-pip={isPip && !isFullscreen}
   class:controls-hidden={!controlsVisible && playing}
   tabindex="0"
   role="region"
@@ -811,22 +864,39 @@
     {poster}
     playsinline
     preload="metadata"
+    onpointerdown={handlePipDragTrigger}
     onclick={() => {
+      if (suppressNextVideoClick) {
+        suppressNextVideoClick = false;
+        return;
+      }
       if (activeMenu !== 'none') {
         activeMenu = 'none';
         return;
       }
       togglePlay();
     }}
-    ondblclick={() => void toggleFullscreen()}
+    ondblclick={() => {
+      if (isPip && onexpandpip) {
+        onexpandpip();
+        return;
+      }
+      void toggleFullscreen();
+    }}
     onplay={() => {
       playing = true;
       buffering = false;
+      onplaychange?.(true);
       scheduleHideControls();
     }}
     onpause={() => {
+      if (reparentingGuard && videoEl) {
+        void videoEl.play().catch(() => {});
+        return;
+      }
       playing = false;
       controlsVisible = true;
+      onplaychange?.(false);
       window.clearTimeout(hideTimer);
       if (videoEl) {
         ontimeprogress?.(videoEl.currentTime || 0, videoEl.duration || duration || 0, true);
@@ -850,6 +920,7 @@
     onended={() => {
       playing = false;
       controlsVisible = true;
+      onplaychange?.(false);
       if (videoEl) {
         ontimeprogress?.(videoEl.duration || videoEl.currentTime || 0, videoEl.duration || duration || 0, true);
       }
@@ -954,8 +1025,13 @@
     </button>
   {/if}
 
-  {#if (title || subtitle) && playbackMode !== 'embed'}
-    <div class="top-bar" class:visible={controlsVisible || !playing}>
+  {#if (title || subtitle || isPip) && playbackMode !== 'embed'}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="top-bar"
+      class:visible={controlsVisible || !playing}
+      onpointerdown={handlePipDragTrigger}
+    >
       <div class="title-stack">
         {#if title}
           <span class="player-title">{title}</span>
@@ -964,7 +1040,39 @@
           <span class="player-subtitle">{subtitle}</span>
         {/if}
       </div>
-      <span class="quality-badge">{activeQualityLabel}</span>
+      <div class="top-bar-right">
+        <span class="quality-badge">{activeQualityLabel}</span>
+        {#if isPip && !isFullscreen}
+          {#if onexpandpip}
+            <button
+              type="button"
+              class="pip-top-btn"
+              aria-label="Return to page"
+              title="Return to page"
+              onclick={(e) => {
+                e.stopPropagation();
+                onexpandpip?.();
+              }}
+            >
+              <ArrowUpLeft size={15} strokeWidth={2.1} />
+            </button>
+          {/if}
+          {#if onclosepip}
+            <button
+              type="button"
+              class="pip-top-btn"
+              aria-label="Close mini-player"
+              title="Close mini-player"
+              onclick={(e) => {
+                e.stopPropagation();
+                onclosepip?.();
+              }}
+            >
+              <X size={15} strokeWidth={2.1} />
+            </button>
+          {/if}
+        {/if}
+      </div>
     </div>
   {/if}
 
@@ -1076,81 +1184,85 @@
       </div>
 
       <div class="controls-right">
-        <!-- Voiceover / Audio track selector -->
-        {#if voiceComboSections.length > 0}
-          <ComboBox
-            open={activeMenu === 'voice'}
-            sections={voiceComboSections}
-            label={activeVoiceLabel || 'Audio'}
-            ariaLabel="Voiceover and audio track"
-            placement="top-right"
-            minWidth={210}
-            maxWidth={276}
-            maxHeight={300}
-            ontoggle={(isOpen) => {
-              activeMenu = isOpen ? 'voice' : 'none';
-              scheduleHideControls();
-            }}
-            onselect={(opt) => {
-              const raw = String(opt.value);
-              if (raw.startsWith('voice:')) {
-                const voiceId = raw.slice('voice:'.length);
-                const found = voices.find((v) => v.id === voiceId);
-                if (found) selectVoice(found);
-              } else if (raw.startsWith('audio:')) {
-                const idx = Number(raw.slice('audio:'.length));
-                if (Number.isFinite(idx)) setAudioTrack(idx);
-              }
-            }}
-          >
-            {#snippet icon()}
-              <AudioLines size={14} strokeWidth={1.9} />
-            {/snippet}
-          </ComboBox>
-        {/if}
+        {#if !isPip || isFullscreen}
+          <!-- Voiceover / Audio track selector -->
+          {#if voiceComboSections.length > 0}
+            <ComboBox
+              open={activeMenu === 'voice'}
+              sections={voiceComboSections}
+              label={activeVoiceLabel || 'Audio'}
+              ariaLabel="Voiceover and audio track"
+              placement="top-right"
+              minWidth={210}
+              maxWidth={276}
+              maxHeight={300}
+              ontoggle={(isOpen) => {
+                activeMenu = isOpen ? 'voice' : 'none';
+                scheduleHideControls();
+              }}
+              onselect={(opt) => {
+                const raw = String(opt.value);
+                if (raw.startsWith('voice:')) {
+                  const voiceId = raw.slice('voice:'.length);
+                  const found = voices.find((v) => v.id === voiceId);
+                  if (found) selectVoice(found);
+                } else if (raw.startsWith('audio:')) {
+                  const idx = Number(raw.slice('audio:'.length));
+                  if (Number.isFinite(idx)) setAudioTrack(idx);
+                }
+              }}
+            >
+              {#snippet icon()}
+                <AudioLines size={14} strokeWidth={1.9} />
+              {/snippet}
+            </ComboBox>
+          {/if}
 
-        <!-- Playback speed -->
-        <ComboBox
-          open={activeMenu === 'speed'}
-          value={playbackRate}
-          options={speedComboOptions}
-          label={`${playbackRate}x`}
-          ariaLabel="Playback speed"
-          placement="top-right"
-          minWidth={112}
-          ontoggle={(isOpen) => {
-            activeMenu = isOpen ? 'speed' : 'none';
-            scheduleHideControls();
-          }}
-          onselect={(opt) => setSpeed(Number(opt.value))}
-        />
-
-        <!-- Quality selector (defaults to highest fixed resolution) -->
-        {#if levels.length > 0}
+          <!-- Playback speed -->
           <ComboBox
-            open={activeMenu === 'quality'}
-            value={selectedLevel}
-            options={qualityComboOptions}
-            label={selectedLevel === -1 ? `Auto (${activeQualityLabel})` : activeQualityLabel}
-            ariaLabel="Video quality"
+            open={activeMenu === 'speed'}
+            value={playbackRate}
+            options={speedComboOptions}
+            label={`${playbackRate}x`}
+            ariaLabel="Playback speed"
             placement="top-right"
             minWidth={112}
             ontoggle={(isOpen) => {
-              activeMenu = isOpen ? 'quality' : 'none';
+              activeMenu = isOpen ? 'speed' : 'none';
               scheduleHideControls();
             }}
-            onselect={(opt) => setQuality(Number(opt.value))}
-          >
-            {#snippet icon()}
-              <Settings size={14} strokeWidth={1.9} />
-            {/snippet}
-          </ComboBox>
+            onselect={(opt) => setSpeed(Number(opt.value))}
+          />
+
+          <!-- Quality selector (defaults to highest fixed resolution) -->
+          {#if levels.length > 0}
+            <ComboBox
+              open={activeMenu === 'quality'}
+              value={selectedLevel}
+              options={qualityComboOptions}
+              label={selectedLevel === -1 ? `Auto (${activeQualityLabel})` : activeQualityLabel}
+              ariaLabel="Video quality"
+              placement="top-right"
+              minWidth={112}
+              ontoggle={(isOpen) => {
+                activeMenu = isOpen ? 'quality' : 'none';
+                scheduleHideControls();
+              }}
+              onselect={(opt) => setQuality(Number(opt.value))}
+            >
+              {#snippet icon()}
+                <Settings size={14} strokeWidth={1.9} />
+              {/snippet}
+            </ComboBox>
+          {/if}
         {/if}
 
         <button
           type="button"
           class="icon-btn"
-          aria-label="Picture in picture"
+          class:is-active={isPip && !isFullscreen}
+          aria-label={isPip ? 'Exit picture in picture' : 'Picture in picture'}
+          title={isPip ? 'Return to page player' : 'Mini-player (Picture in picture)'}
           onclick={() => void togglePiP()}
         >
           <PictureInPicture2 size={18} strokeWidth={1.8} />
@@ -1206,6 +1318,97 @@
     position: fixed !important;
     inset: 0 !important;
     z-index: 99999 !important;
+  }
+
+  .hls-player.is-pip {
+    border-radius: 18px !important;
+    clip-path: inset(0 round 18px);
+  }
+
+  .hls-player.is-pip .top-bar {
+    padding: 12px 14px 24px;
+    pointer-events: auto;
+    cursor: grab;
+  }
+
+  .hls-player.is-pip .top-bar:active {
+    cursor: grabbing;
+  }
+
+  .hls-player.is-pip .player-title {
+    font-size: 13.5px;
+  }
+
+  .hls-player.is-pip .player-subtitle {
+    font-size: 11.5px;
+  }
+
+  .hls-player.is-pip .center-play {
+    transform: translate(-50%, -50%) scale(0.76);
+  }
+
+  .hls-player.is-pip .center-play:hover {
+    transform: translate(-50%, -50%) scale(0.84);
+  }
+
+  .hls-player.is-pip .center-play:active {
+    transform: translate(-50%, -50%) scale(0.7);
+  }
+
+  .hls-player.is-pip .controls-dock {
+    padding: 14px 12px 8px;
+    gap: 2px;
+  }
+
+  .hls-player.is-pip .skip-pill {
+    left: 12px;
+    bottom: 12px;
+    height: 30px;
+    padding: 0 11px;
+    font-size: 11.5px;
+  }
+
+  .hls-player.is-pip .skip-pill.raised {
+    bottom: 52px;
+  }
+
+  .hls-player.is-pip .volume-track {
+    width: 44px;
+  }
+
+  .hls-player.is-pip .time-readout {
+    margin-left: 2px;
+    font-size: 11.5px;
+  }
+
+  .top-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    pointer-events: auto;
+  }
+
+  .pip-top-btn {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: rgba(255, 255, 255, 0.88);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+  }
+
+  .pip-top-btn:hover {
+    background: rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+    transform: translateY(-1px);
   }
 
   .hls-video {
@@ -1554,7 +1757,8 @@
     transition: background-color 0.15s ease, color 0.15s ease;
   }
 
-  .icon-btn:hover {
+  .icon-btn:hover,
+  .icon-btn.is-active {
     background: rgba(255, 255, 255, 0.12);
     color: #ffffff;
   }

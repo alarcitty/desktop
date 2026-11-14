@@ -5,6 +5,7 @@
   import Play from '@lucide/svelte/icons/play';
   import Bookmark from '@lucide/svelte/icons/bookmark';
   import Check from '@lucide/svelte/icons/check';
+  import PictureInPicture2 from '@lucide/svelte/icons/picture-in-picture-2';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import X from '@lucide/svelte/icons/x';
 
@@ -12,24 +13,22 @@
   import SecondButton from '../../marlakit/button/SecondButton.svelte';
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
-  import HlsPlayer from '../../marlakit/player/HlsPlayer.svelte';
-  import { buildMetaTags, episodeSources, type AnimeSeasonEntry } from '../../api/anime';
+  import { buildMetaTags, type AnimeSeasonEntry } from '../../api/anime';
   import { isInWatchLater, toggleWatchLater } from '../../app/library.svelte';
   import { goBack } from '../../app/router.svelte';
   import {
-    fallbackVoice,
-    nextEpisode,
+    expandCustomPip,
     player,
-    reportPlaybackProgress,
     retryWatch,
     selectEpisode,
-    switchSeason,
-    switchVoice
+    setInlinePlayerStage,
+    switchSeason
   } from '../../app/player.svelte';
 
   const EP_PAGE_SIZE = 16;
 
   let playerSectionEl = $state<HTMLElement | null>(null);
+  let inlineStageEl = $state<HTMLDivElement | null>(null);
   let descTextEl = $state<HTMLParagraphElement | null>(null);
   let descExpanded = $state(false);
   let descCollapsedH = $state(78);
@@ -159,9 +158,12 @@
 
   const currentEpisode = $derived(episodes[player.episodeIndex] ?? null);
 
-  const hasNext = $derived(
-    Boolean(player.release && player.episodeIndex + 1 < episodes.length)
-  );
+  $effect(() => {
+    setInlinePlayerStage(inlineStageEl);
+    return () => {
+      setInlinePlayerStage(null);
+    };
+  });
 
   const episodeRanges = $derived.by(() => {
     if (episodes.length <= EP_PAGE_SIZE) return [];
@@ -398,30 +400,22 @@
           </MainButton>
         </div>
       {:else if currentEpisode}
-        <HlsPlayer
-          sources={episodeSources(currentEpisode)}
-          poster={currentEpisode.preview || backdropUrl}
-          title={`Episode ${currentEpisode.ordinal}`}
-          subtitle=""
-          autoplay={player.autoplay}
-          initialTime={player.resumeTime}
-          voices={player.voices}
-          selectedVoiceId={player.selectedVoiceId}
-          preferMaxQuality={true}
-          opening={currentEpisode.opening}
-          ending={currentEpisode.ending}
-          {hasNext}
-          hasFallback={player.voices.some((v) => v.id !== player.selectedVoiceId)}
-          onnext={nextEpisode}
-          ontimeprogress={(sec, dur, force) => reportPlaybackProgress(sec, dur, force)}
-          onselectvoice={(voice, sec) => void switchVoice(voice, sec)}
-          onfallback={() => void fallbackVoice(false)}
-          onerror={() => {
-            if ((player.release?.provider ?? 'aniliberty') === 'aniliberty') {
-              void fallbackVoice(true);
-            }
-          }}
-        />
+        <div
+          class="player-inline-slot"
+          class:is-hidden={player.pipMode && !player.pipDismissed}
+          bind:this={inlineStageEl}
+        ></div>
+        {#if player.pipMode && !player.pipDismissed}
+          <div class="stage-state" transition:fade={{ duration: 180 }}>
+            <span>Playing in Picture-in-Picture</span>
+            <SecondButton onclick={expandCustomPip}>
+              {#snippet icon()}
+                <PictureInPicture2 size={15} strokeWidth={2} />
+              {/snippet}
+              Return to player
+            </SecondButton>
+          </div>
+        {/if}
       {:else}
         <div class="stage-state">
           <span>Select a title with Watch to begin playback.</span>
@@ -909,6 +903,15 @@
 
   .player-stage :global(.hls-player) {
     border-radius: 0;
+  }
+
+  .player-inline-slot {
+    width: 100%;
+    height: 100%;
+  }
+
+  .player-inline-slot.is-hidden {
+    display: none;
   }
 
   .anime-body {

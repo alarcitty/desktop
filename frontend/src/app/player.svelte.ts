@@ -22,6 +22,19 @@ import {
   type RouteParams
 } from './router.svelte';
 
+export type PipCorner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+
+const PIP_CORNER_STORAGE_KEY = 'mila.player.pipCorner';
+
+function readSavedPipCorner(): PipCorner {
+  if (typeof localStorage === 'undefined') return 'bottom-right';
+  const raw = localStorage.getItem(PIP_CORNER_STORAGE_KEY);
+  if (raw === 'bottom-right' || raw === 'bottom-left' || raw === 'top-right' || raw === 'top-left') {
+    return raw;
+  }
+  return 'bottom-right';
+}
+
 export const player = $state<{
   loading: boolean;
   error: string;
@@ -35,6 +48,12 @@ export const player = $state<{
   episodeIndex: number;
   resumeTime: number;
   autoplay: boolean;
+  isPlaying: boolean;
+  pipMode: boolean;
+  pipManual: boolean;
+  pipDismissed: boolean;
+  pipCorner: PipCorner;
+  inlineStageEl: HTMLElement | null;
 }>({
   loading: false,
   error: '',
@@ -47,12 +66,19 @@ export const player = $state<{
   selectedVoiceId: '',
   episodeIndex: 0,
   resumeTime: 0,
-  autoplay: true
+  autoplay: true,
+  isPlaying: false,
+  pipMode: false,
+  pipManual: false,
+  pipDismissed: false,
+  pipCorner: readSavedPipCorner(),
+  inlineStageEl: null
 });
 
 let activeRequestToken = 0;
 let lastHistorySyncMs = 0;
 let voiceDiscoveryPromise: Promise<VoiceTrackOption[]> | null = null;
+let pauseControlCallback: (() => void) | null = null;
 const failedVoiceIds = new Set<string>();
 
 function syncPlayerHistory(currentTime?: number, duration?: number): void {
@@ -269,6 +295,9 @@ export async function openWatch(
 ): Promise<void> {
   const token = ++activeRequestToken;
   player.seasons = [];
+  player.pipMode = false;
+  player.pipManual = false;
+  player.pipDismissed = false;
   navigate({
     page: 'anime',
     shikiId: target.shikiId,
@@ -402,6 +431,7 @@ export function selectEpisode(index: number): void {
   failedVoiceIds.clear();
   player.resumeTime = 0;
   player.autoplay = true;
+  player.pipDismissed = false;
   player.episodeIndex = index;
   const ep = player.release.episodes[index];
   if (router.current === 'anime') {
@@ -421,6 +451,7 @@ export function nextEpisode(): void {
     failedVoiceIds.clear();
     player.resumeTime = 0;
     player.autoplay = true;
+    player.pipDismissed = false;
     player.episodeIndex += 1;
     const ep = player.release.episodes[player.episodeIndex];
     if (router.current === 'anime') {
@@ -435,6 +466,68 @@ export function nextEpisode(): void {
   }
 }
 
+export function setInlinePlayerStage(el: HTMLElement | null): void {
+  player.inlineStageEl = el;
+}
+
+export function registerPlayerPauseControl(fn: (() => void) | null): void {
+  pauseControlCallback = fn;
+}
+
+export function setPlayerPlaying(playing: boolean): void {
+  player.isPlaying = playing;
+  if (playing) {
+    player.pipDismissed = false;
+  }
+}
+
+export function setPipCorner(corner: PipCorner): void {
+  player.pipCorner = corner;
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(PIP_CORNER_STORAGE_KEY, corner);
+    } catch {
+      // Ignore storage errors
+    }
+  }
+}
+
+export function toggleCustomPip(): void {
+  if (player.pipMode) {
+    expandCustomPip();
+  } else {
+    player.pipMode = true;
+    player.pipManual = true;
+    player.pipDismissed = false;
+  }
+}
+
+export function expandCustomPip(): void {
+  player.pipMode = false;
+  player.pipManual = false;
+  player.pipDismissed = false;
+  if (router.current !== 'anime') {
+    navigate({
+      page: 'anime',
+      shikiId: player.shikiArt?.id ?? player.target?.shikiId,
+      alias: player.release?.alias ?? player.target?.releaseAlias,
+      title: player.title,
+      searchQueries: player.target?.searchQueries,
+      autoPlay: true,
+      episode: player.episodeIndex,
+      episodeOrdinal: player.release?.episodes[player.episodeIndex]?.ordinal
+    });
+  }
+}
+
+export function closeCustomPip(): void {
+  player.pipMode = false;
+  player.pipManual = false;
+  player.pipDismissed = true;
+  player.isPlaying = false;
+  pauseControlCallback?.();
+}
+
 export function resetPlayer(): void {
   activeRequestToken += 1;
   player.loading = false;
@@ -444,4 +537,8 @@ export function resetPlayer(): void {
   player.selectedVoiceId = '';
   player.resumeTime = 0;
   player.error = '';
+  player.isPlaying = false;
+  player.pipMode = false;
+  player.pipManual = false;
+  player.pipDismissed = false;
 }

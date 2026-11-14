@@ -5,6 +5,7 @@
   import Header from '../section/header/Header.svelte';
   import ScrollArea from '../marlakit/scroll/ScrollArea.svelte';
   import PageHost from './PageHost.svelte';
+  import PlayerDock from './PlayerDock.svelte';
   import SearchPopup from '../section/search/SearchPopup.svelte';
   import { bootState, initBootGate } from './boot.svelte';
   import { bindings, mountBindingsController } from './bindings.svelte';
@@ -39,6 +40,7 @@
   </div>
 
   <!-- global popups (above everything) -->
+  <PlayerDock />
   <SearchPopup />
 
   {#if !bootState.ready}
