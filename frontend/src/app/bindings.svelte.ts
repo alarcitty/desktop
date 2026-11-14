@@ -26,6 +26,8 @@ export interface BindingDescriptor {
 interface WailsMilaGoBindings {
   SetFullscreen?: (fullscreen: boolean) => Promise<void>;
   SetFullscreenFocus?: (focused: boolean) => Promise<void>;
+  SetPipMode?: (pip: boolean) => Promise<void>;
+  StartPipDrag?: () => Promise<void>;
   AnimeVostSearch?: (query: string) => Promise<string>;
   AnimeVostPlaylist?: (id: number) => Promise<string>;
   GetKodikToken?: () => Promise<string>;
@@ -72,10 +74,12 @@ export const bindings = $state<{
   isApp: boolean;
   isWindowSharp: boolean;
   appFullscreen: boolean;
+  osPipActive: boolean;
 }>({
   isApp: detectDesktopApp(),
   isWindowSharp: false,
-  appFullscreen: false
+  appFullscreen: false,
+  osPipActive: false
 });
 
 export function isEditableElement(target: EventTarget | null): boolean {
@@ -93,6 +97,12 @@ export async function refreshWindowCornerState(): Promise<boolean> {
 
   bindings.isApp = detectDesktopApp();
   const runtime = getWailsRuntime();
+
+  if (bindings.osPipActive) {
+    bindings.isWindowSharp = false;
+    document.body.classList.remove('is-window-fullscreen');
+    return false;
+  }
 
   let sharp =
     document.body.classList.contains('is-player-fullscreen') ||
@@ -167,6 +177,27 @@ export async function setAppFullscreenFocus(focused: boolean): Promise<void> {
   const goMila = getWailsMilaBindings();
   if (typeof goMila?.SetFullscreenFocus === 'function') {
     await goMila.SetFullscreenFocus(focused).catch(() => {});
+  }
+}
+
+export async function setOsPipWindowMode(enabled: boolean): Promise<boolean> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+  bindings.isApp = detectDesktopApp();
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.SetPipMode === 'function') {
+    bindings.osPipActive = enabled;
+    document.body.classList.toggle('is-os-pip', enabled);
+    await goMila.SetPipMode(enabled).catch(() => {});
+    await refreshWindowCornerState();
+    return true;
+  }
+  return false;
+}
+
+export function startOsPipWindowDrag(): void {
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.StartPipDrag === 'function') {
+    void goMila.StartPipDrag().catch(() => {});
   }
 }
 

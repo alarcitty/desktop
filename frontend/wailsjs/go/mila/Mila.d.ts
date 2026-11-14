@@ -10,3 +10,7 @@ export function GetKodikToken():Promise<string>;
 export function SetFullscreen(arg1:boolean):Promise<void>;
 
 export function SetFullscreenFocus(arg1:boolean):Promise<void>;
+
+export function SetPipMode(arg1:boolean):Promise<void>;
+
+export function StartPipDrag():Promise<void>;

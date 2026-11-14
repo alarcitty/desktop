@@ -26,3 +26,13 @@ func SetWindowFullscreen(className, title string, fullscreen bool) bool {
 func SetWindowTopmost(className, title string, topmost bool) bool {
 	return true
 }
+
+// SetWindowPip toggles OS-level Picture-in-Picture window mode (no-op on non-windows).
+func SetWindowPip(className, title string, pip bool) bool {
+	return true
+}
+
+// StartWindowDrag initiates a native OS window drag (no-op on non-windows).
+func StartWindowDrag(className, title string) bool {
+	return true
+}

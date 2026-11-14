@@ -51,6 +51,10 @@ const (
 	dwmwaWindowCornerPreference = 33
 	dwmwcpDefault               = 0
 	dwmwcpDoNotRound            = 1
+	dwmwcpRound                 = 2
+
+	wmNclButtonDown = 0x00A1
+	htCaption       = 2
 
 	coinitApartmentThreaded = 0x2
 	clsctxInprocServer      = 0x1
@@ -59,6 +63,9 @@ const (
 var (
 	hwndTopmost   = ^uintptr(0) // (HWND)-1
 	hwndNotopmost = ^uintptr(1) // (HWND)-2
+
+	savedPipRect    rect
+	hasSavedPipRect bool
 )
 
 type monitorInfo struct {
@@ -103,8 +110,11 @@ var (
 	setWindowLongW                = user32.NewProc("SetWindowLongW")
 	monitorFromWindow             = user32.NewProc("MonitorFromWindow")
 	getMonitorInfoW               = user32.NewProc("GetMonitorInfoW")
+	getWindowRect                 = user32.NewProc("GetWindowRect")
 	setWindowPos                  = user32.NewProc("SetWindowPos")
 	setForegroundWindow           = user32.NewProc("SetForegroundWindow")
+	releaseCapture                = user32.NewProc("ReleaseCapture")
+	postMessageW                  = user32.NewProc("PostMessageW")
 	coInitializeEx                = ole32.NewProc("CoInitializeEx")
 	coUninitialize                = ole32.NewProc("CoUninitialize")
 	coCreateInstance              = ole32.NewProc("CoCreateInstance")
@@ -299,6 +309,102 @@ func SetWindowTopmost(className, title string, topmost bool) bool {
 		0,
 		uintptr(swpNoMove|swpNoSize|swpNoOwnerZOrder|swpNoActivate),
 	)
+	return true
+}
+
+// SetWindowPip switches the native HWND into an Always-On-Top rounded 16:9 Picture-in-Picture window over all OS apps, or restores its previous bounds.
+func SetWindowPip(className, title string, pip bool) bool {
+	hwnd := findAppWindow(className, title)
+	if hwnd == 0 {
+		return false
+	}
+
+	if pip {
+		var cur rect
+		if ok, _, _ := getWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&cur))); ok != 0 {
+			if cur.right-cur.left > 600 && cur.bottom-cur.top > 400 {
+				savedPipRect = cur
+				hasSavedPipRect = true
+			}
+		}
+
+		setWindowCornerPreference(hwnd, dwmwcpRound)
+		ClearWindowBlur(className, title)
+
+		pipW := int32(480)
+		pipH := int32(270)
+		posX := int32(64)
+		posY := int32(64)
+
+		monitor, _, _ := monitorFromWindow.Call(hwnd, uintptr(monitorDefaultToNearest))
+		if monitor != 0 {
+			mi := monitorInfo{cbSize: uint32(unsafe.Sizeof(monitorInfo{}))}
+			if ok, _, _ := getMonitorInfoW.Call(monitor, uintptr(unsafe.Pointer(&mi))); ok != 0 {
+				workW := mi.rcWork.right - mi.rcWork.left
+				scaledW := (workW * 25) / 100
+				if scaledW < 420 {
+					scaledW = 420
+				} else if scaledW > 560 {
+					scaledW = 560
+				}
+				pipW = scaledW
+				pipH = (pipW * 9) / 16
+				posX = mi.rcWork.right - pipW - 24
+				posY = mi.rcWork.bottom - pipH - 24
+			}
+		}
+
+		_, _, _ = setWindowPos.Call(
+			hwnd,
+			hwndTopmost,
+			uintptr(posX),
+			uintptr(posY),
+			uintptr(pipW),
+			uintptr(pipH),
+			uintptr(swpNoOwnerZOrder|swpFrameChanged|swpShowWindow),
+		)
+		return true
+	}
+
+	setWindowCornerPreference(hwnd, dwmwcpRound)
+	ClearWindowBlur(className, title)
+
+	if hasSavedPipRect {
+		w := savedPipRect.right - savedPipRect.left
+		h := savedPipRect.bottom - savedPipRect.top
+		_, _, _ = setWindowPos.Call(
+			hwnd,
+			hwndNotopmost,
+			uintptr(savedPipRect.left),
+			uintptr(savedPipRect.top),
+			uintptr(w),
+			uintptr(h),
+			uintptr(swpNoOwnerZOrder|swpFrameChanged|swpShowWindow),
+		)
+		_, _, _ = setForegroundWindow.Call(hwnd)
+		return true
+	}
+
+	_, _, _ = setWindowPos.Call(
+		hwnd,
+		hwndNotopmost,
+		0,
+		0,
+		0,
+		0,
+		uintptr(swpNoMove|swpNoSize|swpNoOwnerZOrder|swpNoActivate),
+	)
+	return true
+}
+
+// StartWindowDrag initiates a native OS window drag on the HWND while the left mouse button is held down.
+func StartWindowDrag(className, title string) bool {
+	hwnd := findAppWindow(className, title)
+	if hwnd == 0 {
+		return false
+	}
+	_, _, _ = releaseCapture.Call()
+	_, _, _ = postMessageW.Call(hwnd, uintptr(wmNclButtonDown), uintptr(htCaption), 0)
 	return true
 }
 

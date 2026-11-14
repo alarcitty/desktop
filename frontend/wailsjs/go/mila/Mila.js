@@ -21,3 +21,11 @@ export function SetFullscreen(arg1) {
 export function SetFullscreenFocus(arg1) {
   return window['go']['mila']['Mila']['SetFullscreenFocus'](arg1);
 }
+
+export function SetPipMode(arg1) {
+  return window['go']['mila']['Mila']['SetPipMode'](arg1);
+}
+
+export function StartPipDrag() {
+  return window['go']['mila']['Mila']['StartPipDrag']();
+}

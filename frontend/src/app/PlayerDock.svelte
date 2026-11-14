@@ -3,6 +3,11 @@
   import HlsPlayer from '../marlakit/player/HlsPlayer.svelte';
   import { episodeSources } from '../api/anime';
   import {
+    bindings,
+    setOsPipWindowMode,
+    startOsPipWindowDrag
+  } from './bindings.svelte';
+  import {
     closeCustomPip,
     expandCustomPip,
     fallbackVoice,
@@ -22,6 +27,7 @@
   let liveNodeEl = $state<HTMLDivElement | null>(null);
   let pipShellEl = $state<HTMLDivElement | null>(null);
   let parkingEl = $state<HTMLDivElement | null>(null);
+  let docPipWindow = $state<Window | null>(null);
 
   let isDragging = $state(false);
   let dragDx = $state(0);
@@ -57,7 +63,7 @@
         player.pipMode = true;
       }
     } else if (prevPage !== 'anime' && curPage === 'anime') {
-      if (!player.pipManual) {
+      if (!player.pipManual && !bindings.osPipActive && !docPipWindow) {
         player.pipMode = false;
       }
     }
@@ -70,7 +76,10 @@
         !player.loading &&
         !player.error &&
         !player.pipDismissed &&
-        (player.pipMode || (router.current !== 'anime' && player.isPlaying))
+        (bindings.osPipActive ||
+          Boolean(docPipWindow) ||
+          player.pipMode ||
+          (router.current !== 'anime' && player.isPlaying))
     )
   );
 
@@ -90,7 +99,9 @@
     if (!node) return;
 
     let targetParent: HTMLElement | null = parkingEl;
-    if (isInlineVisible && player.inlineStageEl) {
+    if (docPipWindow && !docPipWindow.closed && docPipWindow.document?.body) {
+      targetParent = docPipWindow.document.body;
+    } else if (isInlineVisible && player.inlineStageEl) {
       targetParent = player.inlineStageEl;
     } else if (isPipVisible && pipShellEl) {
       targetParent = pipShellEl;
@@ -103,6 +114,134 @@
     }
   });
 
+  function copyStylesToDocPip(targetDoc: Document) {
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        if (sheet.href) {
+          const link = targetDoc.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = sheet.href;
+          targetDoc.head.appendChild(link);
+        } else if (sheet.cssRules) {
+          const style = targetDoc.createElement('style');
+          style.textContent = Array.from(sheet.cssRules)
+            .map((rule) => rule.cssText)
+            .join('\n');
+          targetDoc.head.appendChild(style);
+        }
+      } catch {
+        // Ignore cross-origin stylesheet rules
+      }
+    }
+    const baseStyle = targetDoc.createElement('style');
+    baseStyle.textContent = `
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #070707;
+        overflow: hidden;
+      }
+      .player-live-node {
+        width: 100vw;
+        height: 100vh;
+      }
+      .hls-player.is-pip {
+        border-radius: 16px !important;
+        clip-path: inset(0 round 16px);
+      }
+    `;
+    targetDoc.head.appendChild(baseStyle);
+  }
+
+  async function closeDocPipIfOpen() {
+    const win = docPipWindow;
+    if (!win) return;
+    docPipWindow = null;
+    if (!win.closed) {
+      try {
+        win.close();
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  async function handleToggleSystemPip() {
+    // 1. Native Wails Desktop App -> transform HWND into OS-wide Always-On-Top rounded PiP window!
+    if (bindings.isApp) {
+      if (bindings.osPipActive) {
+        await setOsPipWindowMode(false);
+        expandCustomPip();
+      } else {
+        player.pipMode = true;
+        player.pipManual = true;
+        player.pipDismissed = false;
+        await setOsPipWindowMode(true);
+      }
+      return;
+    }
+
+    // 2. Website in Browser -> use Document Picture-in-Picture API if available for OS-wide Always-On-Top custom UI!
+    const docPipApi = (window as unknown as {
+      documentPictureInPicture?: {
+        requestWindow: (opts: { width: number; height: number }) => Promise<Window>;
+      };
+    }).documentPictureInPicture;
+
+    if (docPipWindow) {
+      await closeDocPipIfOpen();
+      expandCustomPip();
+      return;
+    }
+
+    if (docPipApi && typeof docPipApi.requestWindow === 'function' && !player.pipMode) {
+      try {
+        const pipWin = await docPipApi.requestWindow({ width: 480, height: 270 });
+        copyStylesToDocPip(pipWin.document);
+        player.pipMode = true;
+        player.pipManual = true;
+        player.pipDismissed = false;
+        docPipWindow = pipWin;
+        pipWin.addEventListener(
+          'pagehide',
+          () => {
+            docPipWindow = null;
+            player.pipMode = false;
+            player.pipManual = false;
+          },
+          { once: true }
+        );
+        return;
+      } catch {
+        // Fall through to in-app custom PiP
+      }
+    }
+
+    toggleCustomPip();
+  }
+
+  async function handleExpandPip() {
+    if (bindings.osPipActive) {
+      await setOsPipWindowMode(false);
+    }
+    if (docPipWindow) {
+      await closeDocPipIfOpen();
+    }
+    expandCustomPip();
+  }
+
+  async function handleClosePip() {
+    if (bindings.osPipActive) {
+      await setOsPipWindowMode(false);
+    }
+    if (docPipWindow) {
+      await closeDocPipIfOpen();
+    }
+    closeCustomPip();
+  }
+
   onMount(() => {
     registerPlayerPauseControl(() => {
       hlsPlayerRef?.pause();
@@ -113,7 +252,29 @@
   });
 
   function handlePipDragStart(e: PointerEvent) {
-    if (!pipShellEl || !isPipVisible) return;
+    if (!isPipVisible) return;
+
+    // In OS-wide Always-On-Top mode inside Wails app, dragging >= 5px moves the actual Windows OS window!
+    if (bindings.osPipActive) {
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const onOsMove = (ev: PointerEvent) => {
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
+        window.removeEventListener('pointermove', onOsMove);
+        window.removeEventListener('pointerup', onOsUp);
+        hlsPlayerRef?.notifyPipDragged();
+        startOsPipWindowDrag();
+      };
+      const onOsUp = () => {
+        window.removeEventListener('pointermove', onOsMove);
+        window.removeEventListener('pointerup', onOsUp);
+      };
+      window.addEventListener('pointermove', onOsMove);
+      window.addEventListener('pointerup', onOsUp);
+      return;
+    }
+
+    if (!pipShellEl) return;
     const startX = e.clientX;
     const startY = e.clientY;
     const initialRect = pipShellEl.getBoundingClientRect();
@@ -200,9 +361,9 @@
         ontimeprogress={(sec, dur, force) => reportPlaybackProgress(sec, dur, force)}
         onselectvoice={(voice, sec) => void switchVoice(voice, sec)}
         onfallback={() => void fallbackVoice(false)}
-        onpip={toggleCustomPip}
-        onexpandpip={expandCustomPip}
-        onclosepip={closeCustomPip}
+        onpip={() => void handleToggleSystemPip()}
+        onexpandpip={() => void handleExpandPip()}
+        onclosepip={() => void handleClosePip()}
         onplaychange={setPlayerPlaying}
         onpipdragstart={handlePipDragStart}
         onerror={() => {
@@ -215,13 +376,14 @@
   </div>
 </div>
 
-<!-- Custom rounded-corner Picture-in-Picture floating dock -->
+<!-- Custom rounded-corner Picture-in-Picture floating dock (in-app AND OS-level Always-On-Top) -->
 <div
   bind:this={pipShellEl}
   class="pip-floating-shell corner-{player.pipCorner}"
-  class:is-visible={isPipVisible}
+  class:is-visible={isPipVisible && !docPipWindow}
+  class:is-os-pip={bindings.osPipActive}
   class:is-dragging={isDragging}
-  style:transform={isDragging
+  style:transform={isDragging && !bindings.osPipActive
     ? `translate3d(${dragDx}px, ${dragDy}px, 0)`
     : undefined}
   aria-label="Picture in picture mini-player"
@@ -271,6 +433,18 @@
     opacity: 1;
     pointer-events: auto;
     transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  .pip-floating-shell.is-os-pip {
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    aspect-ratio: auto !important;
+    border-radius: 15px !important;
+    clip-path: inset(0 round 15px) !important;
+    box-shadow: none !important;
+    transform: none !important;
+    transition: none !important;
   }
 
   .pip-floating-shell.is-dragging {

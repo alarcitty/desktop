@@ -17,6 +17,7 @@ type Mila struct {
 	ctx          context.Context
 	log          *logger.Logger
 	isFullscreen atomic.Bool
+	isPip        atomic.Bool
 }
 
 // make_unique mila instance
@@ -93,8 +94,41 @@ func (m *Mila) SetFullscreen(fullscreen bool) {
 
 // SetFullscreenFocus adjusts topmost state on Alt+Tab while in fullscreen so the taskbar stays hidden only when active.
 func (m *Mila) SetFullscreenFocus(focused bool) {
-	if m.ctx == nil || !m.isFullscreen.Load() {
+	if m.ctx == nil || !m.isFullscreen.Load() || m.isPip.Load() {
 		return
 	}
 	screen.SetWindowTopmost("milaWindow", "mila", focused)
+}
+
+// SetPipMode transforms the native desktop window into an Always-On-Top rounded 16:9 Picture-in-Picture window over all OS apps.
+func (m *Mila) SetPipMode(pip bool) {
+	if m.ctx == nil {
+		return
+	}
+	if pip {
+		if m.isFullscreen.Load() {
+			m.SetFullscreen(false)
+		}
+		m.isPip.Store(true)
+		if wailsRuntime.WindowIsMaximised(m.ctx) {
+			wailsRuntime.WindowUnmaximise(m.ctx)
+		}
+		wailsRuntime.WindowSetMinSize(m.ctx, 320, 180)
+		wailsRuntime.WindowSetAlwaysOnTop(m.ctx, true)
+		screen.SetWindowPip("milaWindow", "mila", true)
+		return
+	}
+
+	m.isPip.Store(false)
+	wailsRuntime.WindowSetAlwaysOnTop(m.ctx, false)
+	screen.SetWindowPip("milaWindow", "mila", false)
+	wailsRuntime.WindowSetMinSize(m.ctx, 858, 651)
+}
+
+// StartPipDrag initiates a native OS drag on the Picture-in-Picture window.
+func (m *Mila) StartPipDrag() {
+	if m.ctx == nil || !m.isPip.Load() {
+		return
+	}
+	screen.StartWindowDrag("milaWindow", "mila")
 }

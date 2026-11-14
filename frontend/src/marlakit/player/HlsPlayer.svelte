@@ -1329,10 +1329,19 @@
     padding: 12px 14px 24px;
     pointer-events: auto;
     cursor: grab;
+    --wails-draggable: drag;
   }
 
   .hls-player.is-pip .top-bar:active {
     cursor: grabbing;
+  }
+
+  .hls-player.is-pip .controls-dock,
+  .hls-player.is-pip .center-play,
+  .hls-player.is-pip .skip-pill,
+  .hls-player.is-pip .top-bar-right,
+  .hls-player.is-pip .pip-top-btn {
+    --wails-draggable: no-drag;
   }
 
   .hls-player.is-pip .player-title {

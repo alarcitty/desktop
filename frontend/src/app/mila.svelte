@@ -31,7 +31,12 @@
   });
 </script>
 
-<div class="viewport" class:is-app={bindings.isApp} class:is-fullscreen={bindings.isWindowSharp}>
+<div
+  class="viewport"
+  class:is-app={bindings.isApp}
+  class:is-fullscreen={bindings.isWindowSharp}
+  class:is-os-pip={bindings.osPipActive}
+>
   <div class="content-layer">
     <Header />
     <ScrollArea bind:this={scrollArea}>
@@ -78,6 +83,17 @@
   /* 15px rounded corners ONLY inside the native desktop app */
   .viewport.is-app {
     border-radius: 15px;
+  }
+
+  .viewport.is-os-pip {
+    min-width: 0 !important;
+    min-height: 0 !important;
+    border-radius: 15px !important;
+  }
+
+  .viewport.is-os-pip > .content-layer {
+    opacity: 0;
+    pointer-events: none;
   }
 
   :global(body.is-player-fullscreen) .viewport.is-app,
