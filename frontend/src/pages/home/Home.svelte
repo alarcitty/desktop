@@ -68,18 +68,18 @@
     background-color: #0c0c0c;
   }
 
-  /* Extends up behind the sticky header at scroll=0, and trails down when scrolling */
+  /* Starts at top behind overlaid transparent Header */
   .hero-bg-wrapper {
     position: relative;
     width: 100%;
     min-height: 105vh;
-    margin-top: -72px;
     padding-top: 72px;
     background-color: #0c0c0c;
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
     overflow: hidden;
+    contain: layout style paint;
   }
 
   .hero-bg-image {
@@ -90,6 +90,7 @@
     background-repeat: no-repeat;
     z-index: 0;
     pointer-events: none;
+    will-change: opacity;
   }
 
   /* 60% dark dimming */

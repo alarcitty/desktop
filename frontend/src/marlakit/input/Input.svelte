@@ -62,9 +62,7 @@
     align-items: center;
     width: 320px;
     height: 38px;
-    background: rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: rgba(255, 255, 255, 0.08);
     border-radius: 9px;
     padding: 0 12px;
     box-sizing: border-box;

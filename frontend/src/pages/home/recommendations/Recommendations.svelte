@@ -6,6 +6,20 @@
   import { openWatch } from '../../../app/player.svelte';
 
   let items = $state<HomeRecommendationItem[]>(getCachedHomeFeeds()?.recommendations ?? []);
+  let fallbackUsed = $state<Record<string, boolean>>({});
+  let brokenImages = $state<Record<string, boolean>>({});
+
+  function resolvePoster(item: HomeRecommendationItem): string {
+    return fallbackUsed[item.id] && item.fallbackPoster ? item.fallbackPoster : item.poster;
+  }
+
+  function handleImgError(item: HomeRecommendationItem) {
+    if (!fallbackUsed[item.id] && item.fallbackPoster) {
+      fallbackUsed = { ...fallbackUsed, [item.id]: true };
+    } else {
+      brokenImages = { ...brokenImages, [item.id]: true };
+    }
+  }
 
   onMount(async () => {
     const feeds = await loadHomeFeeds();
@@ -32,7 +46,7 @@
   <div class="recommendations-underlay-blur" aria-hidden="true">
     {#each items as item (item.id)}
       <div class="blur-col">
-        <LayerBlur src={item.poster} blur={80} opacity={0.35} scale={1.05} offsetY={0} />
+        <LayerBlur src={resolvePoster(item)} blur={80} opacity={0.35} scale={1.05} offsetY={0} />
       </div>
     {/each}
   </div>
@@ -46,7 +60,15 @@
         aria-label={item.title}
         onclick={() => handleRecClick(item)}
       >
-        <img src={item.poster} alt={item.title} class="card-img" loading="lazy" decoding="async" />
+        {#if !brokenImages[item.id]}
+          <img
+            src={resolvePoster(item)}
+            alt={item.title}
+            class="card-img"
+            decoding="async"
+            onerror={() => handleImgError(item)}
+          />
+        {/if}
         <div class="card-overlay"></div>
       </button>
     {/each}
@@ -66,6 +88,7 @@
     background: #0c0c0c;
     overflow: hidden;
     box-sizing: border-box;
+    contain: layout style paint;
     user-select: none;
     z-index: 1;
   }
@@ -100,6 +123,7 @@
     pointer-events: none;
     user-select: none;
     z-index: 1;
+    contain: layout style paint;
     -webkit-mask-image: linear-gradient(
       180deg,
       rgba(0, 0, 0, 0) 0%,
@@ -167,7 +191,6 @@
     backface-visibility: hidden;
     user-select: none;
     pointer-events: none;
-    will-change: transform;
     transition: transform 0.4s var(--ease-out);
   }
 
@@ -181,6 +204,7 @@
   }
 
   .rec-card:hover .card-img {
+    will-change: transform;
     transform: scale(1.03);
   }
 

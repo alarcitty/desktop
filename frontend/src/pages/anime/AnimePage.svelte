@@ -27,7 +27,10 @@
   const EP_PAGE_SIZE = 16;
 
   let playerSectionEl = $state<HTMLElement | null>(null);
+  let descTextEl = $state<HTMLParagraphElement | null>(null);
   let descExpanded = $state(false);
+  let descCollapsedH = $state(78);
+  let descExpandedH = $state(0);
   let inLibrary = $state(false);
   let isPlanLoading = $state(false);
   let epRangeIndex = $state(0);
@@ -121,7 +124,35 @@
     player.shikiArt?.description?.trim() || ''
   );
 
-  const isLongDescription = $derived(fullDescription.length > 290);
+  const isLongDescription = $derived(
+    descExpandedH > 0 ? descExpandedH > descCollapsedH + 8 : fullDescription.length > 290
+  );
+
+  $effect(() => {
+    void fullDescription;
+    descExpanded = false;
+  });
+
+  $effect(() => {
+    const el = descTextEl;
+    if (!el || !fullDescription) {
+      descExpandedH = 0;
+      return;
+    }
+
+    const measure = () => {
+      const lh = parseFloat(getComputedStyle(el).lineHeight) || 26;
+      descCollapsedH = Math.round(lh * 3);
+      descExpandedH = Math.ceil(el.scrollHeight);
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+    };
+  });
 
   const episodes = $derived(player.release?.episodes ?? []);
 
@@ -231,20 +262,36 @@
           {/if}
 
           {#if fullDescription}
-            <div class="desc-block">
-              <p class="anime-description" class:is-clamped={isLongDescription && !descExpanded}>
-                {fullDescription}
-              </p>
-              {#if isLongDescription}
-                <button
-                  type="button"
-                  class="desc-toggle"
-                  onclick={() => { descExpanded = !descExpanded; }}
+            {#key fullDescription}
+              <div class="desc-block">
+                <div
+                  class="desc-viewport"
+                  class:is-collapsible={isLongDescription}
+                  class:is-expanded={descExpanded}
+                  style:max-height={isLongDescription
+                    ? `${descExpanded ? (descExpandedH || 600) : descCollapsedH}px`
+                    : 'none'}
                 >
-                  {descExpanded ? 'Show less' : 'Read more'}
-                </button>
-              {/if}
-            </div>
+                  <p
+                    bind:this={descTextEl}
+                    class="anime-description"
+                    class:is-expanded={descExpanded || !isLongDescription}
+                  >
+                    {fullDescription}
+                  </p>
+                </div>
+                {#if isLongDescription}
+                  <button
+                    type="button"
+                    class="desc-toggle"
+                    aria-expanded={descExpanded}
+                    onclick={() => { descExpanded = !descExpanded; }}
+                  >
+                    {descExpanded ? 'Show less' : 'Read more'}
+                  </button>
+                {/if}
+              </div>
+            {/key}
           {/if}
 
           <div class="overview-actions">
@@ -506,11 +553,11 @@
     position: relative;
     width: 100%;
     min-height: clamp(500px, 68vh, 650px);
-    margin-top: -72px;
     padding-top: 72px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    contain: layout style paint;
   }
 
   .backdrop-img {
@@ -521,7 +568,6 @@
     object-fit: cover;
     object-position: center 22%;
     opacity: 0.56;
-    filter: saturate(1.04);
     pointer-events: none;
     user-select: none;
     z-index: 0;
@@ -632,6 +678,42 @@
   .desc-block {
     margin-top: 16px;
     max-width: 740px;
+    animation: descReveal 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes descReveal {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 6px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+  }
+
+  .desc-viewport {
+    overflow: hidden;
+    transition:
+      max-height 0.44s cubic-bezier(0.22, 1, 0.36, 1),
+      -webkit-mask-position 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+      mask-position 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .desc-viewport.is-collapsible {
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 80%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 80%, transparent 100%);
+    -webkit-mask-size: 100% 210%;
+    mask-size: 100% 210%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: 0% 100%;
+    mask-position: 0% 100%;
+  }
+
+  .desc-viewport.is-collapsible.is-expanded {
+    -webkit-mask-position: 0% 0%;
+    mask-position: 0% 0%;
   }
 
   .anime-description {
@@ -639,15 +721,12 @@
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 18px;
     line-height: 1.44;
-    color: rgba(255, 255, 255, 0.68);
+    color: rgba(255, 255, 255, 0.62);
+    transition: color 0.36s var(--ease-out);
   }
 
-  .anime-description.is-clamped {
-    display: -webkit-box;
-    line-clamp: 3;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  .anime-description.is-expanded {
+    color: rgba(255, 255, 255, 0.72);
   }
 
   .desc-toggle {
@@ -955,6 +1034,7 @@
     overflow: hidden;
     background: #0c0c0c;
     isolation: isolate;
+    contain: layout style paint;
     transform: translate3d(0, 0, 0);
     cursor: pointer;
     text-align: left;
@@ -990,12 +1070,11 @@
     object-fit: cover;
     display: block;
     backface-visibility: hidden;
-    transition: transform 0.45s var(--ease-out), filter 0.3s var(--ease-out);
+    transition: transform 0.45s var(--ease-out);
   }
 
   .ep-card:hover .ep-thumb {
     transform: scale(1.04);
-    filter: brightness(1.08);
   }
 
   .ep-thumb-fallback {
@@ -1128,12 +1207,11 @@
     object-fit: cover;
     display: block;
     backface-visibility: hidden;
-    transition: transform 0.45s var(--ease-out), filter 0.3s var(--ease-out);
+    transition: transform 0.45s var(--ease-out);
   }
 
   .frame-card:hover .frame-img {
     transform: scale(1.04);
-    filter: brightness(1.08);
   }
 
   .lightbox-backdrop {

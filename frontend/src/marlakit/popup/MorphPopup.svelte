@@ -150,28 +150,23 @@
 {/if}
 
 <style>
-  /* Blur is animated through the backdrop-filter value itself (not through
-     opacity), so it fades in smoothly instead of popping at the end. */
+  /* Fixed backdrop-filter + opacity fade avoids rebuilding fullscreen Gaussian blur every frame. */
   .popup-backdrop
   {
     position: fixed;
     inset: 0;
     z-index: 1000;
-    background: rgba(0, 0, 0, 0);
-    -webkit-backdrop-filter: blur(0px);
-    backdrop-filter: blur(0px);
-    will-change: backdrop-filter, background-color;
-    transition:
-      background-color var(--popup-duration) var(--ease-out),
-      -webkit-backdrop-filter var(--popup-duration) var(--ease-out),
-      backdrop-filter var(--popup-duration) var(--ease-out);
+    background: rgba(0, 0, 0, 0.4);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    opacity: 0;
+    will-change: opacity;
+    transition: opacity var(--popup-duration) var(--ease-out);
   }
 
   .popup-backdrop.visible
   {
-    background: rgba(0, 0, 0, 0.4);
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
+    opacity: 1;
   }
 
   .popup-panel
@@ -181,12 +176,13 @@
     box-sizing: border-box;
     overflow: hidden;
     contain: layout style;
-    will-change: left, top, width, height, backdrop-filter;
+    will-change: left, top, width, height, opacity;
     padding: 0;
     border-radius: 9px;
-    background: rgba(16, 16, 16, 0);
-    -webkit-backdrop-filter: blur(0px);
-    backdrop-filter: blur(0px);
+    opacity: 0;
+    background: rgba(18, 18, 18, 0.55);
+    -webkit-backdrop-filter: blur(22px);
+    backdrop-filter: blur(22px);
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0), 0 30px 80px rgba(0, 0, 0, 0);
     transition:
       left var(--popup-duration) var(--ease-out),
@@ -195,9 +191,7 @@
       height var(--popup-duration) var(--ease-out),
       padding var(--popup-duration) var(--ease-out),
       border-radius var(--popup-duration) var(--ease-out),
-      background-color var(--popup-duration) var(--ease-out),
-      -webkit-backdrop-filter var(--popup-duration) var(--ease-out),
-      backdrop-filter var(--popup-duration) var(--ease-out),
+      opacity calc(var(--popup-duration) * 0.65) var(--ease-out),
       box-shadow var(--popup-duration) var(--ease-out);
   }
 
@@ -205,9 +199,7 @@
   {
     padding: 14px;
     border-radius: 22px;
-    background: rgba(18, 18, 18, 0.55);
-    -webkit-backdrop-filter: blur(28px);
-    backdrop-filter: blur(28px);
+    opacity: 1;
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 30px 80px rgba(0, 0, 0, 0.5);
   }
 </style>

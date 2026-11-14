@@ -104,8 +104,10 @@
 
 <style>
   .header {
-    position: sticky;
+    position: absolute;
     top: 0;
+    left: 0;
+    right: 0;
     width: 100%;
     height: 72px;
     background: transparent;
@@ -116,7 +118,6 @@
     box-sizing: border-box;
     --wails-draggable: drag;
     user-select: none;
-    flex-shrink: 0;
     z-index: 50;
   }
 

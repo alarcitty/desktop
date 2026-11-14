@@ -14,6 +14,20 @@
   let releases = $state<HomeReleaseItem[]>(getCachedHomeFeeds()?.releases ?? []);
 
   let activeIndex = $state(0);
+  let fallbackUsed = $state<Record<string, boolean>>({});
+  let brokenImages = $state<Record<string, boolean>>({});
+
+  function resolvePoster(item: HomeReleaseItem): string {
+    return fallbackUsed[item.id] && item.fallbackPoster ? item.fallbackPoster : item.poster;
+  }
+
+  function handleImgError(item: HomeReleaseItem) {
+    if (!fallbackUsed[item.id] && item.fallbackPoster) {
+      fallbackUsed = { ...fallbackUsed, [item.id]: true };
+    } else {
+      brokenImages = { ...brokenImages, [item.id]: true };
+    }
+  }
   let isWatchLoading = $state(false);
   let isPlanLoading = $state(false);
   let planTimer: number | undefined;
@@ -79,7 +93,7 @@
         class:is-active={activeIndex === index}
       >
         <LayerBlur
-          src={item.poster}
+          src={resolvePoster(item)}
           blur={60}
           opacity={0.32}
           scale={1.05}
@@ -99,13 +113,15 @@
         class:is-active={activeIndex === index}
         onclick={() => setActive(index)}
       >
-        <img
-          src={item.poster}
-          alt={item.id}
-          class="card-img"
-          loading="lazy"
-          decoding="async"
-        />
+        {#if !brokenImages[item.id]}
+          <img
+            src={resolvePoster(item)}
+            alt={item.title}
+            class="card-img"
+            decoding="async"
+            onerror={() => handleImgError(item)}
+          />
+        {/if}
 
         <!-- Active card gradient overlays -->
         <div class="card-overlay" class:is-visible={activeIndex === index}></div>
@@ -165,6 +181,7 @@
     overflow-x: clip;
     overflow-y: visible;
     box-sizing: border-box;
+    contain: layout style;
     user-select: none;
     z-index: 4;
   }
@@ -187,7 +204,7 @@
     text-shadow: none;
   }
 
-  /* Ambient Layer Blur underlay trailing down over the next section */
+  /* Ambient Layer Blur underlay trailing down smoothly into the next section */
   .releases-underlay-blur {
     position: absolute;
     top: 70px;
@@ -197,6 +214,7 @@
     pointer-events: none;
     user-select: none;
     z-index: 1;
+    contain: layout style;
     -webkit-mask-image: linear-gradient(
       180deg,
       rgba(0, 0, 0, 0) 0%,
@@ -220,7 +238,6 @@
     width: 100%;
     height: 100%;
     opacity: 0;
-    will-change: opacity;
     backface-visibility: hidden;
     transition: opacity 0.5s ease;
   }
@@ -243,6 +260,7 @@
     gap: 0;
     overflow: hidden;
     box-sizing: border-box;
+    contain: layout style paint;
     z-index: 3;
   }
 
@@ -255,15 +273,13 @@
     cursor: pointer;
     flex: 1 1 0;
     min-width: 0;
-    will-change: flex-grow, flex-basis;
     contain: layout paint;
     transition: flex-grow 0.65s cubic-bezier(0.22, 1, 0.36, 1),
-                flex-basis 0.65s cubic-bezier(0.22, 1, 0.36, 1),
-                filter var(--hover-dur) var(--ease-out);
+                flex-basis 0.65s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  .card:not(.is-active):hover {
-    filter: brightness(1.15);
+  .card:not(.is-active):hover .side-card-overlay.is-dimmed {
+    opacity: 0.45;
   }
 
   /* Active expanded card: wide clamp 690px - 840px */
@@ -349,7 +365,14 @@
     pointer-events: none;
   }
 
+  .card:not(.is-active) .card-content {
+    visibility: hidden;
+    transition: visibility 0s linear 0.22s;
+  }
+
   .card.is-active .card-content {
+    visibility: visible;
+    transition: visibility 0s linear 0s;
     pointer-events: auto;
   }
 

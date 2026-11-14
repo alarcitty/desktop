@@ -566,13 +566,13 @@
     position: relative;
     width: 100%;
     min-height: 100vh;
-    margin-top: -72px;
     padding: 0 0 56px 0;
     box-sizing: border-box;
     background: #0c0c0c;
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    contain: layout style;
     -webkit-font-smoothing: antialiased;
   }
 

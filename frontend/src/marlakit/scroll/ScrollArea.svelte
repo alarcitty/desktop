@@ -10,49 +10,176 @@
 
   let viewportRef = $state<HTMLDivElement | null>(null);
   let contentRef = $state<HTMLDivElement | null>(null);
-  let thumbHeight = $state(0);
-  let thumbTop = $state(0);
+  let thumbRef = $state<HTMLDivElement | null>(null);
+  let hasOverflow = $state(false);
   let isVisible = $state(false);
   let isDragging = $state(false);
 
+  let cachedScrollHeight = 0;
+  let cachedClientHeight = 0;
+  let thumbHeight = 0;
   let startY = 0;
   let startScrollTop = 0;
   let hideTimer: number | undefined;
   let rafId = 0;
   let pendingShow = false;
 
-  export function scrollToTop() {
-    if (viewportRef) {
-      viewportRef.scrollTop = 0;
-      scheduleThumbUpdate(false);
+  let wheelRafId = 0;
+  let smoothTop = 0;
+  let targetTop = 0;
+  let lastFrameTs = 0;
+
+  function stopWheelAnimation() {
+    if (wheelRafId) {
+      cancelAnimationFrame(wheelRafId);
+      wheelRafId = 0;
     }
+    lastFrameTs = 0;
+  }
+
+  export function getScrollTop(): number {
+    return viewportRef?.scrollTop ?? 0;
+  }
+
+  export function setScrollTop(top: number) {
+    if (!viewportRef) return;
+    stopWheelAnimation();
+    const clamped = Math.max(0, top);
+    viewportRef.scrollTop = clamped;
+    smoothTop = clamped;
+    targetTop = clamped;
+    syncMetrics();
+  }
+
+  export function scrollToTop() {
+    setScrollTop(0);
+  }
+
+  export function syncMetrics() {
+    if (!viewportRef) return;
+    cachedScrollHeight = viewportRef.scrollHeight;
+    cachedClientHeight = viewportRef.clientHeight;
+    scheduleThumbUpdate(false);
+  }
+
+  function hasInnerScrollable(target: EventTarget | null, deltaY: number): boolean {
+    if (!viewportRef || !(target instanceof Element)) return false;
+    let el: Element | null = target;
+    while (el && el !== viewportRef) {
+      if (el instanceof HTMLElement && el.scrollHeight > el.clientHeight + 1) {
+        const style = getComputedStyle(el);
+        const oy = style.overflowY;
+        if (oy === 'auto' || oy === 'scroll') {
+          const atTop = el.scrollTop <= 0;
+          const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+          if ((deltaY < 0 && !atTop) || (deltaY > 0 && !atBottom)) {
+            return true;
+          }
+        }
+      }
+      el = el.parentElement;
+    }
+    return false;
+  }
+
+  function stepWheelScroll(now: number) {
+    if (!viewportRef) {
+      stopWheelAnimation();
+      return;
+    }
+    const maxScroll = Math.max(0, viewportRef.scrollHeight - viewportRef.clientHeight);
+    if (targetTop > maxScroll) targetTop = maxScroll;
+    if (targetTop < 0) targetTop = 0;
+
+    const dt = lastFrameTs > 0 ? Math.min(0.05, (now - lastFrameTs) / 1000) : 1 / 60;
+    lastFrameTs = now;
+
+    // Frame-rate independent exponential ease-out (~250ms silky settle across 60-144Hz)
+    const alpha = 1 - Math.exp(-12 * dt);
+    smoothTop += (targetTop - smoothTop) * alpha;
+
+    if (Math.abs(targetTop - smoothTop) < 0.5) {
+      smoothTop = targetTop;
+      viewportRef.scrollTop = smoothTop;
+      updateThumb(true);
+      stopWheelAnimation();
+      return;
+    }
+
+    viewportRef.scrollTop = smoothTop;
+    updateThumb(true);
+    wheelRafId = requestAnimationFrame(stepWheelScroll);
+  }
+
+  function handleWheel(e: WheelEvent) {
+    if (!viewportRef || e.ctrlKey || e.metaKey || e.deltaY === 0) return;
+    if (hasInnerScrollable(e.target, e.deltaY)) return;
+
+    const maxScroll = Math.max(0, viewportRef.scrollHeight - viewportRef.clientHeight);
+    if (maxScroll <= 0) return;
+
+    e.preventDefault();
+
+    let delta = e.deltaY;
+    if (e.deltaMode === 1) delta *= 40;
+    else if (e.deltaMode === 2) delta *= viewportRef.clientHeight;
+
+    if (!wheelRafId) {
+      smoothTop = viewportRef.scrollTop;
+      targetTop = smoothTop;
+    }
+    targetTop = Math.max(0, Math.min(maxScroll, targetTop + delta));
+
+    if (!wheelRafId) {
+      lastFrameTs = 0;
+      wheelRafId = requestAnimationFrame(stepWheelScroll);
+    }
+  }
+
+  function armHideTimer(delayMs: number) {
+    window.clearTimeout(hideTimer);
+    hideTimer = window.setTimeout(() => {
+      if (!isDragging) {
+        isVisible = false;
+      }
+    }, delayMs);
   }
 
   function updateThumb(showIndicator: boolean) {
     if (!viewportRef) return;
-    const { scrollTop, scrollHeight, clientHeight } = viewportRef;
+    if (cachedClientHeight <= 0 || cachedScrollHeight <= 0) {
+      cachedScrollHeight = viewportRef.scrollHeight;
+      cachedClientHeight = viewportRef.clientHeight;
+    }
+
+    const scrollHeight = cachedScrollHeight;
+    const clientHeight = cachedClientHeight;
 
     if (scrollHeight <= clientHeight) {
       thumbHeight = 0;
-      thumbTop = 0;
-      isVisible = false;
+      if (hasOverflow) hasOverflow = false;
+      if (isVisible) isVisible = false;
       return;
     }
 
-    const ratio = clientHeight / scrollHeight;
-    thumbHeight = Math.max(ratio * clientHeight, 36);
-    const availableTrack = clientHeight - thumbHeight;
+    if (!hasOverflow) hasOverflow = true;
+
+    const nextThumbH = Math.max((clientHeight / scrollHeight) * clientHeight, 36);
+    const availableTrack = clientHeight - nextThumbH;
     const maxScroll = scrollHeight - clientHeight;
-    thumbTop = maxScroll > 0 ? (scrollTop / maxScroll) * availableTrack : 0;
+    const nextTop = maxScroll > 0 ? (viewportRef.scrollTop / maxScroll) * availableTrack : 0;
+
+    if (thumbRef) {
+      if (nextThumbH !== thumbHeight) {
+        thumbRef.style.height = `${nextThumbH}px`;
+      }
+      thumbRef.style.transform = `translate3d(0, ${nextTop}px, 0)`;
+    }
+    thumbHeight = nextThumbH;
 
     if (showIndicator) {
-      isVisible = true;
-      clearTimeout(hideTimer);
-      hideTimer = window.setTimeout(() => {
-        if (!isDragging) {
-          isVisible = false;
-        }
-      }, 1200);
+      if (!isVisible) isVisible = true;
+      armHideTimer(1200);
     }
   }
 
@@ -73,27 +200,41 @@
     if (!viewport) return;
 
     const ro = new ResizeObserver(() => {
+      cachedScrollHeight = viewport.scrollHeight;
+      cachedClientHeight = viewport.clientHeight;
       scheduleThumbUpdate(false);
     });
     ro.observe(viewport);
     if (content) {
       ro.observe(content);
     }
+    cachedScrollHeight = viewport.scrollHeight;
+    cachedClientHeight = viewport.clientHeight;
     scheduleThumbUpdate(false);
+    viewport.addEventListener('wheel', handleWheel, { passive: false });
 
     return () => {
+      viewport.removeEventListener('wheel', handleWheel);
+      stopWheelAnimation();
       ro.disconnect();
       cancelAnimationFrame(rafId);
       rafId = 0;
-      clearTimeout(hideTimer);
+      window.clearTimeout(hideTimer);
       window.removeEventListener('mousemove', handleWindowMouseMove);
       window.removeEventListener('mouseup', handleWindowMouseUp);
     };
   });
 
+  $effect(() => {
+    if (hasOverflow && thumbRef) {
+      scheduleThumbUpdate(false);
+    }
+  });
+
   function handleThumbMouseDown(e: MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
+    stopWheelAnimation();
     isDragging = true;
     startY = e.clientY;
     if (viewportRef) {
@@ -125,10 +266,14 @@
 
   function handleTrackClick(e: MouseEvent) {
     if (!viewportRef || e.target !== e.currentTarget) return;
+    stopWheelAnimation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const clickY = e.clientY - rect.top;
     const ratio = clickY / rect.height;
-    viewportRef.scrollTop = ratio * (viewportRef.scrollHeight - viewportRef.clientHeight);
+    const next = ratio * (viewportRef.scrollHeight - viewportRef.clientHeight);
+    targetTop = next;
+    smoothTop = next;
+    viewportRef.scrollTop = next;
   }
 </script>
 
@@ -143,7 +288,7 @@
   <div
     bind:this={viewportRef}
     class="marlakit-scroll-viewport"
-    onscroll={() => scheduleThumbUpdate(true)}
+    onscroll={() => { if (!wheelRafId) scheduleThumbUpdate(true); }}
   >
     <div bind:this={contentRef} class="marlakit-scroll-content">
       {#if children}
@@ -153,7 +298,7 @@
   </div>
 
   <!-- Custom floating minimalist scrollbar -->
-  {#if thumbHeight > 0}
+  {#if hasOverflow}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -162,9 +307,9 @@
       onclick={handleTrackClick}
     >
       <div
+        bind:this={thumbRef}
         class="marlakit-scroll-thumb"
         class:dragging={isDragging}
-        style="height: {thumbHeight}px; transform: translate3d(0, {thumbTop}px, 0);"
         onmousedown={handleThumbMouseDown}
       ></div>
     </div>
@@ -186,6 +331,8 @@
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
+    overscroll-behavior: contain;
+    will-change: scroll-position;
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* IE/Edge */
   }

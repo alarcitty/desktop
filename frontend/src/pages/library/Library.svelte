@@ -358,13 +358,13 @@
     position: relative;
     width: 100%;
     min-height: 100vh;
-    margin-top: -72px;
     padding: 72px 0 0 0;
     box-sizing: border-box;
     background: #0c0c0c;
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    contain: layout style;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -587,15 +587,17 @@
     contain: layout paint;
   }
 
-  /* Blurred poster as the row background */
+  /* Blurred poster as the row background (1/4-scale for low GPU cost while scrolling) */
   .row-bg {
     position: absolute;
-    inset: -2px;
-    width: calc(100% + 4px);
-    height: calc(100% + 4px);
+    top: 50%;
+    left: 50%;
+    width: 25%;
+    height: 25%;
     object-fit: cover;
-    filter: blur(22px);
-    transform: scale(1.15);
+    filter: blur(6px);
+    transform: translate3d(-50%, -50%, 0) scale(4.6);
+    transform-origin: center center;
     z-index: 0;
     pointer-events: none;
     user-select: none;

@@ -49,10 +49,24 @@ export interface PlayableRelease {
   fallbackNote?: string;
 }
 
+export interface HeroOpeningOption {
+  number: number;
+  label: string;
+  title: string;
+  alias?: string;
+  episode: number;
+  startOffsetSec?: number;
+}
+
 export interface HomeSpotlightItem {
   shikiId: number;
   title: string;
   releaseAlias?: string;
+  openingAlias?: string;
+  openingEpisode?: number;
+  openingStartOffsetSec?: number;
+  openings?: HeroOpeningOption[];
+  defaultOpeningNumber?: number;
   searchQueries: string[];
   bg: string;
   previews: string[];
@@ -71,6 +85,7 @@ export interface HomeReleaseItem {
   titleLines: string[];
   description: string;
   poster: string;
+  fallbackPoster?: string;
   score?: number;
   tags: string[];
 }
@@ -82,6 +97,7 @@ export interface HomeRecommendationItem {
   searchQueries: string[];
   title: string;
   poster: string;
+  fallbackPoster?: string;
   score?: number;
   tags: string[];
 }
@@ -719,19 +735,48 @@ function splitTitleLines(title: string): string[] {
   return lines.slice(0, 3);
 }
 
-function mapShikiToSpotlight(art: ShikiArtwork, releaseAlias?: string): HomeSpotlightItem {
+function pickHighlightPreviews(shots: readonly string[], posterOriginal: string): string[] {
+  const n = shots.length;
+  if (n >= 8) {
+    const indices = [Math.floor(n * 0.25), Math.floor(n * 0.55), Math.floor(n * 0.82)];
+    return indices.map((idx) => shots[idx] ?? shots[0] ?? posterOriginal);
+  }
+  if (n >= 4) {
+    return shots.slice(1, 4);
+  }
+  if (n >= 3) {
+    return shots.slice(0, 3);
+  }
+  return [shots[0] ?? posterOriginal, shots[1] ?? shots[0] ?? posterOriginal, shots[2] ?? shots[0] ?? posterOriginal];
+}
+
+interface HeroSpotlightSpec {
+  shikiId: number;
+  releaseAlias?: string;
+  defaultOpeningNumber?: number;
+  openings?: HeroOpeningOption[];
+}
+
+function mapShikiToSpotlight(
+  art: ShikiArtwork,
+  releaseAlias?: string,
+  spec?: Pick<HeroSpotlightSpec, 'openings' | 'defaultOpeningNumber'>
+): HomeSpotlightItem {
   const shots = art.screenshots;
-  const previews =
-    shots.length >= 4
-      ? shots.slice(1, 4)
-      : shots.length >= 3
-        ? shots.slice(0, 3)
-        : [shots[0] ?? art.posterOriginal, shots[1] ?? shots[0] ?? art.posterOriginal, shots[2] ?? shots[0] ?? art.posterOriginal];
+  const previews = pickHighlightPreviews(shots, art.posterOriginal);
+  const openings = spec?.openings;
+  const defaultOpeningNumber = spec?.defaultOpeningNumber ?? openings?.[0]?.number;
+  const defaultOp = openings?.find((op) => op.number === defaultOpeningNumber) ?? openings?.[0];
 
   return {
     shikiId: art.id,
     title: art.english || art.name || art.russian || 'Anime',
     releaseAlias,
+    openingAlias: defaultOp?.alias,
+    openingEpisode: defaultOp?.episode,
+    openingStartOffsetSec: defaultOp?.startOffsetSec,
+    openings,
+    defaultOpeningNumber,
     searchQueries: [art.name, art.english, art.russian].filter(Boolean),
     bg: shots[0] ?? art.posterOriginal ?? '',
     previews,
@@ -746,7 +791,91 @@ export function getCachedHomeFeeds(): HomeFeeds | null {
   return homeFeedsCache;
 }
 
-// Loads live Spotlight, latest AniLiberty New Releases, and Recommendations without hardcoded lists.
+const HERO_SPOTLIGHT_SPEC: ReadonlyArray<HeroSpotlightSpec> = [
+  {
+    shikiId: 40748,
+    releaseAlias: 'jujutsu-kaisen',
+    defaultOpeningNumber: 3,
+    openings: [
+      { number: 1, label: 'OP 1', title: 'Kaikai Kitan (S1)', alias: 'jujutsu-kaisen', episode: 2 },
+      { number: 2, label: 'OP 2', title: 'VIVID VICE (S1)', alias: 'jujutsu-kaisen', episode: 15 },
+      {
+        number: 3,
+        label: 'OP 3',
+        title: 'Ao no Sumika (S2)',
+        alias: 'jujutsu-kaisen-season-2',
+        episode: 2,
+        startOffsetSec: 3.5
+      },
+      { number: 4, label: 'OP 4', title: 'SPECIALZ (S2)', alias: 'jujutsu-kaisen-season-2', episode: 7 },
+      {
+        number: 5,
+        label: 'OP 5',
+        title: 'Culling Game (S3)',
+        alias: 'jujutsu-kaisen-shimetsu-kaiyuu-zenpen',
+        episode: 2
+      }
+    ]
+  },
+  {
+    shikiId: 57334,
+    releaseAlias: 'dandadan',
+    defaultOpeningNumber: 1,
+    openings: [
+      { number: 1, label: 'OP 1', title: 'Otonoke', alias: 'dandadan', episode: 2, startOffsetSec: 6.5 }
+    ]
+  },
+  {
+    shikiId: 269,
+    releaseAlias: 'bleach',
+    defaultOpeningNumber: 13,
+    openings: [
+      { number: 1, label: 'OP 1', title: '*~Asterisk~', episode: 2 },
+      { number: 2, label: 'OP 2', title: 'D-tecnoLife', episode: 27 },
+      { number: 3, label: 'OP 3', title: 'Ichirin no Hana', episode: 53 },
+      { number: 4, label: 'OP 4', title: 'TONIGHT, TONIGHT, TONIGHT', episode: 76 },
+      { number: 5, label: 'OP 5', title: 'Rolling star', episode: 99 },
+      { number: 6, label: 'OP 6', title: 'ALONES', episode: 122 },
+      { number: 7, label: 'OP 7', title: 'After Dark', episode: 145 },
+      { number: 8, label: 'OP 8', title: 'CHU-BURA', episode: 169 },
+      { number: 9, label: 'OP 9', title: 'Velonica', episode: 191 },
+      { number: 10, label: 'OP 10', title: 'Shoujo S', episode: 216 },
+      { number: 11, label: 'OP 11', title: 'Anima Rossa', episode: 244 },
+      { number: 12, label: 'OP 12', title: 'chAngE', episode: 267 },
+      { number: 13, label: 'OP 13', title: 'Ranbu no Melody', episode: 297 },
+      { number: 14, label: 'OP 14', title: 'BLUE', episode: 318 },
+      { number: 15, label: 'OP 15', title: 'HARUKAZE', episode: 344 }
+    ]
+  },
+  {
+    shikiId: 52299,
+    releaseAlias: 'ore-dake-level-up-na-ken',
+    defaultOpeningNumber: 2,
+    openings: [
+      { number: 1, label: 'OP 1', title: 'LEveL (S1)', alias: 'ore-dake-level-up-na-ken', episode: 2 },
+      {
+        number: 2,
+        label: 'OP 2',
+        title: 'ReawakeR (S2)',
+        alias: 'ore-dake-level-up-na-ken-season-2-arise-from-the-shadow',
+        episode: 2
+      }
+    ]
+  },
+  {
+    shikiId: 22319,
+    releaseAlias: 'tokyo-ghoul',
+    defaultOpeningNumber: 1,
+    openings: [
+      { number: 1, label: 'OP 1', title: 'Unravel (S1)', alias: 'tokyo-ghoul', episode: 6, startOffsetSec: 2.5 },
+      { number: 2, label: 'OP 2', title: 'Munou (√A)', alias: 'tokyo-ghoul-a', episode: 2 },
+      { number: 3, label: 'OP 3', title: 'asphyxia (:re)', alias: 'tokyo-ghoul-re', episode: 2 },
+      { number: 4, label: 'OP 4', title: 'katharsis (:re)', alias: 'tokyo-ghoul-re', episode: 15 }
+    ]
+  }
+];
+
+// Loads curated top-5 Spotlight plus live AniLiberty New Releases and Recommendations.
 export async function loadHomeFeeds(): Promise<HomeFeeds> {
   if (homeFeedsCache) {
     return homeFeedsCache;
@@ -756,7 +885,14 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
   }
 
   homeFeedsPromise = (async () => {
+    const heroIds = HERO_SPOTLIGHT_SPEC.map((item) => item.shikiId).join(',');
     const shikiQuery = `{
+      hero: animes(ids: "${heroIds}", limit: ${HERO_SPOTLIGHT_SPEC.length}, censored: false) {
+        id name russian english description score status episodes episodesAired
+        airedOn { year } genres { name }
+        poster { originalUrl main2xUrl mainUrl }
+        screenshots { originalUrl }
+      }
       ongoing: animes(order: popularity, status: "ongoing", kind: "tv", limit: 18, censored: false) {
         id name russian english description score status episodes episodesAired
         airedOn { year } genres { name }
@@ -787,7 +923,7 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
         undefined,
         7000
       ),
-      fetchJsonWithTimeout<{ data?: { ongoing?: ShikiGqlNode[]; ranked?: ShikiGqlNode[] } }>(
+      fetchJsonWithTimeout<{ data?: { hero?: ShikiGqlNode[]; ongoing?: ShikiGqlNode[]; ranked?: ShikiGqlNode[] } }>(
         SHIKI_GRAPHQL,
         {
           method: 'POST',
@@ -802,8 +938,16 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
     const recRaw = recRes.status === 'fulfilled' && Array.isArray(recRes.value) ? recRes.value : [];
     const topCatRaw =
       topCatRes.status === 'fulfilled' && Array.isArray(topCatRes.value?.data) ? topCatRes.value.data : [];
+    const heroNodes = shikiRes.status === 'fulfilled' ? shikiRes.value.data?.hero ?? [] : [];
     const ongoingNodes = shikiRes.status === 'fulfilled' ? shikiRes.value.data?.ongoing ?? [] : [];
     const rankedNodes = shikiRes.status === 'fulfilled' ? shikiRes.value.data?.ranked ?? [] : [];
+
+    for (const node of heroNodes) {
+      const mapped = mapShikiNode(node);
+      if (mapped) {
+        shikiCache.set(mapped.id, mapped);
+      }
+    }
 
     const ongoingArts: ShikiArtwork[] = [];
     for (const node of ongoingNodes) {
@@ -824,22 +968,29 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
     }
 
     const aliasByShikiId = new Map<number, string>();
+    const libPosterByShikiId = new Map<number, string>();
     for (const item of [...latestRaw, ...recRaw, ...topCatRaw]) {
       if (item.is_blocked_by_copyrights) continue;
       const sid = item.shikimori?.id;
       if (sid && item.alias && !aliasByShikiId.has(sid)) {
         aliasByShikiId.set(sid, item.alias);
       }
+      const libPoster = resolveLibUrl(item.poster?.src || item.poster?.optimized?.src || item.poster?.preview);
+      if (sid && libPoster && !libPosterByShikiId.has(sid)) {
+        libPosterByShikiId.set(sid, libPoster);
+      }
     }
 
     const libShikiIds = [
-      ...topCatRaw.slice(0, 16),
-      ...latestRaw.slice(0, 8),
-      ...recRaw.slice(0, 8)
-    ]
-      .filter((item) => !item.is_blocked_by_copyrights)
-      .map((item) => item.shikimori?.id ?? 0)
-      .filter((id) => id > 0 && !shikiCache.has(id));
+      ...HERO_SPOTLIGHT_SPEC.map((item) => item.shikiId),
+      ...[
+        ...topCatRaw.slice(0, 16),
+        ...latestRaw.slice(0, 8),
+        ...recRaw.slice(0, 8)
+      ]
+        .filter((item) => !item.is_blocked_by_copyrights)
+        .map((item) => item.shikimori?.id ?? 0)
+    ].filter((id) => id > 0 && !shikiCache.has(id));
     if (libShikiIds.length > 0) {
       await ensureShikimoriArtwork(libShikiIds).catch(() => {});
     }
@@ -854,8 +1005,22 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
     const usedShikiIds = new Set<number>();
     const usedFranchises = new Set<string>();
 
-    // 1. Spotlight (4 popular playable titles with rich 16:9 screenshots + poster)
+    // 1. Spotlight (requested top 4 in exact order, falling back to popular live titles if any is missing)
     const spotlight: HomeSpotlightItem[] = [];
+    for (const spec of HERO_SPOTLIGHT_SPEC) {
+      const art = shikiCache.get(spec.shikiId);
+      if (!art) continue;
+      const key = franchiseKey(art.english || art.name);
+      usedShikiIds.add(art.id);
+      if (key) usedFranchises.add(key);
+      spotlight.push(
+        mapShikiToSpotlight(
+          art,
+          spec.releaseAlias ?? aliasByShikiId.get(art.id),
+          spec
+        )
+      );
+    }
     const spotlightCandidates = [
       ...ongoingArts.filter(
         (a) => aliasByShikiId.has(a.id) && (a.year ?? 0) >= 2022 && a.screenshots.length >= 3 && a.posterOriginal
@@ -866,7 +1031,7 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
       ...rankedArts.filter((a) => a.screenshots.length >= 3 && a.posterOriginal)
     ];
     for (const art of spotlightCandidates) {
-      if (spotlight.length >= 4) break;
+      if (spotlight.length >= HERO_SPOTLIGHT_SPEC.length) break;
       const key = franchiseKey(art.english || art.name);
       if (usedShikiIds.has(art.id) || (key && usedFranchises.has(key))) continue;
       usedShikiIds.add(art.id);
@@ -881,7 +1046,9 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
       if (releases.length >= 4) break;
       if (!r.alias || seenAliases.has(r.alias) || r.is_blocked_by_copyrights) continue;
       const shiki = r.shikimori?.id ? shikiCache.get(r.shikimori.id) : undefined;
-      const poster = shiki?.posterOriginal || resolveLibUrl(r.poster?.src || r.poster?.optimized?.src || r.poster?.preview);
+      const libPoster = resolveLibUrl(r.poster?.src || r.poster?.optimized?.src || r.poster?.preview);
+      const shikiPoster = shiki?.posterOriginal || shiki?.posterMain || '';
+      const poster = libPoster || shikiPoster;
       if (!poster) continue;
 
       seenAliases.add(r.alias);
@@ -909,6 +1076,7 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
         titleLines: splitTitleLines(title),
         description: truncateDescription(descSource, 155),
         poster,
+        fallbackPoster: shikiPoster && shikiPoster !== poster ? shikiPoster : undefined,
         score: rawScore > 0 ? Number(rawScore.toFixed(1)) : undefined,
         tags: tags.length > 0 ? tags : libTags
       });
@@ -923,7 +1091,9 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
       if (sid && usedShikiIds.has(sid)) continue;
       if ((r.year ?? 0) < 2018) continue;
       const shiki = sid ? shikiCache.get(sid) : undefined;
-      const poster = shiki?.posterOriginal || resolveLibUrl(r.poster?.src || r.poster?.optimized?.src);
+      const libPoster = resolveLibUrl(r.poster?.src || r.poster?.optimized?.src || r.poster?.preview);
+      const shikiPoster = shiki?.posterOriginal || shiki?.posterMain || '';
+      const poster = libPoster || shikiPoster;
       if (!poster) continue;
 
       const title = shiki?.english || r.name?.english || r.name?.main || 'Anime';
@@ -942,6 +1112,7 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
         searchQueries: [r.name?.english ?? '', r.name?.main ?? '', shiki?.name ?? ''].filter(Boolean),
         title,
         poster,
+        fallbackPoster: shikiPoster && shikiPoster !== poster ? shikiPoster : undefined,
         score: rawScore > 0 ? Number(rawScore.toFixed(1)) : undefined,
         tags: shiki ? buildMetaTags(shiki) : []
       });
@@ -954,6 +1125,10 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
       const fKey = franchiseKey(title);
       if (fKey && usedFranchises.has(fKey)) continue;
 
+      const libPoster = libPosterByShikiId.get(art.id) ?? '';
+      const shikiPoster = art.posterOriginal || art.posterMain;
+      const poster = libPoster || shikiPoster;
+
       usedShikiIds.add(art.id);
       if (fKey) usedFranchises.add(fKey);
       recommendations.push({
@@ -962,7 +1137,8 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
         releaseAlias: aliasByShikiId.get(art.id),
         searchQueries: [art.name, art.english, art.russian].filter(Boolean),
         title,
-        poster: art.posterOriginal || art.posterMain,
+        poster,
+        fallbackPoster: shikiPoster && shikiPoster !== poster ? shikiPoster : undefined,
         score: art.score > 0 ? Number(art.score.toFixed(1)) : undefined,
         tags: buildMetaTags(art)
       });
@@ -1361,4 +1537,91 @@ export async function findVoiceOptions(
   }
 
   return options;
+}
+
+export interface HeroOpeningPreview {
+  streamUrl: string;
+  startSec: number;
+  endSec: number;
+  episodeOrdinal: number;
+}
+
+const heroOpeningCache = new Map<string, HeroOpeningPreview | null>();
+const heroOpeningPending = new Map<string, Promise<HeroOpeningPreview | null>>();
+
+export async function resolveHeroOpeningPreview(
+  target: WatchTarget & { openingAlias?: string; openingEpisode?: number; openingStartOffsetSec?: number }
+): Promise<HeroOpeningPreview | null> {
+  const previewAlias = target.openingAlias ?? target.releaseAlias;
+  const offsetSec = Math.max(0, target.openingStartOffsetSec ?? 0);
+  const key = `${previewAlias || (target.shikiId ? `shiki:${target.shikiId}` : target.title.toLowerCase())}#${target.openingEpisode ?? 'auto'}+${offsetSec}`;
+  if (heroOpeningCache.has(key)) {
+    return heroOpeningCache.get(key) ?? null;
+  }
+  const existing = heroOpeningPending.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const req = (async (): Promise<HeroOpeningPreview | null> => {
+    try {
+      const rel = await resolvePlayableRelease({
+        ...target,
+        releaseAlias: previewAlias,
+        shikiId: target.openingAlias ? undefined : target.shikiId
+      });
+      const hasValidOpening = (ep: (typeof rel.episodes)[number], minDuration: number) =>
+        ep.opening?.start != null &&
+        ep.opening?.stop != null &&
+        ep.opening.stop > ep.opening.start + minDuration &&
+        Boolean(ep.hls_720 || ep.hls_480 || ep.hls_1080);
+
+      // Honor explicit target opening episode (e.g. JJK OP3, Bleach OP13) before generic ep-2+ fallback.
+      const opEp =
+        (target.openingEpisode != null
+          ? rel.episodes.find((ep) => ep.ordinal === target.openingEpisode && hasValidOpening(ep, 6))
+          : undefined) ??
+        rel.episodes.find((ep) => ep.ordinal >= 2 && hasValidOpening(ep, 45)) ??
+        rel.episodes.find((ep) => ep.ordinal >= 2 && hasValidOpening(ep, 6)) ??
+        rel.episodes.find((ep) => hasValidOpening(ep, 6));
+
+      if (opEp?.opening?.start != null && opEp.opening.stop != null) {
+        const streamUrl = opEp.hls_720 || opEp.hls_480 || opEp.hls_1080 || '';
+        if (streamUrl) {
+          const trimmedStart = Math.min(opEp.opening.start + offsetSec, Math.max(opEp.opening.start, opEp.opening.stop - 8));
+          const result: HeroOpeningPreview = {
+            streamUrl,
+            startSec: trimmedStart,
+            endSec: opEp.opening.stop,
+            episodeOrdinal: opEp.ordinal
+          };
+          heroOpeningCache.set(key, result);
+          return result;
+        }
+      }
+
+      const fallbackEp = rel.episodes.find((ep) => Boolean(ep.hls_720 || ep.hls_480 || ep.hls_1080));
+      const fallbackUrl = fallbackEp?.hls_720 || fallbackEp?.hls_480 || fallbackEp?.hls_1080;
+      if (fallbackEp && fallbackUrl && (fallbackEp.duration === 0 || fallbackEp.duration >= 150)) {
+        const result: HeroOpeningPreview = {
+          streamUrl: fallbackUrl,
+          startSec: 90,
+          endSec: 120,
+          episodeOrdinal: fallbackEp.ordinal
+        };
+        heroOpeningCache.set(key, result);
+        return result;
+      }
+
+      heroOpeningCache.set(key, null);
+      return null;
+    } catch {
+      return null;
+    } finally {
+      heroOpeningPending.delete(key);
+    }
+  })();
+
+  heroOpeningPending.set(key, req);
+  return req;
 }

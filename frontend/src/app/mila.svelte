@@ -4,13 +4,25 @@
   import PageHost from './PageHost.svelte';
   import SearchPopup from '../section/search/SearchPopup.svelte';
   import { router } from './router.svelte';
+  import type { PageId } from '../pages';
 
   let scrollArea = $state<ReturnType<typeof ScrollArea> | null>(null);
+  const scrollByPage = new Map<PageId, number>();
+  let activePage: PageId = router.current;
 
-  // every page starts from the top
+  // Save outgoing tab scroll position and restore incoming tab position cleanly.
   $effect(() => {
-    router.current;
-    scrollArea?.scrollToTop();
+    const next = router.current;
+    if (next !== activePage) {
+      if (activePage !== 'anime' && scrollArea) {
+        scrollByPage.set(activePage, scrollArea.getScrollTop());
+      }
+      activePage = next;
+      const targetTop = next === 'anime' ? 0 : (scrollByPage.get(next) ?? 0);
+      requestAnimationFrame(() => {
+        scrollArea?.setScrollTop(targetTop);
+      });
+    }
   });
 
   // detect if running inside native desktop app (Wails / WebView2)
@@ -24,8 +36,8 @@
 
 <div class="viewport" class:is-app={isApp}>
   <div class="content-layer">
+    <Header />
     <ScrollArea bind:this={scrollArea}>
-      <Header />
       <PageHost />
     </ScrollArea>
   </div>

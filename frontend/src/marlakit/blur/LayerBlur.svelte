@@ -24,6 +24,15 @@
     class: className = '',
     style = ''
   }: Props = $props();
+
+  // Downsample image blurs to 1/4 linear size (1/16th pixel area) and GPU-upscale back.
+  // Keeps large blur radii smooth on Windows WebView2 without 100%-scale Gaussian pass overhead.
+  const sampledBlur = $derived(src ? Math.max(2, Number((blur / 4).toFixed(2))) : blur);
+  const sampledTransform = $derived(
+    src
+      ? `translate3d(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px), 0) scale(${Number((scale * 4).toFixed(3))})`
+      : `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${scale})`
+  );
 </script>
 
 {#if children}
@@ -31,11 +40,12 @@
     <!-- Underlay blur -->
     <div
       class="layer-blur-underlay"
+      class:is-downsampled={Boolean(src)}
       style="
-        filter: blur({blur}px);
-        -webkit-filter: blur({blur}px);
+        filter: blur({sampledBlur}px);
+        -webkit-filter: blur({sampledBlur}px);
         opacity: {opacity};
-        transform: translate3d({offsetX}px, {offsetY}px, 0) scale({scale});
+        transform: {sampledTransform};
       "
       aria-hidden="true"
     >
@@ -55,11 +65,12 @@
   <!-- Standalone blur layer -->
   <div
     class="marlakit-layer-blur-standalone {className}"
+    class:is-downsampled={Boolean(src)}
     style="
-      filter: blur({blur}px);
-      -webkit-filter: blur({blur}px);
+      filter: blur({sampledBlur}px);
+      -webkit-filter: blur({sampledBlur}px);
       opacity: {opacity};
-      transform: translate3d({offsetX}px, {offsetY}px, 0) scale({scale});
+      transform: {sampledTransform};
       {style}
     "
     aria-hidden="true"
@@ -84,7 +95,6 @@
     pointer-events: none;
     user-select: none;
     z-index: 0;
-    will-change: transform;
     backface-visibility: hidden;
   }
 
@@ -103,8 +113,17 @@
     pointer-events: none;
     user-select: none;
     z-index: 0;
-    will-change: transform;
     backface-visibility: hidden;
+  }
+
+  .layer-blur-underlay.is-downsampled,
+  .marlakit-layer-blur-standalone.is-downsampled {
+    inset: auto;
+    top: 50%;
+    left: 50%;
+    width: 25%;
+    height: 25%;
+    transform-origin: center center;
   }
 
   .blur-img {
