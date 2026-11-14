@@ -13,6 +13,7 @@
   import SecondButton from '../../marlakit/button/SecondButton.svelte';
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
+  import EpisodeThumb from './EpisodeThumb.svelte';
   import { buildMetaTags, type AnimeSeasonEntry } from '../../api/anime';
   import { isInWatchLater, toggleWatchLater } from '../../app/library.svelte';
   import { goBack } from '../../app/router.svelte';
@@ -36,7 +37,6 @@
   let isPlanLoading = $state(false);
   let epRangeIndex = $state(0);
   let lightboxUrl = $state<string | null>(null);
-  let failedThumbs = $state<Record<string, boolean>>({});
 
   const displayTitle = $derived(
     player.shikiArt?.english || player.shikiArt?.name || player.release?.title || player.title || 'Anime'
@@ -190,9 +190,15 @@
 
   const galleryShots = $derived((player.shikiArt?.screenshots ?? []).slice(0, 6));
 
-  $effect(() => {
-    void player.release?.id;
-    failedThumbs = {};
+  const episodeFallbackImages = $derived.by(() => {
+    const out: string[] = [];
+    for (const url of [...galleryShots, backdropUrl, posterUrl]) {
+      const clean = url?.trim();
+      if (clean && !out.includes(clean)) {
+        out.push(clean);
+      }
+    }
+    return out;
   });
 
   $effect(() => {
@@ -211,12 +217,6 @@
       title: displayTitle
     })
   );
-
-  function formatDuration(sec: number): string {
-    if (!sec || sec <= 0) return '';
-    const mins = Math.round(sec / 60);
-    return mins > 0 ? `${mins}m` : `${sec}s`;
-  }
 
   function scrollToPlayer() {
     playerSectionEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -453,47 +453,13 @@
 
         <div class="episodes-grid">
           {#each visibleEpisodes as entry (entry.ep.id)}
-            {@const ep = entry.ep}
-            {@const isCurrent = entry.idx === player.episodeIndex}
-            <button
-              type="button"
-              class="ep-card"
-              class:is-active={isCurrent}
-              onclick={() => handleChooseEpisode(entry.idx)}
-            >
-              <div class="ep-thumb-wrap">
-                {#if ep.preview && !failedThumbs[ep.id]}
-                  <img
-                    src={ep.preview}
-                    alt="Episode {ep.ordinal}"
-                    class="ep-thumb"
-                    loading="lazy"
-                    decoding="async"
-                    onerror={() => {
-                      failedThumbs = { ...failedThumbs, [ep.id]: true };
-                    }}
-                  />
-                {:else}
-                  <div class="ep-thumb-fallback" aria-hidden="true">
-                    <Play size={20} fill="currentColor" strokeWidth={0} />
-                  </div>
-                {/if}
-                <div class="ep-thumb-fade" aria-hidden="true"></div>
-                <div class="ep-overlay-bottom">
-                  <div class="ep-title-row">
-                    {#if ep.name}
-                      <span class="ep-num">EP {ep.ordinal}</span>
-                      <span class="ep-name">{ep.name}</span>
-                    {:else}
-                      <span class="ep-num">Episode {ep.ordinal}</span>
-                    {/if}
-                  </div>
-                  {#if ep.duration > 0}
-                    <span class="ep-duration">{formatDuration(ep.duration)}</span>
-                  {/if}
-                </div>
-              </div>
-            </button>
+            <EpisodeThumb
+              episode={entry.ep}
+              index={entry.idx}
+              isCurrent={entry.idx === player.episodeIndex}
+              fallbackImages={episodeFallbackImages}
+              onchoose={() => handleChooseEpisode(entry.idx)}
+            />
           {/each}
         </div>
       </section>
@@ -1045,145 +1011,6 @@
     .poster-wrap {
       width: 100%;
     }
-  }
-
-  .ep-card {
-    position: relative;
-    display: block;
-    padding: 0;
-    border: none;
-    outline: none;
-    border-radius: var(--radius-card);
-    overflow: hidden;
-    background: #0c0c0c;
-    isolation: isolate;
-    contain: layout style paint;
-    transform: translate3d(0, 0, 0);
-    cursor: pointer;
-    text-align: left;
-    transition: transform 0.24s var(--ease-out);
-  }
-
-  .ep-card::after {
-    content: '';
-    position: absolute;
-    inset: -3px;
-    border-radius: calc(var(--radius-card) + 3px);
-    border: 4px solid #0c0c0c;
-    transform: translateZ(0);
-    pointer-events: none;
-    z-index: 6;
-  }
-
-  .ep-card:hover {
-    transform: translate3d(0, -2px, 0);
-  }
-
-  .ep-thumb-wrap {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 16 / 9;
-    overflow: hidden;
-    background: #0c0c0c;
-  }
-
-  .ep-thumb {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-    backface-visibility: hidden;
-    transition: transform 0.45s var(--ease-out);
-  }
-
-  .ep-card:hover .ep-thumb {
-    transform: scale(1.04);
-  }
-
-  .ep-thumb-fallback {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: rgba(255, 255, 255, 0.24);
-    background: radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.06) 0%, #0c0c0c 78%);
-    transition: color 0.25s var(--ease-out);
-  }
-
-  .ep-card:hover .ep-thumb-fallback {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .ep-thumb-fade {
-    position: absolute;
-    inset: -4px;
-    z-index: 2;
-    background: linear-gradient(
-      180deg,
-      rgba(12, 12, 12, 0.14) 0%,
-      rgba(12, 12, 12, 0.2) 44%,
-      rgba(12, 12, 12, 0.84) 76%,
-      rgba(12, 12, 12, 0.96) 89%,
-      #0c0c0c 95%,
-      #0c0c0c 100%
-    );
-    pointer-events: none;
-  }
-
-  .ep-overlay-bottom {
-    position: absolute;
-    z-index: 3;
-    left: 12px;
-    right: 12px;
-    bottom: 10px;
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-    min-width: 0;
-  }
-
-  .ep-title-row {
-    display: flex;
-    align-items: baseline;
-    gap: 7px;
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-
-  .ep-num {
-    flex-shrink: 0;
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    color: #ffffff;
-  }
-
-  .ep-name {
-    min-width: 0;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 400;
-    line-height: 1.3;
-    color: rgba(255, 255, 255, 0.74);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .ep-card.is-active .ep-name {
-    color: rgba(255, 255, 255, 0.92);
-  }
-
-  .ep-duration {
-    flex-shrink: 0;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12px;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.56);
-    font-variant-numeric: tabular-nums;
   }
 
   /* Frames Gallery */

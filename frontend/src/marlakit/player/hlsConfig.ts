@@ -73,8 +73,7 @@ export interface Mp4Variant {
 
 export type ResolvedPlayback =
   | { mode: 'hls'; url: string; revoke?: () => void }
-  | { mode: 'mp4'; variants: Mp4Variant[] }
-  | { mode: 'embed'; url: string };
+  | { mode: 'mp4'; variants: Mp4Variant[] };
 
 export function normalizeMp4Sources(sources?: HlsSources | null): Mp4Variant[] {
   if (!sources) return [];
@@ -145,11 +144,6 @@ export function resolvePlaybackSource(src?: string | null, sources?: HlsSources 
   const mp4Variants = normalizeMp4Sources(sources);
   if (mp4Variants.length > 0) {
     return { mode: 'mp4', variants: mp4Variants };
-  }
-
-  const embed = sources?.embed_url?.trim();
-  if (embed) {
-    return { mode: 'embed', url: embed };
   }
 
   return null;

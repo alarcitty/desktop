@@ -81,10 +81,10 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ext\/dreamerscast/, '') || '/'
       },
-      '/ext/kodik': {
-        target: 'https://kodik-api.com',
+      '/ext/anilibria': {
+        target: 'https://anilibria.top/api/v1',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/ext\/kodik/, '')
+        rewrite: (path) => path.replace(/^\/ext\/anilibria/, '') || '/'
       }
     }
   }

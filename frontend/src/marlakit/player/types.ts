@@ -10,7 +10,6 @@ export interface HlsSources {
   mp4_1080?: string | null;
   mp4_720?: string | null;
   mp4_480?: string | null;
-  embed_url?: string | null;
 }
 
 export interface QualityVariant {
@@ -28,7 +27,7 @@ export interface QualityLevelOption {
   bitrate: number;
 }
 
-export type VoiceProviderId = 'aniliberty' | 'animevost' | 'anixart' | string;
+export type VoiceProviderId = 'aniliberty' | 'dreamcast' | 'animevost' | string;
 
 export interface VoiceTrackOption {
   id: string;
@@ -38,7 +37,7 @@ export interface VoiceTrackOption {
   provider?: VoiceProviderId;
   providerId?: number | string;
   sourceId?: number | string;
-  kind?: 'hls' | 'mp4' | 'embed';
+  kind?: 'hls' | 'mp4';
   isSub?: boolean;
 }
 

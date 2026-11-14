@@ -30,7 +30,6 @@ interface WailsMilaGoBindings {
   StartPipDrag?: () => Promise<void>;
   AnimeVostSearch?: (query: string) => Promise<string>;
   AnimeVostPlaylist?: (id: number) => Promise<string>;
-  GetKodikToken?: () => Promise<string>;
 }
 
 interface WailsRuntimeBridge {
@@ -227,16 +226,6 @@ export async function invokeAnimeVostPlaylist(id: number): Promise<string | null
   if (typeof goMila?.AnimeVostPlaylist !== 'function') return null;
   try {
     return await goMila.AnimeVostPlaylist(id);
-  } catch {
-    return null;
-  }
-}
-
-export async function invokeGetKodikToken(): Promise<string | null> {
-  const goMila = getWailsMilaBindings();
-  if (typeof goMila?.GetKodikToken !== 'function') return null;
-  try {
-    return (await goMila.GetKodikToken()).trim();
   } catch {
     return null;
   }

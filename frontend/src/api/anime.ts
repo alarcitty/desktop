@@ -1,8 +1,6 @@
 import type { HlsSources, SkipRange, VoiceTrackOption } from '../marlakit/player/types';
 import { fetchAnimeVostEpisodes, findAnimeVostMatch } from './providers/animevost';
-import { fetchAnixartEpisodes, findAnixartDiscovery } from './providers/anixart';
 import { fetchDreamCastEpisodes, findDreamCastMatch } from './providers/dreamcast';
-import { findKodikDiscovery, getCachedKodikEpisodes } from './providers/kodik';
 import {
   dedupeSearchQueries,
   fetchJsonWithTimeout,
@@ -13,7 +11,32 @@ import {
 
 const BACKEND_BASE = 'http://localhost:8080/api/v1';
 const SHIKI_GRAPHQL = 'https://shikimori.io/api/graphql';
-const ANILIBERTY_BASE = 'https://aniliberty.top/api/v1';
+// Official AniLibria v1 API (https://anilibria.top/api/docs/v1) with mirror and local proxy fallback.
+const ANILIBRIA_API_BASES = [
+  'https://anilibria.top/api/v1',
+  'https://aniliberty.top/api/v1',
+  '/ext/anilibria'
+] as const;
+
+async function fetchLibJson<T>(
+  path: string,
+  init?: RequestInit,
+  timeoutMs = 6500
+): Promise<T> {
+  let lastError: unknown;
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  for (const base of ANILIBRIA_API_BASES) {
+    if (init?.signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    try {
+      return await fetchJsonWithTimeout<T>(`${base}${cleanPath}`, init, timeoutMs);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`AniLibria API request failed: ${cleanPath}`);
+}
 
 export interface ShikiArtwork {
   id: number;
@@ -46,7 +69,6 @@ export interface PlayableEpisode {
   mp4_1080?: string | null;
   mp4_720?: string | null;
   mp4_480?: string | null;
-  embed_url?: string | null;
 }
 
 export interface PlayableRelease {
@@ -56,7 +78,7 @@ export interface PlayableRelease {
   titleEnglish?: string;
   year?: number;
   typeLabel?: string;
-  provider?: 'aniliberty' | 'dreamcast' | 'animevost' | 'anixart' | string;
+  provider?: 'aniliberty' | 'dreamcast' | 'animevost' | string;
   voiceLabel?: string;
   voiceActors?: string[];
   poster?: string;
@@ -180,7 +202,7 @@ function resolveShikiUrl(raw?: string | null): string {
 function resolveLibUrl(raw?: string | null): string {
   if (!raw) return '';
   if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-  if (raw.startsWith('/')) return `https://aniliberty.top${raw}`;
+  if (raw.startsWith('/')) return `https://anilibria.top${raw}`;
   return raw;
 }
 
@@ -420,6 +442,50 @@ interface BackendDetailEnvelope {
   };
 }
 
+interface RawEpisodeTimecode {
+  id?: string | null;
+  opening?: SkipRange | null;
+  ending?: SkipRange | null;
+}
+
+function mergeBaseEpisodeMetadata(
+  episodes: PlayableEpisode[],
+  baseEpisodes?: PlayableEpisode[]
+): PlayableEpisode[] {
+  if (!baseEpisodes || baseEpisodes.length === 0) return episodes;
+  const byOrdinal = new Map<number, PlayableEpisode>();
+  for (const b of baseEpisodes) {
+    byOrdinal.set(b.ordinal, b);
+  }
+  return episodes.map((ep) => {
+    const baseEp = byOrdinal.get(ep.ordinal);
+    if (!baseEp) return ep;
+    return {
+      ...ep,
+      name: ep.name || baseEp.name,
+      duration: ep.duration || baseEp.duration,
+      preview: ep.preview || baseEp.preview,
+      opening: ep.opening?.stop != null ? ep.opening : baseEp.opening ?? ep.opening,
+      ending: ep.ending?.stop != null ? ep.ending : baseEp.ending ?? ep.ending
+    };
+  });
+}
+
+async function fetchReleaseTimecodes(idOrAlias: string): Promise<RawEpisodeTimecode[]> {
+  try {
+    const res = await fetchLibJson<RawEpisodeTimecode[] | { data?: RawEpisodeTimecode[] }>(
+      `/anime/releases/${encodeURIComponent(idOrAlias)}/episodes/timecodes`,
+      undefined,
+      3000
+    );
+    if (Array.isArray(res)) return res;
+    if (res && Array.isArray(res.data)) return res.data;
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 async function fetchReleaseByIdOrAlias(
   idOrAlias: string,
   shikiArt?: ShikiArtwork,
@@ -458,13 +524,13 @@ async function fetchReleaseByIdOrAlias(
         };
       }
     } catch {
-      // Fall through to direct AniLiberty request
+      // Fall through to direct AniLibria v1 API request
     }
   }
 
   try {
-    const raw = await fetchJsonWithTimeout<RawLibRelease>(
-      `${ANILIBERTY_BASE}/anime/releases/${encodeURIComponent(idOrAlias)}`,
+    const raw = await fetchLibJson<RawLibRelease>(
+      `/anime/releases/${encodeURIComponent(idOrAlias)}`,
       undefined,
       7000
     );
@@ -472,7 +538,27 @@ async function fetchReleaseByIdOrAlias(
       return null;
     }
     const mapped = mapLibRelease(raw, shikiArt);
-    return mapped.episodes.length > 0 ? mapped : null;
+    if (mapped.episodes.length === 0) return null;
+
+    // Populate skip timecodes via AniLibria v1 /episodes/timecodes endpoint if omitted in release payload.
+    const hasSkipRanges = mapped.episodes.some((ep) => ep.opening?.stop != null || ep.ending?.stop != null);
+    if (!hasSkipRanges) {
+      const timecodes = await fetchReleaseTimecodes(String(raw.id || idOrAlias));
+      if (timecodes.length > 0) {
+        const tcById = new Map(timecodes.filter((t) => t.id).map((t) => [t.id!, t]));
+        mapped.episodes = mapped.episodes.map((ep) => {
+          const tc = tcById.get(ep.id);
+          return tc
+            ? {
+                ...ep,
+                opening: ep.opening ?? tc.opening,
+                ending: ep.ending ?? tc.ending
+              }
+            : ep;
+        });
+      }
+    }
+    return mapped;
   } catch {
     return null;
   }
@@ -566,7 +652,7 @@ function scoreReleaseCandidate(
   return best;
 }
 
-// Resolves a playable release matching the exact target (AniLiberty first, then AnimeVost MP4 / Anixart).
+// Resolves a playable release matching the exact target (AniLibria first, then Dream Cast / AnimeVost).
 export async function resolvePlayableRelease(target: WatchTarget): Promise<PlayableRelease> {
   if (target.shikiId) {
     await ensureShikimoriArtwork([target.shikiId]).catch(() => {});
@@ -590,13 +676,13 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
 
   for (const q of queries) {
     const [appRes, catRes] = await Promise.allSettled([
-      fetchJsonWithTimeout<LibSearchCandidate[]>(
-        `${ANILIBERTY_BASE}/app/search/releases?query=${encodeURIComponent(q)}`,
+      fetchLibJson<LibSearchCandidate[]>(
+        `/app/search/releases?query=${encodeURIComponent(q)}`,
         undefined,
         6000
       ),
-      fetchJsonWithTimeout<{ data?: LibSearchCandidate[] }>(
-        `${ANILIBERTY_BASE}/anime/catalog/releases?f[search]=${encodeURIComponent(q)}&limit=10`,
+      fetchLibJson<{ data?: LibSearchCandidate[] }>(
+        `/anime/catalog/releases?f[search]=${encodeURIComponent(q)}&limit=10`,
         undefined,
         6000
       )
@@ -671,27 +757,6 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
     };
   }
 
-  const axMatch = await findAnixartDiscovery(providerTitles, shikiArt?.year ?? null).catch(() => null);
-  if (axMatch && axMatch.voices.length > 0) {
-    for (const voice of axMatch.voices.slice(0, 3)) {
-      const eps = await fetchAnixartEpisodes(axMatch.releaseId, Number(voice.sourceId)).catch(() => []);
-      if (eps.length > 0) {
-        return {
-          id: axMatch.releaseId,
-          alias: voice.id,
-          title: shikiArt?.english || shikiArt?.name || axMatch.title || target.title,
-          titleEnglish: shikiArt?.english || shikiArt?.name,
-          year: shikiArt?.year ?? axMatch.year,
-          provider: 'anixart',
-          voiceLabel: voice.label,
-          poster: shikiArt?.posterOriginal || shikiArt?.posterMain || axMatch.poster,
-          banner: shikiArt?.screenshots?.[0] || axMatch.poster,
-          episodes: eps
-        };
-      }
-    }
-  }
-
   throw new Error(`«${target.title}» сейчас недоступно для воспроизведения ни на одном из источников`);
 }
 
@@ -702,8 +767,7 @@ export function episodeSources(ep: PlayableEpisode): HlsSources {
     hls_480: ep.hls_480,
     mp4_1080: ep.mp4_1080,
     mp4_720: ep.mp4_720,
-    mp4_480: ep.mp4_480,
-    embed_url: ep.embed_url
+    mp4_480: ep.mp4_480
   };
 }
 
@@ -828,18 +892,18 @@ export async function loadHomeFeeds(): Promise<HomeFeeds> {
     }`;
 
     const [latestRes, recRes, topCatRes, shikiRes] = await Promise.allSettled([
-      fetchJsonWithTimeout<RawLibFeedItem[]>(
-        `${ANILIBERTY_BASE}/anime/releases/latest?limit=14`,
+      fetchLibJson<RawLibFeedItem[]>(
+        `/anime/releases/latest?limit=14`,
         undefined,
         7000
       ),
-      fetchJsonWithTimeout<RawLibFeedItem[]>(
-        `${ANILIBERTY_BASE}/anime/releases/recommended?limit=12`,
+      fetchLibJson<RawLibFeedItem[]>(
+        `/anime/releases/recommended?limit=12`,
         undefined,
         7000
       ),
-      fetchJsonWithTimeout<{ data?: RawLibFeedItem[] }>(
-        `${ANILIBERTY_BASE}/anime/catalog/releases?f[sorting]=RATING_DESC&limit=25`,
+      fetchLibJson<{ data?: RawLibFeedItem[] }>(
+        `/anime/catalog/releases?f[sorting]=RATING_DESC&limit=25`,
         undefined,
         7000
       ),
@@ -1205,8 +1269,8 @@ async function resolveFranchiseByReleaseId(releaseId: number): Promise<ResolvedF
 
   const req = (async (): Promise<ResolvedFranchise | null> => {
     try {
-      const payload = await fetchJsonWithTimeout<RawFranchise | RawFranchise[] | null>(
-        `${ANILIBERTY_BASE}/anime/franchises/release/${releaseId}`,
+      const payload = await fetchLibJson<RawFranchise | RawFranchise[] | null>(
+        `/anime/franchises/release/${releaseId}`,
         undefined,
         3500
       );
@@ -1347,9 +1411,9 @@ export async function loadCatalogGenres(signal?: AbortSignal): Promise<CatalogGe
 
   catalogGenresPending = (async () => {
     try {
-      const raw = await fetchJsonWithTimeout<
+      const raw = await fetchLibJson<
         Array<{ id?: number; name?: string | null; total_releases?: number | null }>
-      >(`${ANILIBERTY_BASE}/anime/catalog/references/genres`, { signal }, 4500);
+      >(`/anime/catalog/references/genres`, { signal }, 4500);
       if (!Array.isArray(raw)) return [];
       const mapped = raw
         .filter((g): g is { id: number; name: string; total_releases?: number | null } =>
@@ -1434,22 +1498,22 @@ export async function searchGroupedAnime(
   const catalogParamsPage2 = new URLSearchParams(catalogParams);
   catalogParamsPage2.set('page', '2');
 
-  const catalogUrl1 = `${ANILIBERTY_BASE}/anime/catalog/releases?${catalogParams.toString()}`;
-  const catalogUrl2 = `${ANILIBERTY_BASE}/anime/catalog/releases?${catalogParamsPage2.toString()}`;
+  const catalogPath1 = `/anime/catalog/releases?${catalogParams.toString()}`;
+  const catalogPath2 = `/anime/catalog/releases?${catalogParamsPage2.toString()}`;
   const useAppSearch = filter === 'all' && !hasAdvancedFilter && query.length >= 2;
   const needPage2 = query.length < 2 || hasAdvancedFilter || filter === 'ongoing';
 
   const [appRes, catRes1, catRes2] = await Promise.allSettled([
     useAppSearch
-      ? fetchJsonWithTimeout<RawLibFeedItem[]>(
-          `${ANILIBERTY_BASE}/app/search/releases?query=${encodeURIComponent(query)}`,
+      ? fetchLibJson<RawLibFeedItem[]>(
+          `/app/search/releases?query=${encodeURIComponent(query)}`,
           { signal },
           4500
         )
       : Promise.resolve([] as RawLibFeedItem[]),
-    fetchJsonWithTimeout<{ data?: RawLibFeedItem[] }>(catalogUrl1, { signal }, 5000),
+    fetchLibJson<{ data?: RawLibFeedItem[] }>(catalogPath1, { signal }, 5000),
     needPage2
-      ? fetchJsonWithTimeout<{ data?: RawLibFeedItem[] }>(catalogUrl2, { signal }, 5000)
+      ? fetchLibJson<{ data?: RawLibFeedItem[] }>(catalogPath2, { signal }, 5000)
       : Promise.resolve({ data: [] as RawLibFeedItem[] })
   ]);
   if (signal?.aborted) return [];
@@ -1574,9 +1638,7 @@ export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption 
       ? '1080p HLS'
       : provider === 'animevost'
         ? 'MP4'
-        : provider === 'anixart'
-          ? 'Mirror'
-          : '';
+        : '';
   const defaultLabel =
     provider === 'dreamcast'
       ? 'Dream Cast'
@@ -1591,7 +1653,7 @@ export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption 
     releaseAlias: provider === 'aniliberty' ? rel.alias : undefined,
     provider,
     providerId: rel.id,
-    kind: provider === 'animevost' ? 'mp4' : provider === 'anixart' ? 'embed' : 'hls'
+    kind: provider === 'animevost' ? 'mp4' : 'hls'
   };
 }
 
@@ -1622,7 +1684,7 @@ export async function resolveVoiceTrackRelease(
       provider: 'dreamcast',
       voiceLabel: voice.label,
       voiceActors: undefined,
-      episodes
+      episodes: mergeBaseEpisodeMetadata(episodes, baseRelease?.episodes)
     };
   }
 
@@ -1646,63 +1708,18 @@ export async function resolveVoiceTrackRelease(
       provider: 'animevost',
       voiceLabel: voice.label,
       voiceActors: undefined,
-      episodes
+      episodes: mergeBaseEpisodeMetadata(episodes, baseRelease?.episodes)
     };
   }
 
-  if (voice.provider === 'kodik') {
-    const elementId = String(voice.sourceId ?? '');
-    const episodes = getCachedKodikEpisodes(elementId);
-    if (episodes.length === 0) {
-      throw new Error(`${voice.label}: нет доступных серий Kodik`);
-    }
-    return {
-      ...(baseRelease ?? {
-        id: Number(voice.providerId) || 0,
-        title: shikiArt?.english || shikiArt?.name || target.title,
-        titleEnglish: shikiArt?.english || shikiArt?.name,
-        year: shikiArt?.year,
-        poster: shikiArt?.posterOriginal || shikiArt?.posterMain,
-        banner: shikiArt?.screenshots?.[0]
-      }),
-      id: Number(voice.providerId) || baseRelease?.id || 0,
-      alias: voice.id,
-      provider: 'kodik',
-      voiceLabel: voice.label,
-      voiceActors: undefined,
-      episodes
-    };
-  }
-
-  if (voice.provider === 'anixart') {
-    const releaseId = Number(voice.providerId);
-    const typeId = Number(voice.sourceId);
-    const episodes = await fetchAnixartEpisodes(releaseId, typeId);
-    if (episodes.length === 0) {
-      throw new Error(`${voice.label}: нет доступных серий`);
-    }
-    return {
-      ...(baseRelease ?? {
-        id: releaseId,
-        title: shikiArt?.english || shikiArt?.name || target.title,
-        titleEnglish: shikiArt?.english || shikiArt?.name,
-        year: shikiArt?.year,
-        poster: shikiArt?.posterOriginal || shikiArt?.posterMain,
-        banner: shikiArt?.screenshots?.[0]
-      }),
-      id: releaseId,
-      alias: voice.id,
-      provider: 'anixart',
-      voiceLabel: voice.label,
-      voiceActors: undefined,
-      episodes
-    };
-  }
-
-  return resolvePlayableRelease({
+  const resolved = await resolvePlayableRelease({
     ...target,
     releaseAlias: voice.releaseAlias || voice.id
   });
+  return {
+    ...resolved,
+    episodes: mergeBaseEpisodeMetadata(resolved.episodes, baseRelease?.episodes)
+  };
 }
 
 export async function findVoiceOptions(
@@ -1728,13 +1745,13 @@ export async function findVoiceOptions(
   const libPromise =
     primaryProvider === 'aniliberty' && shikiId && libSearchTerm.length >= 2
       ? Promise.allSettled([
-          fetchJsonWithTimeout<LibSearchCandidate[]>(
-            `${ANILIBERTY_BASE}/app/search/releases?query=${encodeURIComponent(libSearchTerm)}`,
+          fetchLibJson<LibSearchCandidate[]>(
+            `/app/search/releases?query=${encodeURIComponent(libSearchTerm)}`,
             undefined,
             4500
           ),
-          fetchJsonWithTimeout<{ data?: LibSearchCandidate[] }>(
-            `${ANILIBERTY_BASE}/anime/catalog/releases?f[search]=${encodeURIComponent(libSearchTerm)}&limit=12`,
+          fetchLibJson<{ data?: LibSearchCandidate[] }>(
+            `/anime/catalog/releases?f[search]=${encodeURIComponent(libSearchTerm)}&limit=12`,
             undefined,
             4500
           )
@@ -1751,24 +1768,10 @@ export async function findVoiceOptions(
       ? findAnimeVostMatch(searchTitles, shikiArt?.year ?? primary.year ?? null)
       : Promise.resolve(null);
 
-  const axPromise = findAnixartDiscovery(searchTitles, shikiArt?.year ?? primary.year ?? null, {
-    hasNativeAniLiberty: primaryProvider === 'aniliberty',
-    hasNativeAnimeVost: primaryProvider === 'animevost',
-    hasNativeDreamCast: primaryProvider === 'dreamcast'
-  });
-
-  const kodikPromise = findKodikDiscovery(shikiId, searchTitles, shikiArt?.year ?? primary.year ?? null, {
-    hasNativeAniLiberty: primaryProvider === 'aniliberty',
-    hasNativeAnimeVost: primaryProvider === 'animevost',
-    hasNativeDreamCast: primaryProvider === 'dreamcast'
-  });
-
-  const [libSettled, dcSettled, avSettled, kodikSettled, axSettled] = await Promise.allSettled([
+  const [libSettled, dcSettled, avSettled] = await Promise.allSettled([
     libPromise,
     dcPromise,
-    avPromise,
-    kodikPromise,
-    axPromise
+    avPromise
   ]);
 
   if (libSettled.status === 'fulfilled' && libSettled.value) {
@@ -1805,43 +1808,14 @@ export async function findVoiceOptions(
     }
   }
 
-  let hasNativeDreamCast = primaryProvider === 'dreamcast';
   if (dcSettled.status === 'fulfilled' && dcSettled.value && !seenIds.has(dcSettled.value.voice.id)) {
     seenIds.add(dcSettled.value.voice.id);
-    hasNativeDreamCast = true;
     options.push(dcSettled.value.voice);
   }
 
-  let hasNativeAnimeVost = primaryProvider === 'animevost';
   if (avSettled.status === 'fulfilled' && avSettled.value && !seenIds.has(avSettled.value.voice.id)) {
     seenIds.add(avSettled.value.voice.id);
-    hasNativeAnimeVost = true;
     options.push(avSettled.value.voice);
-  }
-
-  const seenExternalLabels = new Set<string>();
-  if (kodikSettled.status === 'fulfilled' && Array.isArray(kodikSettled.value)) {
-    for (const kVoice of kodikSettled.value) {
-      const kLower = kVoice.label.trim().toLowerCase();
-      if (hasNativeAnimeVost && kLower === 'animevost') continue;
-      if (hasNativeDreamCast && (kLower === 'dream cast' || kLower === 'dreamcast')) continue;
-      if (seenIds.has(kVoice.id) || seenExternalLabels.has(kLower)) continue;
-      seenIds.add(kVoice.id);
-      seenExternalLabels.add(kLower);
-      options.push(kVoice);
-    }
-  }
-
-  if (axSettled.status === 'fulfilled' && axSettled.value) {
-    for (const axVoice of axSettled.value.voices) {
-      const axLower = axVoice.label.trim().toLowerCase();
-      if (hasNativeAnimeVost && axLower === 'animevost') continue;
-      if (hasNativeDreamCast && (axLower === 'dream cast' || axLower === 'dreamcast')) continue;
-      if (seenIds.has(axVoice.id) || seenExternalLabels.has(axLower)) continue;
-      seenIds.add(axVoice.id);
-      seenExternalLabels.add(axLower);
-      options.push(axVoice);
-    }
   }
 
   return options;

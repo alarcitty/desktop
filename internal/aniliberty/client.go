@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	defaultBaseURL    = "https://aniliberty.top/api/v1"
-	defaultMirrorURL  = "https://anilibria.top/api/v1"
+	defaultBaseURL    = "https://anilibria.top/api/v1"
+	defaultMirrorURL  = "https://aniliberty.top/api/v1"
 	defaultUserAgent  = "mila-desktop/1.0"
 	defaultListTTL    = 2 * time.Minute
 	defaultReleaseTTL = 3 * time.Minute

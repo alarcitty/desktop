@@ -113,18 +113,13 @@ func TestProviderProxyHandlerAndM3U8Rewrite(t *testing.T) {
 		t.Fatalf("expected 400 on double slash path, got %d", badRec.Code)
 	}
 
-	kodikHandler := newProviderProxyHandler([]providerRoute{
-		{prefix: "/ext/kodik", upstream: upstream.URL},
+	anilibriaHandler := newProviderProxyHandler([]providerRoute{
+		{prefix: "/ext/anilibria", upstream: upstream.URL},
 	})
-	kReq := httptest.NewRequest(http.MethodPost, "/ext/kodik/", nil)
-	kRec := httptest.NewRecorder()
-	kodikHandler.ServeHTTP(kRec, kReq)
-	if kRec.Code != http.StatusOK || !strings.Contains(kRec.Body.String(), `"count":1`) {
-		t.Fatalf("unexpected kodik proxy response: %d %s", kRec.Code, kRec.Body.String())
-	}
-
-	t.Setenv("MILA_KODIK_TOKEN", "user-test-token")
-	if got := New().GetKodikToken(); got != "user-test-token" {
-		t.Fatalf("expected user-test-token, got %q", got)
+	aReq := httptest.NewRequest(http.MethodGet, "/ext/anilibria/", nil)
+	aRec := httptest.NewRecorder()
+	anilibriaHandler.ServeHTTP(aRec, aReq)
+	if aRec.Code != http.StatusOK || !strings.Contains(aRec.Body.String(), `"count":1`) {
+		t.Fatalf("unexpected anilibria proxy response: %d %s", aRec.Code, aRec.Body.String())
 	}
 }

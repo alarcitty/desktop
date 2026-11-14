@@ -1,7 +1,7 @@
 import { ensureShikimoriArtwork, truncateDescription } from './anime';
 
 const SHIKI_TOPICS_URL = 'https://shikimori.io/api/topics?forum=news&limit=14';
-const ANILIBERTY_LATEST_URL = 'https://aniliberty.top/api/v1/anime/releases/latest?limit=12';
+const ANILIBRIA_LATEST_URL = 'https://anilibria.top/api/v1/anime/releases/latest?limit=12';
 
 export type NewsKind = 'news' | 'release';
 
@@ -96,7 +96,7 @@ function resolveShikiAsset(raw?: string | null): string {
 function resolveLibAsset(raw?: string | null): string {
   if (!raw) return '';
   if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-  if (raw.startsWith('/')) return `https://aniliberty.top${raw}`;
+  if (raw.startsWith('/')) return `https://anilibria.top${raw}`;
   return raw;
 }
 
@@ -252,7 +252,7 @@ export async function loadNewsFeed(force = false): Promise<NewsFeed> {
   inflightPromise = (async () => {
     const [topicsRes, releasesRes] = await Promise.allSettled([
       fetchJson<RawShikiTopic[]>(SHIKI_TOPICS_URL, 7000),
-      fetchJson<RawLibLatestRelease[]>(ANILIBERTY_LATEST_URL, 7000)
+      fetchJson<RawLibLatestRelease[]>(ANILIBRIA_LATEST_URL, 7000)
     ]);
 
     const rawTopics = topicsRes.status === 'fulfilled' && Array.isArray(topicsRes.value) ? topicsRes.value : [];

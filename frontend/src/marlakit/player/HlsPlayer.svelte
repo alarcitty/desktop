@@ -125,8 +125,7 @@
   let activeLevelIndex = $state(-1);
   let audioTracks = $state<AudioTrackOption[]>([]);
   let activeAudioTrack = $state(-1);
-  let playbackMode = $state<'hls' | 'mp4' | 'embed'>('hls');
-  let embedUrl = $state('');
+  let playbackMode = $state<'hls' | 'mp4'>('hls');
   let mp4Variants = $state<Mp4Variant[]>([]);
   let reloadTick = $state(0);
 
@@ -193,29 +192,15 @@
   const voiceComboSections = $derived.by<ComboSection[]>(() => {
     const out: ComboSection[] = [];
     const activeId = selectedVoiceId || voices[0]?.id;
-    const nativeVoices = voices.filter((v) => v.kind !== 'embed');
-    const externalVoices = voices.filter((v) => v.kind === 'embed');
 
-    if (nativeVoices.length > 0) {
+    if (voices.length > 0) {
       out.push({
-        id: 'voiceover-native',
-        title: 'Native Player',
-        options: nativeVoices.map((v) => ({
+        id: 'voiceover-internal',
+        title: 'Internal',
+        options: voices.map((v) => ({
           value: `voice:${v.id}`,
           label: v.label,
           sublabel: v.sublabel,
-          selected: activeId === v.id
-        }))
-      });
-    }
-    if (externalVoices.length > 0) {
-      out.push({
-        id: 'voiceover-external',
-        title: 'External (Kodik)',
-        options: externalVoices.map((v) => ({
-          value: `voice:${v.id}`,
-          label: v.label,
-          sublabel: v.sublabel || 'External UI',
           selected: activeId === v.id
         }))
       });
@@ -302,7 +287,7 @@
     return bestIdx;
   }
 
-  // Attach and configure hls.js, native MP4, or embed fallback whenever source props change.
+  // Attach and configure hls.js or native MP4 whenever source props change.
   $effect(() => {
     const video = videoEl;
     const directSrc = src;
@@ -322,7 +307,6 @@
     audioTracks = [];
     activeAudioTrack = -1;
     mp4Variants = [];
-    embedUrl = '';
     playing = false;
     currentTime = 0;
     duration = 0;
@@ -358,19 +342,6 @@
       video.removeAttribute('src');
       video.load();
       return;
-    }
-
-    if (resolved.mode === 'embed') {
-      destroyHls();
-      playbackMode = 'embed';
-      embedUrl = resolved.url;
-      buffering = false;
-      controlsVisible = true;
-      video.pause();
-      video.removeAttribute('src');
-      return () => {
-        window.clearTimeout(hideTimer);
-      };
     }
 
     untrack(() => {
@@ -860,7 +831,6 @@
   <video
     bind:this={videoEl}
     class="hls-video"
-    class:is-hidden={playbackMode === 'embed'}
     {poster}
     playsinline
     preload="metadata"
@@ -902,9 +872,7 @@
         ontimeprogress?.(videoEl.currentTime || 0, videoEl.duration || duration || 0, true);
       }
     }}
-    onwaiting={() => {
-      if (playbackMode !== 'embed') buffering = true;
-    }}
+    onwaiting={() => (buffering = true)}
     oncanplay={() => (buffering = false)}
     onplaying={() => (buffering = false)}
     ontimeupdate={() => {
@@ -928,51 +896,11 @@
     }}
   ></video>
 
-  {#if playbackMode === 'embed' && embedUrl}
-    <iframe
-      class="embed-frame"
-      src={embedUrl}
-      title={title || 'Video player'}
-      allow="autoplay *; fullscreen *; encrypted-media; picture-in-picture"
-      allowfullscreen
-    ></iframe>
-
-    {#if voiceComboSections.length > 0}
-      <div class="embed-voice-dock">
-        <ComboBox
-          open={activeMenu === 'voice'}
-          sections={voiceComboSections}
-          label={activeVoiceLabel || 'Audio'}
-          ariaLabel="Voiceover and audio track"
-          placement="bottom-right"
-          minWidth={210}
-          maxWidth={276}
-          maxHeight={300}
-          ontoggle={(isOpen) => {
-            activeMenu = isOpen ? 'voice' : 'none';
-          }}
-          onselect={(opt) => {
-            const raw = String(opt.value);
-            if (raw.startsWith('voice:')) {
-              const voiceId = raw.slice('voice:'.length);
-              const found = voices.find((v) => v.id === voiceId);
-              if (found) selectVoice(found);
-            }
-          }}
-        >
-          {#snippet icon()}
-            <AudioLines size={14} strokeWidth={1.9} />
-          {/snippet}
-        </ComboBox>
-      </div>
-    {/if}
-  {/if}
-
-  {#if buffering && playbackMode !== 'embed'}
+  {#if buffering}
     <div class="center-overlay" aria-hidden="true">
       <div class="loader-ring"></div>
     </div>
-  {:else if !playing && !errorText && playbackMode !== 'embed'}
+  {:else if !playing && !errorText}
     <button
       type="button"
       class="center-play"
@@ -984,7 +912,7 @@
     </button>
   {/if}
 
-  {#if errorText && playbackMode !== 'embed'}
+  {#if errorText}
     <div class="error-banner" role="alert">
       <span class="error-msg">{errorText}</span>
       <div class="error-actions">
@@ -1012,7 +940,7 @@
     </div>
   {/if}
 
-  {#if skipTarget && playbackMode !== 'embed'}
+  {#if skipTarget}
     <button
       type="button"
       class="skip-pill"
@@ -1025,7 +953,7 @@
     </button>
   {/if}
 
-  {#if (title || subtitle || isPip) && playbackMode !== 'embed'}
+  {#if title || subtitle || isPip}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="top-bar"
@@ -1076,7 +1004,6 @@
     </div>
   {/if}
 
-  {#if playbackMode !== 'embed'}
   <div class="controls-dock" class:visible={controlsVisible || !playing}>
     <!-- Timeline -->
     <div
@@ -1283,7 +1210,6 @@
       </div>
     </div>
   </div>
-  {/if}
 </div>
 
 <style>
@@ -1426,29 +1352,6 @@
     display: block;
     object-fit: contain;
     background: #000000;
-  }
-
-  .hls-video.is-hidden {
-    display: none;
-  }
-
-  .embed-frame {
-    width: 100%;
-    height: 100%;
-    display: block;
-    border: none;
-    background: #000000;
-  }
-
-  .embed-voice-dock {
-    position: absolute;
-    top: 10px;
-    right: 52px;
-    z-index: 6;
-    border-radius: 10px;
-    background: rgba(14, 14, 16, 0.72);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
   }
 
   .top-bar {
