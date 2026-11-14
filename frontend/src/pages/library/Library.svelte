@@ -4,9 +4,10 @@
   import LayoutList from '@lucide/svelte/icons/layout-list';
   import LayoutGrid from '@lucide/svelte/icons/layout-grid';
   import Play from '@lucide/svelte/icons/play';
+  import Search from '@lucide/svelte/icons/search';
+  import Trash2 from '@lucide/svelte/icons/trash-2';
   import X from '@lucide/svelte/icons/x';
 
-  import MainButton from '../../marlakit/button/MainButton.svelte';
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
   import {
@@ -60,6 +61,7 @@
   let viewMode = $state<'list' | 'grid'>('list');
   let hasToggledView = $state(false);
   let loadingId = $state<string | null>(null);
+  let searchQuery = $state('');
 
   let tabLayout = $derived.by(() =>
   {
@@ -158,14 +160,25 @@
   });
 
   const isHistoryTab = $derived(activeTab === 3);
-  const displayedItems = $derived.by((): DisplayLibraryItem[] =>
+  const tabItems = $derived.by((): DisplayLibraryItem[] =>
   {
     if (isHistoryTab) return historyItems;
     const listKind = listByTab[activeTab];
     if (!listKind) return localLibrary.items;
     return localLibrary.items.filter((item) => item.lists.includes(listKind));
   });
-  const ambientPoster = $derived(displayedItems[0]?.poster || localLibrary.items[0]?.poster || '');
+  const displayedItems = $derived.by((): DisplayLibraryItem[] =>
+  {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return tabItems;
+    return tabItems.filter((item) =>
+    {
+      if (item.title.toLowerCase().includes(q)) return true;
+      if (item.description.toLowerCase().includes(q)) return true;
+      return item.tags.some((t) => t.toLowerCase().includes(q));
+    });
+  });
+  const ambientPoster = $derived(displayedItems[0]?.poster || tabItems[0]?.poster || localLibrary.items[0]?.poster || '');
 
   function selectTab(index: number)
   {
@@ -283,11 +296,27 @@
     </div>
 
     <div class="library-controls">
-      {#if isHistoryTab && displayedItems.length > 0}
-        <button type="button" class="clear-history-btn" onclick={clearWatchHistory}>
-          Clear history
-        </button>
-      {/if}
+      <div class="library-search">
+        <Search size={15} strokeWidth={1.8} class="library-search-icon" />
+        <input
+          type="text"
+          class="library-search-input"
+          bind:value={searchQuery}
+          placeholder="Search..."
+          aria-label="Search library"
+          spellcheck="false"
+        />
+        {#if searchQuery.length > 0}
+          <button
+            type="button"
+            class="library-search-clear"
+            aria-label="Clear search"
+            onclick={() => { searchQuery = ''; }}
+          >
+            <X size={14} strokeWidth={2} />
+          </button>
+        {/if}
+      </div>
 
       <!-- View mode switch -->
       <div class="library-view-modes" class:is-grid={viewMode === 'grid'}>
@@ -313,6 +342,18 @@
           <LayoutGrid size={18} strokeWidth={1.7} />
         </button>
       </div>
+
+      {#if isHistoryTab && tabItems.length > 0}
+        <button
+          type="button"
+          class="clear-history-btn"
+          aria-label="Clear history"
+          title="Clear history"
+          onclick={clearWatchHistory}
+        >
+          <Trash2 size={17} strokeWidth={1.75} />
+        </button>
+      {/if}
     </div>
   </div>
 
@@ -321,7 +362,13 @@
       <div class="library-stage" in:contentEnter out:contentLeave>
         {#if displayedItems.length === 0}
           <div class="library-empty">
-            <p class="empty-title">{isHistoryTab ? 'No watch history yet' : 'Nothing saved here yet'}</p>
+            <p class="empty-title">
+              {#if searchQuery.trim()}
+                Nothing found
+              {:else}
+                {isHistoryTab ? 'No watch history yet' : 'Nothing saved here yet'}
+              {/if}
+            </p>
           </div>
         {:else if viewMode === 'list'}
           <ul class="library-list">
@@ -337,7 +384,12 @@
             />
             <div class="row-dim"></div>
 
-            <div class="row-poster-wrap">
+            <button
+              type="button"
+              class="row-poster-wrap row-poster-btn"
+              aria-label={`Watch ${item.title}`}
+              onclick={() => handleWatch(item.id)}
+            >
               <img
                 src={item.poster}
                 alt={item.title}
@@ -351,10 +403,18 @@
                   <div class="progress-fill" style:width={`${item.progressPct}%`}></div>
                 </div>
               {/if}
-            </div>
+            </button>
 
             <div class="row-info">
-              <h3 class="row-title">{item.title}</h3>
+              <h3 class="row-title">
+                <button
+                  type="button"
+                  class="row-title-btn"
+                  onclick={() => handleWatch(item.id)}
+                >
+                  {item.title}
+                </button>
+              </h3>
               <div class="row-meta">
                 <MetaLine score={item.score} tags={item.tags} />
               </div>
@@ -372,12 +432,20 @@
                   <X size={15} strokeWidth={2} />
                 </button>
               {/if}
-              <MainButton loading={loadingId === item.id} onclick={() => handleWatch(item.id)}>
-                {#snippet icon()}
-                  <Play size={16} fill="currentColor" strokeWidth={0} />
-                {/snippet}
-                {isHistoryTab ? 'Continue' : 'Watch'}
-              </MainButton>
+              <button
+                type="button"
+                class="action-ghost-btn"
+                class:is-loading={loadingId === item.id}
+                disabled={loadingId === item.id}
+                onclick={() => handleWatch(item.id)}
+              >
+                {#if loadingId === item.id}
+                  <span class="ghost-spinner" aria-hidden="true"></span>
+                {:else}
+                  <Play size={13} fill="currentColor" strokeWidth={0} />
+                {/if}
+                <span>{isHistoryTab ? 'Continue' : 'Watch'}</span>
+              </button>
             </div>
           </li>
         {/each}
@@ -385,7 +453,19 @@
     {:else}
       <ul class="library-grid">
         {#each displayedItems as item, index (item.id)}
-          <li class="library-tile">
+          <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+          <li
+            class="library-tile"
+            role="button"
+            tabindex="0"
+            onclick={() => handleWatch(item.id)}
+            onkeydown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                void handleWatch(item.id);
+              }
+            }}
+          >
             <img
               src={item.poster}
               alt={item.title}
@@ -402,7 +482,10 @@
                 type="button"
                 class="remove-entry-btn tile-remove"
                 aria-label={`Remove ${item.title} from history`}
-                onclick={() => removeHistoryEntry(item.id)}
+                onclick={(e) => {
+                  e.stopPropagation();
+                  removeHistoryEntry(item.id);
+                }}
               >
                 <X size={14} strokeWidth={2} />
               </button>
@@ -413,20 +496,23 @@
             <div class="tile-footer">
               <h3 class="tile-title">{item.title}</h3>
               <MetaLine score={item.score} tags={item.tags.slice(0, 3)} size="sm" />
-              {#if item.progressPct && item.progressPct > 0}
-                <div class="progress-track tile-progress" aria-hidden="true">
-                  <div class="progress-fill" style:width={`${item.progressPct}%`}></div>
-                </div>
-              {/if}
               <div class="tile-action">
-                <MainButton loading={loadingId === item.id} onclick={() => handleWatch(item.id)}>
-                  {#snippet icon()}
-                    <Play size={16} fill="currentColor" strokeWidth={0} />
-                  {/snippet}
-                  {isHistoryTab ? 'Continue' : 'Watch'}
-                </MainButton>
+                <span class="action-ghost-btn is-subtle" class:is-loading={loadingId === item.id}>
+                  {#if loadingId === item.id}
+                    <span class="ghost-spinner" aria-hidden="true"></span>
+                  {:else}
+                    <Play size={12} fill="currentColor" strokeWidth={0} />
+                  {/if}
+                  <span>{isHistoryTab ? 'Continue' : 'Watch'}</span>
+                </span>
               </div>
             </div>
+
+            {#if item.progressPct && item.progressPct > 0}
+              <div class="progress-track tile-edge-progress" aria-hidden="true">
+                <div class="progress-fill" style:width={`${item.progressPct}%`}></div>
+              </div>
+            {/if}
           </li>
         {/each}
       </ul>
@@ -578,37 +664,106 @@
   .library-controls {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     flex-shrink: 0;
   }
 
-  .clear-history-btn {
+  .library-search {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: 196px;
     height: 36px;
-    padding: 0 13px;
+    padding: 0 11px;
     margin-bottom: 2px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 10px;
     background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.56);
+    box-sizing: border-box;
+    transition: width 0.25s var(--ease-out), background-color 0.2s ease;
+  }
+
+  .library-search:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  .library-search:focus-within {
+    width: 236px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .library-search :global(.library-search-icon) {
+    color: rgba(255, 255, 255, 0.36);
+    flex-shrink: 0;
+    pointer-events: none;
+  }
+
+  .library-search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    margin: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: #ffffff;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 13.5px;
+    font-weight: 400;
+  }
+
+  .library-search-input::placeholder {
+    color: rgba(255, 255, 255, 0.34);
+  }
+
+  .library-search-clear {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.44);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .library-search-clear:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .clear-history-btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    margin-bottom: 2px;
+    border: none;
+    outline: none;
+    border-radius: 10px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.44);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
     transition:
       color 0.2s ease,
       background-color 0.2s ease,
-      border-color 0.2s ease,
       transform 0.1s ease;
   }
 
   .clear-history-btn:hover {
     color: #ffffff;
-    background: rgba(255, 255, 255, 0.09);
-    border-color: rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .clear-history-btn:active {
-    transform: scale(0.96);
+    transform: scale(0.92);
   }
 
   .library-view-modes {
@@ -771,6 +926,14 @@
     overflow: hidden;
   }
 
+  .row-poster-btn {
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    display: block;
+  }
+
   .row-poster {
     display: block;
     width: 100%;
@@ -803,10 +966,14 @@
     border-radius: 999px;
   }
 
-  .progress-track.tile-progress {
-    position: relative;
-    border-radius: 999px;
-    margin-top: -2px;
+  .progress-track.tile-edge-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 4;
+    height: 3px;
+    border-radius: 0;
   }
 
   .row-info {
@@ -825,6 +992,17 @@
     font-weight: 700;
     line-height: 1.1;
     color: #ffffff;
+  }
+
+  .row-title-btn {
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
   }
 
   .row-meta {
@@ -847,22 +1025,77 @@
   }
 
   .row-action {
-    position: absolute;
+    position: relative;
     z-index: 2;
-    top: 26px;
-    right: 26px;
+    margin-left: auto;
+    align-self: flex-start;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+  }
+
+  .action-ghost-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 8px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.48);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+    transition:
+      color 0.2s ease,
+      opacity 0.2s ease,
+      transform 0.12s ease;
+  }
+
+  .action-ghost-btn:hover:not(:disabled),
+  .library-row:hover .action-ghost-btn,
+  .library-tile:hover .action-ghost-btn {
+    color: rgba(255, 255, 255, 0.92);
+    opacity: 1;
+  }
+
+  .action-ghost-btn.is-subtle {
+    height: auto;
+    padding: 2px 0;
+    font-size: 13px;
+    opacity: 0.52;
+  }
+
+  .action-ghost-btn:disabled {
+    cursor: wait;
+  }
+
+  .ghost-spinner {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1.8px solid rgba(255, 255, 255, 0.24);
+    border-top-color: #ffffff;
+    animation: ghost-spin 0.7s linear infinite;
+  }
+
+  @keyframes ghost-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .remove-entry-btn {
-    width: 34px;
-    height: 34px;
+    width: 32px;
+    height: 32px;
     padding: 0;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: none;
     border-radius: 999px;
-    background: rgba(12, 12, 12, 0.65);
+    background: rgba(12, 12, 12, 0.56);
     color: rgba(255, 255, 255, 0.64);
     display: inline-flex;
     align-items: center;
@@ -922,6 +1155,8 @@
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+    cursor: pointer;
+    outline: none;
   }
 
   .library-tile::after {
