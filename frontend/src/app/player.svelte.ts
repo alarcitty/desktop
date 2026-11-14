@@ -12,6 +12,7 @@ import {
   type ShikiArtwork,
   type WatchTarget
 } from '../api/anime';
+import { openTorrentMagnet, type TorrentSearchItem } from '../api/providers/torrent';
 import type { VoiceTrackOption } from '../marlakit/player/types';
 import { recordHistoryEntry } from './history.svelte';
 import {
@@ -98,6 +99,7 @@ let lastHistorySyncMs = 0;
 let voiceDiscoveryPromise: Promise<VoiceTrackOption[]> | null = null;
 let pauseControlCallback: (() => void) | null = null;
 const failedVoiceIds = new Set<string>();
+const torrentReleaseCache = new Map<string, PlayableRelease>();
 
 function syncPlayerHistory(currentTime?: number, duration?: number): void {
   const rel = player.release;
@@ -261,7 +263,9 @@ export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Pr
   player.autoplay = true;
 
   try {
-    const nextRel = await resolveVoiceTrackRelease(voice, baseRelease, baseTarget);
+    const cachedTorrent = voice.provider === 'torrent' ? torrentReleaseCache.get(voice.id) : undefined;
+    const nextRel =
+      cachedTorrent ?? (await resolveVoiceTrackRelease(voice, baseRelease, baseTarget));
     if (token !== activeRequestToken) return;
     player.release = nextRel;
     player.selectedVoiceId = nextRel.alias;
@@ -276,6 +280,90 @@ export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Pr
   } catch (err) {
     if (token !== activeRequestToken) return;
     player.error = err instanceof Error ? err.message : 'Failed to switch voiceover';
+  } finally {
+    if (token === activeRequestToken) {
+      player.loading = false;
+    }
+  }
+}
+
+export async function openTorrentStream(
+  magnetOrItem: string | TorrentSearchItem,
+  opts?: { preserveTime?: number }
+): Promise<void> {
+  const magnet = typeof magnetOrItem === 'string' ? magnetOrItem : magnetOrItem.magnet;
+  const label =
+    typeof magnetOrItem === 'string'
+      ? 'Torrent 1080p'
+      : `Torrent · ${magnetOrItem.quality || '1080p'}`;
+  const currentEp = player.release?.episodes[player.episodeIndex];
+  const prevOrdinal = currentEp?.ordinal;
+  const prevIndex = player.episodeIndex;
+  const baseRelease = player.release;
+  const shikiArt = player.shikiArt;
+  const token = ++activeRequestToken;
+
+  player.loading = true;
+  player.error = '';
+  player.resumeTime = opts?.preserveTime ?? 0;
+  player.autoplay = true;
+
+  try {
+    const info = await openTorrentMagnet(magnet);
+    if (token !== activeRequestToken) return;
+
+    const voiceId = `torrent:${info.infoHash}`;
+    const episodes = info.files.map((f) => ({
+      id: `${voiceId}:${f.fileIndex}`,
+      ordinal: f.ordinal,
+      name: `Серия ${f.ordinal}`,
+      duration: 0,
+      preview: baseRelease?.episodes.find((ep) => ep.ordinal === f.ordinal)?.preview,
+      opening: baseRelease?.episodes.find((ep) => ep.ordinal === f.ordinal)?.opening,
+      ending: baseRelease?.episodes.find((ep) => ep.ordinal === f.ordinal)?.ending,
+      remux: {
+        hash: info.infoHash,
+        fileIndex: f.fileIndex,
+        needsRemux: f.needsRemux,
+        label: typeof magnetOrItem === 'string' ? 'BDRip 1080p' : magnetOrItem.quality || '1080p'
+      }
+    }));
+
+    const torrentRel: PlayableRelease = {
+      id: -1,
+      alias: voiceId,
+      title: shikiArt?.english || shikiArt?.name || baseRelease?.title || info.name || player.title,
+      titleEnglish: shikiArt?.english || shikiArt?.name,
+      year: shikiArt?.year ?? baseRelease?.year,
+      provider: 'torrent',
+      voiceLabel: label,
+      poster: shikiArt?.posterOriginal || shikiArt?.posterMain || baseRelease?.poster,
+      banner: shikiArt?.screenshots?.[0] || baseRelease?.banner,
+      episodes
+    };
+
+    torrentReleaseCache.set(voiceId, torrentRel);
+    const torrentVoice: VoiceTrackOption = {
+      id: voiceId,
+      label,
+      sublabel: `${episodes.length} ep · ${info.files.some((f) => f.needsRemux) ? 'MKV Remux' : 'MP4 Direct'}`,
+      provider: 'torrent',
+      sourceId: info.infoHash,
+      kind: 'mp4'
+    };
+    if (!player.voices.some((v) => v.id === voiceId)) {
+      player.voices = [torrentVoice, ...player.voices];
+    }
+
+    player.release = torrentRel;
+    player.selectedVoiceId = voiceId;
+    player.dubVoiceId = '';
+    player.dubRelease = null;
+    player.dubOffsetSec = 0;
+    player.episodeIndex = applyPreservedEpisode(torrentRel, prevOrdinal, prevIndex);
+  } catch (err) {
+    if (token !== activeRequestToken) return;
+    player.error = err instanceof Error ? err.message : 'Failed to open torrent stream';
   } finally {
     if (token === activeRequestToken) {
       player.loading = false;

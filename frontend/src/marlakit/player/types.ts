@@ -3,6 +3,13 @@ export interface SkipRange {
   stop?: number | null;
 }
 
+export interface TorrentRemuxConfig {
+  hash: string;
+  fileIndex: number;
+  needsRemux: boolean;
+  label?: string;
+}
+
 export interface HlsSources {
   hls_1080?: string | null;
   hls_720?: string | null;
@@ -10,6 +17,7 @@ export interface HlsSources {
   mp4_1080?: string | null;
   mp4_720?: string | null;
   mp4_480?: string | null;
+  remux?: TorrentRemuxConfig | null;
 }
 
 export interface QualityVariant {
@@ -51,4 +59,11 @@ export interface AudioTrackOption {
   index: number;
   label: string;
   lang?: string;
+}
+
+export interface SubtitleTrackOption {
+  index: number;
+  label: string;
+  lang?: string;
+  src: string;
 }

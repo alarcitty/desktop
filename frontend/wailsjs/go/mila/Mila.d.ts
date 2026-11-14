@@ -9,6 +9,8 @@ export function AnimeVostPlaylist(arg1:number):Promise<string>;
 
 export function AnimeVostSearch(arg1:string):Promise<string>;
 
+export function GetFFmpegStatus():Promise<string>;
+
 export function SetFullscreen(arg1:boolean):Promise<void>;
 
 export function SetFullscreenFocus(arg1:boolean):Promise<void>;
@@ -16,3 +18,9 @@ export function SetFullscreenFocus(arg1:boolean):Promise<void>;
 export function SetPipMode(arg1:boolean):Promise<void>;
 
 export function StartPipDrag():Promise<void>;
+
+export function TorrentOpen(arg1:string):Promise<string>;
+
+export function TorrentProbeFile(arg1:string,arg2:number):Promise<string>;
+
+export function TorrentSearch(arg1:string,arg2:number):Promise<string>;

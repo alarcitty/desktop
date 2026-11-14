@@ -1,4 +1,4 @@
-import type { HlsSources, SkipRange, VoiceTrackOption } from '../marlakit/player/types';
+import type { HlsSources, SkipRange, TorrentRemuxConfig, VoiceTrackOption } from '../marlakit/player/types';
 import {
   fetchAnimeGOEpisodes,
   findAnimeGOMatch,
@@ -80,6 +80,7 @@ export interface PlayableEpisode {
   mp4_1080?: string | null;
   mp4_720?: string | null;
   mp4_480?: string | null;
+  remux?: TorrentRemuxConfig | null;
 }
 
 export interface PlayableRelease {
@@ -880,7 +881,8 @@ export function episodeSources(ep: PlayableEpisode): HlsSources {
     hls_480: ep.hls_480,
     mp4_1080: ep.mp4_1080,
     mp4_720: ep.mp4_720,
-    mp4_480: ep.mp4_480
+    mp4_480: ep.mp4_480,
+    remux: ep.remux
   };
 }
 

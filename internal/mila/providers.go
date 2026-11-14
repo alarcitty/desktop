@@ -113,6 +113,14 @@ func newProviderProxyHandler(routes []providerRoute) http.Handler {
 			serveAnimeGOPlayer(w, r)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/torrent/") {
+			serveTorrentRoute(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/media/") {
+			serveMediaRoute(w, r)
+			return
+		}
 		for _, route := range routes {
 			if r.URL.Path == route.prefix || strings.HasPrefix(r.URL.Path, route.prefix+"/") {
 				serveProxyRoute(w, r, route)

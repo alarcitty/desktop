@@ -27,12 +27,20 @@
     resolvePlaybackSource,
     type Mp4Variant
   } from './hlsConfig';
+  import {
+    buildTorrentMediaUrl,
+    buildTorrentSubtitleUrl,
+    getFFmpegStatus,
+    probeTorrentFile
+  } from '../../api/providers/torrent';
   import type {
     AudioTrackOption,
     DubAudioSource,
     HlsSources,
     QualityLevelOption,
     SkipRange,
+    SubtitleTrackOption,
+    TorrentRemuxConfig,
     VoiceTrackOption
   } from './types';
 
@@ -139,7 +147,13 @@
   let activeLevelIndex = $state(-1);
   let audioTracks = $state<AudioTrackOption[]>([]);
   let activeAudioTrack = $state(-1);
-  let playbackMode = $state<'hls' | 'mp4'>('hls');
+  let subtitleTracks = $state<SubtitleTrackOption[]>([]);
+  let activeSubtitleTrack = $state(-1);
+  let playbackMode = $state<'hls' | 'mp4' | 'remux'>('hls');
+  let activeRemuxConfig = $state<TorrentRemuxConfig | null>(null);
+  let remuxSeekOffset = $state(0);
+  let remuxTotalDuration = $state(0);
+  let ffmpegNotice = $state('');
   let mp4Variants = $state<Mp4Variant[]>([]);
   let reloadTick = $state(0);
 
@@ -260,6 +274,20 @@
         }))
       });
     }
+    if (subtitleTracks.length > 0) {
+      out.push({
+        id: 'subtitles',
+        title: 'Subtitles',
+        options: [
+          { value: 'sub:-1', label: 'Off', selected: activeSubtitleTrack === -1 },
+          ...subtitleTracks.map((s) => ({
+            value: `sub:${s.index}`,
+            label: s.label,
+            selected: activeSubtitleTrack === s.index
+          }))
+        ]
+      });
+    }
     return out;
   });
 
@@ -322,9 +350,16 @@
     }
   }
 
+  function streamTimeNow(): number {
+    if (!videoEl) return currentTime;
+    return playbackMode === 'remux'
+      ? remuxSeekOffset + (videoEl.currentTime || 0)
+      : videoEl.currentTime || 0;
+  }
+
   function syncDubTime(force = false) {
     if (!dubAudio || !dubAudioEl || !videoEl) return;
-    const rawTarget = (videoEl.currentTime || 0) + dubOffsetSec;
+    const rawTarget = streamTimeNow() + dubOffsetSec;
     const maxDur =
       Number.isFinite(dubAudioEl.duration) && dubAudioEl.duration > 0
         ? dubAudioEl.duration
@@ -369,11 +404,17 @@
 
     const resolved = resolvePlaybackSource(directSrc, epSources);
     errorText = '';
+    ffmpegNotice = '';
     levels = [];
     selectedLevel = -1;
     activeLevelIndex = -1;
     audioTracks = [];
     activeAudioTrack = -1;
+    subtitleTracks = [];
+    activeSubtitleTrack = -1;
+    activeRemuxConfig = null;
+    remuxSeekOffset = 0;
+    remuxTotalDuration = 0;
     mp4Variants = [];
     playing = false;
     currentTime = 0;
@@ -445,6 +486,101 @@
         window.clearTimeout(hideTimer);
         video.removeEventListener('loadedmetadata', handleNativeLoaded);
         video.removeEventListener('error', handleNativeError);
+        video.pause();
+      };
+    }
+
+    if (resolved.mode === 'remux') {
+      destroyHls();
+      playbackMode = 'remux';
+      const remuxCfg = resolved.remux;
+      activeRemuxConfig = remuxCfg;
+      const startPos = resumeOffset > 0.5 ? resumeOffset : 0;
+      remuxSeekOffset = startPos;
+      currentTime = startPos;
+      levels = [{ index: 0, height: 1080, bitrate: 0, label: remuxCfg.label || '1080p' }];
+      selectedLevel = 0;
+      activeLevelIndex = 0;
+      buffering = true;
+
+      let cancelled = false;
+      const onRemuxCanPlay = () => {
+        buffering = false;
+        ffmpegNotice = '';
+      };
+      const onRemuxErr = () => {
+        buffering = false;
+        ffmpegNotice = '';
+        errorText = 'Playback error: FFmpeg remux failed for torrent stream';
+        onerror?.(errorText);
+      };
+      video.addEventListener('canplay', onRemuxCanPlay);
+      video.addEventListener('error', onRemuxErr);
+
+      const ffPoll = window.setInterval(() => {
+        void getFFmpegStatus().then((st) => {
+          if (cancelled) return;
+          if (st.downloading) {
+            ffmpegNotice = `Preparing FFmpeg (${st.progressPct}%)…`;
+          } else {
+            ffmpegNotice = '';
+          }
+        });
+      }, 600);
+
+      void probeTorrentFile(remuxCfg.hash, remuxCfg.fileIndex)
+        .then((probe) => {
+          if (cancelled) return;
+          if (probe.duration > 0) {
+            remuxTotalDuration = probe.duration;
+            duration = probe.duration;
+          }
+          if (probe.height && probe.height > 0) {
+            const qLabel = formatQualityLabel(probe.height, 0);
+            levels = [{ index: 0, height: probe.height, bitrate: 0, label: qLabel }];
+          }
+          if (probe.audioTracks.length > 0) {
+            audioTracks = probe.audioTracks.map((t) => ({
+              index: t.ordinal,
+              label: t.label,
+              lang: t.language
+            }));
+            const preferredRus = probe.audioTracks.find((t) =>
+              /rus|ru/i.test(t.language || '') || /бан|dub|libria|cast|рус/i.test(t.title || '')
+            );
+            const initAudio = preferredRus ? preferredRus.ordinal : probe.audioTracks[0].ordinal;
+            activeAudioTrack = initAudio;
+            if (initAudio !== 0) {
+              const cur = streamTimeNow();
+              remuxSeekOffset = cur;
+              video.src = buildTorrentMediaUrl(remuxCfg.hash, remuxCfg.fileIndex, true, initAudio, cur);
+              video.load();
+              if (shouldAutoplay) void video.play().catch(() => {});
+            }
+          }
+          if (probe.subtitles.length > 0) {
+            subtitleTracks = probe.subtitles.map((s) => ({
+              index: s.ordinal,
+              label: s.label,
+              lang: s.language,
+              src: buildTorrentSubtitleUrl(remuxCfg.hash, remuxCfg.fileIndex, s.ordinal)
+            }));
+          }
+        })
+        .catch(() => {});
+
+      video.src = buildTorrentMediaUrl(remuxCfg.hash, remuxCfg.fileIndex, true, 0, startPos);
+      video.load();
+      if (shouldAutoplay) {
+        void video.play().catch(() => {});
+      }
+
+      return () => {
+        cancelled = true;
+        window.clearInterval(ffPoll);
+        window.clearTimeout(hideTimer);
+        video.removeEventListener('canplay', onRemuxCanPlay);
+        video.removeEventListener('error', onRemuxErr);
         video.pause();
       };
     }
@@ -604,7 +740,12 @@
     audioEl.addEventListener('waiting', onDubWaiting);
     audioEl.addEventListener('canplay', onDubCanPlay);
 
-    const dubUrl = resolvedDub.mode === 'hls' ? resolvedDub.url : resolvedDub.variants[0]?.url;
+    const dubUrl =
+      resolvedDub.mode === 'hls'
+        ? resolvedDub.url
+        : resolvedDub.mode === 'mp4'
+          ? resolvedDub.variants[0]?.url
+          : undefined;
     if (resolvedDub.mode === 'hls' && dubUrl && Hls.isSupported()) {
       destroyDubHls();
       const dHls = new Hls(createMaxQualityHlsConfig({ capLevelToPlayerSize: false }));
@@ -716,6 +857,26 @@
   function seekTo(seconds: number) {
     if (!videoEl || !Number.isFinite(duration) || duration <= 0) return;
     const clamped = Math.max(0, Math.min(duration, seconds));
+    if (playbackMode === 'remux' && activeRemuxConfig) {
+      const wasPlaying = !videoEl.paused;
+      remuxSeekOffset = clamped;
+      currentTime = clamped;
+      buffering = true;
+      videoEl.src = buildTorrentMediaUrl(
+        activeRemuxConfig.hash,
+        activeRemuxConfig.fileIndex,
+        true,
+        Math.max(0, activeAudioTrack),
+        clamped
+      );
+      videoEl.load();
+      if (wasPlaying) {
+        void videoEl.play().catch(() => {});
+      }
+      syncDubTime(true);
+      scheduleHideControls();
+      return;
+    }
     videoEl.currentTime = clamped;
     currentTime = clamped;
     syncDubTime(true);
@@ -774,9 +935,42 @@
   }
 
   function setAudioTrack(trackIdx: number) {
+    if (playbackMode === 'remux' && activeRemuxConfig && videoEl) {
+      const curPos = streamTimeNow();
+      const wasPlaying = !videoEl.paused;
+      activeAudioTrack = trackIdx;
+      remuxSeekOffset = curPos;
+      buffering = true;
+      videoEl.src = buildTorrentMediaUrl(
+        activeRemuxConfig.hash,
+        activeRemuxConfig.fileIndex,
+        true,
+        Math.max(0, trackIdx),
+        curPos
+      );
+      videoEl.load();
+      if (wasPlaying) {
+        void videoEl.play().catch(() => {});
+      }
+      activeMenu = 'none';
+      scheduleHideControls();
+      return;
+    }
     if (hls) {
       hls.audioTrack = trackIdx;
       activeAudioTrack = trackIdx;
+    }
+    activeMenu = 'none';
+    scheduleHideControls();
+  }
+
+  function setSubtitleTrack(trackIdx: number) {
+    activeSubtitleTrack = trackIdx;
+    if (videoEl) {
+      const tracks = videoEl.textTracks;
+      for (let i = 0; i < tracks.length; i++) {
+        tracks[i].mode = i === trackIdx ? 'showing' : 'disabled';
+      }
     }
     activeMenu = 'none';
     scheduleHideControls();
@@ -1075,12 +1269,19 @@
     }}
     ontimeupdate={() => {
       if (!draggingSeek && videoEl) {
-        currentTime = videoEl.currentTime;
-        ontimeprogress?.(videoEl.currentTime || 0, videoEl.duration || duration || 0, false);
+        const now = streamTimeNow();
+        currentTime = now;
+        const tot = remuxTotalDuration > 0 ? remuxTotalDuration : videoEl.duration || duration || 0;
+        ontimeprogress?.(now, tot, false);
       }
     }}
     ondurationchange={() => {
-      if (videoEl) duration = videoEl.duration || 0;
+      if (!videoEl) return;
+      if (playbackMode === 'remux') {
+        duration = remuxTotalDuration > 0 ? remuxTotalDuration : remuxSeekOffset + (videoEl.duration || 0);
+      } else {
+        duration = videoEl.duration || 0;
+      }
     }}
     onprogress={updateBuffered}
     onended={() => {
@@ -1089,17 +1290,31 @@
       dubAudioEl?.pause();
       onplaychange?.(false);
       if (videoEl) {
-        ontimeprogress?.(videoEl.duration || videoEl.currentTime || 0, videoEl.duration || duration || 0, true);
+        const tot = remuxTotalDuration > 0 ? remuxTotalDuration : videoEl.duration || duration || 0;
+        ontimeprogress?.(tot || streamTimeNow(), tot, true);
       }
       onended?.();
     }}
-  ></video>
+  >
+    {#each subtitleTracks as sub (sub.index)}
+      <track
+        kind="subtitles"
+        label={sub.label}
+        srclang={sub.lang || 'ru'}
+        src={sub.src}
+        default={activeSubtitleTrack === sub.index}
+      />
+    {/each}
+  </video>
 
   <audio bind:this={dubAudioEl} preload="auto" aria-hidden="true" style="display: none;"></audio>
 
   {#if buffering}
     <div class="center-overlay" aria-hidden="true">
       <div class="loader-ring"></div>
+      {#if ffmpegNotice}
+        <span class="ffmpeg-status">{ffmpegNotice}</span>
+      {/if}
     </div>
   {:else if !playing && !errorText}
     <button
@@ -1349,6 +1564,9 @@
                 } else if (raw.startsWith('audio:')) {
                   const idx = Number(raw.slice('audio:'.length));
                   if (Number.isFinite(idx)) setAudioTrack(idx);
+                } else if (raw.startsWith('sub:')) {
+                  const idx = Number(raw.slice('sub:'.length));
+                  if (Number.isFinite(idx)) setSubtitleTrack(idx);
                 }
               }}
             >
@@ -2063,5 +2281,15 @@
     min-width: 84px;
     accent-color: #ffffff;
     cursor: pointer;
+  }
+
+  .ffmpeg-status {
+    margin-top: 12px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: rgba(14, 14, 17, 0.88);
+    color: rgba(255, 255, 255, 0.88);
+    font-size: 12.5px;
+    font-weight: 500;
   }
 </style>

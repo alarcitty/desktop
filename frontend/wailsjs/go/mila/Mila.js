@@ -18,6 +18,10 @@ export function AnimeVostSearch(arg1) {
   return window['go']['mila']['Mila']['AnimeVostSearch'](arg1);
 }
 
+export function GetFFmpegStatus() {
+  return window['go']['mila']['Mila']['GetFFmpegStatus']();
+}
+
 export function SetFullscreen(arg1) {
   return window['go']['mila']['Mila']['SetFullscreen'](arg1);
 }
@@ -32,4 +36,16 @@ export function SetPipMode(arg1) {
 
 export function StartPipDrag() {
   return window['go']['mila']['Mila']['StartPipDrag']();
+}
+
+export function TorrentOpen(arg1) {
+  return window['go']['mila']['Mila']['TorrentOpen'](arg1);
+}
+
+export function TorrentProbeFile(arg1, arg2) {
+  return window['go']['mila']['Mila']['TorrentProbeFile'](arg1, arg2);
+}
+
+export function TorrentSearch(arg1, arg2) {
+  return window['go']['mila']['Mila']['TorrentSearch'](arg1, arg2);
 }

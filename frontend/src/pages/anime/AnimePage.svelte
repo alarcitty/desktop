@@ -7,6 +7,7 @@
   import Check from '@lucide/svelte/icons/check';
   import PictureInPicture2 from '@lucide/svelte/icons/picture-in-picture-2';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
+  import HardDriveDownload from '@lucide/svelte/icons/hard-drive-download';
   import X from '@lucide/svelte/icons/x';
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
@@ -15,10 +16,12 @@
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import EpisodeThumb from './EpisodeThumb.svelte';
   import { buildMetaTags, type AnimeSeasonEntry } from '../../api/anime';
+  import { searchTorrents, type TorrentSearchItem } from '../../api/providers/torrent';
   import { isInWatchLater, toggleWatchLater } from '../../app/library.svelte';
   import { goBack } from '../../app/router.svelte';
   import {
     expandCustomPip,
+    openTorrentStream,
     player,
     retryWatch,
     selectEpisode,
@@ -37,6 +40,12 @@
   let isPlanLoading = $state(false);
   let epRangeIndex = $state(0);
   let lightboxUrl = $state<string | null>(null);
+  let torrentsOpen = $state(false);
+  let torrentsLoading = $state(false);
+  let torrentsError = $state('');
+  let torrentResults = $state<TorrentSearchItem[]>([]);
+  let torrentResultsFor = $state('');
+  let customMagnet = $state('');
 
   const displayTitle = $derived(
     player.shikiArt?.english || player.shikiArt?.name || player.release?.title || player.title || 'Anime'
@@ -248,6 +257,33 @@
       lightboxUrl = null;
     }
   }
+
+  async function toggleTorrentsDrawer() {
+    torrentsOpen = !torrentsOpen;
+    if (!torrentsOpen) return;
+    const key = `${player.shikiArt?.id ?? 0}:${displayTitle}`;
+    if (torrentResultsFor === key && torrentResults.length > 0) return;
+
+    torrentsLoading = true;
+    torrentsError = '';
+    try {
+      const q = (player.shikiArt?.english || player.shikiArt?.name || displayTitle || '').trim();
+      const libId = player.release?.provider === 'aniliberty' ? player.release.id : 0;
+      const items = await searchTorrents(q, libId);
+      torrentResults = items;
+      torrentResultsFor = key;
+    } catch (err) {
+      torrentsError = err instanceof Error ? err.message : 'Failed to search torrents';
+    } finally {
+      torrentsLoading = false;
+    }
+  }
+
+  async function handleLaunchTorrent(item: TorrentSearchItem | string) {
+    torrentsOpen = false;
+    await openTorrentStream(item);
+    scrollToPlayer();
+  }
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
@@ -436,21 +472,88 @@
             <span class="section-count">{episodes.length}</span>
           </div>
 
-          {#if episodeRanges.length > 1}
-            <div class="range-tabs" role="tablist" aria-label="Episode ranges">
-              {#each episodeRanges as range, i (range.label)}
-                <button
-                  type="button"
-                  class="range-pill"
-                  class:is-active={epRangeIndex === i}
-                  onclick={() => { epRangeIndex = i; }}
-                >
-                  {range.label}
-                </button>
-              {/each}
+          {#if episodeRanges.length > 1 || displayTitle}
+            <div class="range-tabs" role="tablist" aria-label="Episode controls">
+              {#if episodeRanges.length > 1}
+                {#each episodeRanges as range, i (range.label)}
+                  <button
+                    type="button"
+                    class="range-pill"
+                    class:is-active={epRangeIndex === i}
+                    onclick={() => { epRangeIndex = i; }}
+                  >
+                    {range.label}
+                  </button>
+                {/each}
+              {/if}
+              <button
+                type="button"
+                class="range-pill torrent-toggle-pill"
+                class:is-active={torrentsOpen}
+                onclick={() => void toggleTorrentsDrawer()}
+              >
+                <HardDriveDownload size={14} strokeWidth={2} />
+                <span>BDRip / Torrents</span>
+              </button>
             </div>
           {/if}
         </div>
+
+        {#if torrentsOpen}
+          <div class="torrents-panel">
+            <form
+              class="magnet-row"
+              onsubmit={(e) => {
+                e.preventDefault();
+                if (customMagnet.trim().startsWith('magnet:')) {
+                  void handleLaunchTorrent(customMagnet.trim());
+                }
+              }}
+            >
+              <input
+                type="text"
+                class="magnet-input"
+                placeholder="Paste magnet:?xt=urn:btih:... or pick a release below"
+                bind:value={customMagnet}
+              />
+              <button
+                type="submit"
+                class="range-pill"
+                disabled={!customMagnet.trim().startsWith('magnet:')}
+              >
+                Stream Magnet
+              </button>
+            </form>
+
+            {#if torrentsLoading}
+              <div class="torrent-state">Searching Nyaa &amp; AniLibria torrents…</div>
+            {:else if torrentsError}
+              <div class="torrent-state error">{torrentsError}</div>
+            {:else if torrentResults.length === 0}
+              <div class="torrent-state">No active seeded torrents found. Paste a magnet link above.</div>
+            {:else}
+              <div class="torrents-list">
+                {#each torrentResults.slice(0, 12) as tor (tor.infoHash)}
+                  <button
+                    type="button"
+                    class="torrent-item"
+                    onclick={() => void handleLaunchTorrent(tor)}
+                  >
+                    <div class="torrent-title-row">
+                      <span class="torrent-badge">{tor.source}</span>
+                      <span class="torrent-name">{tor.title}</span>
+                    </div>
+                    <div class="torrent-meta">
+                      {#if tor.quality}<span>{tor.quality}</span>{/if}
+                      {#if tor.size}<span>{tor.size}</span>{/if}
+                      <span>{tor.seeders} seeds</span>
+                    </div>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
 
         <div class="episodes-grid">
           {#each visibleEpisodes as entry (entry.ep.id)}
@@ -996,6 +1099,119 @@
     background: rgba(255, 255, 255, 0.16);
     color: #ffffff;
     font-weight: 600;
+  }
+
+  .torrent-toggle-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .torrents-panel {
+    margin-bottom: 18px;
+    padding: 14px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.04);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .magnet-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .magnet-input {
+    flex: 1;
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.3);
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+  }
+
+  .magnet-input:focus {
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+
+  .torrent-state {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.6);
+    padding: 6px 2px;
+  }
+
+  .torrent-state.error {
+    color: #f87171;
+  }
+
+  .torrents-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+
+  .torrent-item {
+    border: none;
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background-color 0.16s ease;
+  }
+
+  .torrent-item:hover {
+    background: rgba(255, 255, 255, 0.09);
+  }
+
+  .torrent-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .torrent-badge {
+    flex-shrink: 0;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .torrent-name {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .torrent-meta {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.56);
+    font-variant-numeric: tabular-nums;
   }
 
   .episodes-grid {

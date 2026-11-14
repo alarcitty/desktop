@@ -1,5 +1,5 @@
 import type { HlsConfig } from 'hls.js';
-import type { HlsSources, QualityVariant } from './types';
+import type { HlsSources, QualityVariant, TorrentRemuxConfig } from './types';
 
 // Maximum-quality HLS configuration tuned for desktop anime VOD playback.
 export function createMaxQualityHlsConfig(overrides: Partial<HlsConfig> = {}): Partial<HlsConfig> {
@@ -73,7 +73,8 @@ export interface Mp4Variant {
 
 export type ResolvedPlayback =
   | { mode: 'hls'; url: string; revoke?: () => void }
-  | { mode: 'mp4'; variants: Mp4Variant[] };
+  | { mode: 'mp4'; variants: Mp4Variant[] }
+  | { mode: 'remux'; remux: TorrentRemuxConfig };
 
 export function normalizeMp4Sources(sources?: HlsSources | null): Mp4Variant[] {
   if (!sources) return [];
@@ -134,6 +135,23 @@ export function resolvePlaybackSource(src?: string | null, sources?: HlsSources 
       };
     }
     return { mode: 'hls', url: direct };
+  }
+
+  if (sources?.remux) {
+    if (!sources.remux.needsRemux) {
+      return {
+        mode: 'mp4',
+        variants: [
+          {
+            label: sources.remux.label || '1080p',
+            height: 1080,
+            bitrate: 15_000_000,
+            url: `/torrent/stream/${encodeURIComponent(sources.remux.hash)}/${encodeURIComponent(String(sources.remux.fileIndex))}`
+          }
+        ]
+      };
+    }
+    return { mode: 'remux', remux: sources.remux };
   }
 
   const hlsResolved = resolveHlsSource(null, sources);
