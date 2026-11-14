@@ -147,7 +147,7 @@ export async function findDreamCastMatch(
   targetTitles: string[],
   targetYear?: number | null
 ): Promise<DreamCastMatch | null> {
-  const queries = dedupeSearchQueries(targetTitles).slice(0, 3);
+  const queries = dedupeSearchQueries(targetTitles).slice(0, 4);
   if (queries.length === 0) return null;
 
   let bestItem: RawDreamCastRelease | null = null;

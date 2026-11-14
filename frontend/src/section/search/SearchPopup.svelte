@@ -51,7 +51,7 @@
 
   type ComboMenuId = 'scope' | 'type' | 'genre' | 'year' | 'score' | 'episodes' | 'sort';
 
-  const YEAR_MIN = 1995;
+  const YEAR_MIN = 1970;
   const YEAR_MAX = 2026;
   const EP_MIN = 1;
   const EP_MAX = 100; // 100 represents 100+ (no upper limit)
@@ -83,7 +83,7 @@
     { value: '2015-2019', label: '2015 – 2019', from: 2015, to: 2019 },
     { value: '2010-2014', label: '2010 – 2014', from: 2010, to: 2014 },
     { value: '2000-2009', label: '2000 – 2009', from: 2000, to: 2009 },
-    { value: '1995-1999', label: '1990s', from: 1995, to: 1999 }
+    { value: '1970-1999', label: 'Classics (<2000)', from: 1970, to: 1999 }
   ];
 
   const YEAR_OPTIONS: ComboOption[] = YEAR_RANGES.map((r) => ({
@@ -579,6 +579,14 @@
         target.genres = incoming.genres;
       }
       if (!target.genreIds && incoming.genreIds) target.genreIds = incoming.genreIds;
+      if (incoming.searchQueries && incoming.searchQueries.length > 0) {
+        target.searchQueries = Array.from(
+          new Set([...(target.searchQueries ?? []), ...incoming.searchQueries])
+        );
+      }
+      if (!target.subTitle && incoming.subTitle && incoming.subTitle !== target.title) {
+        target.subTitle = incoming.subTitle;
+      }
       if (incoming.seasonCount > target.seasonCount) {
         target.seasonCount = incoming.seasonCount;
       }
@@ -607,8 +615,12 @@
       // 1. User's Watch History (highest priority, instant resume)
       for (const entry of watchHistory.entries) {
         const candidate = historyToSearchItem(entry);
+        const hShiki = entry.shikiId ? getCachedArtwork(entry.shikiId) : undefined;
         if (
-          matchesLocalQuery([entry.title, entry.releaseAlias, ...(entry.searchQueries ?? [])], q) &&
+          matchesLocalQuery(
+            [entry.title, entry.releaseAlias, hShiki?.russian, hShiki?.english, hShiki?.name, ...(entry.searchQueries ?? [])],
+            q
+          ) &&
           passesCustomFilters(candidate)
         ) {
           pushUnique(candidate);
@@ -618,8 +630,12 @@
       // 2. User's Local Library (Likes, Watch Later, Favorites)
       for (const item of localLibrary.items) {
         const candidate = libraryToSearchItem(item);
+        const lShiki = item.shikiId > 0 ? getCachedArtwork(item.shikiId) : undefined;
         if (
-          matchesLocalQuery([item.title, item.releaseAlias, ...(item.searchQueries ?? [])], q) &&
+          matchesLocalQuery(
+            [item.title, item.releaseAlias, lShiki?.russian, lShiki?.english, lShiki?.name, ...(item.searchQueries ?? [])],
+            q
+          ) &&
           passesCustomFilters(candidate)
         ) {
           pushUnique(candidate);
@@ -630,8 +646,12 @@
       if (filter === 'all') {
         for (const entry of catalog) {
           const candidate = catalogToSearchItem(entry);
+          const cShiki = entry.shikiId > 0 ? getCachedArtwork(entry.shikiId) : undefined;
           if (
-            matchesLocalQuery([entry.title, entry.releaseAlias, ...(entry.searchQueries ?? [])], q) &&
+            matchesLocalQuery(
+              [entry.title, entry.releaseAlias, cShiki?.russian, cShiki?.english, cShiki?.name, ...(entry.searchQueries ?? [])],
+              q
+            ) &&
             passesCustomFilters(candidate)
           ) {
             pushUnique(candidate);

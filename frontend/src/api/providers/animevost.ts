@@ -48,7 +48,7 @@ function upgradeAnimetopUrl(raw?: string | null): string | null {
   return trimmed.startsWith('//') ? `https:${trimmed}` : trimmed;
 }
 
-function splitAnimeVostTitles(rawTitle?: string): string[] {
+export function splitAnimeVostTitles(rawTitle?: string): string[] {
   if (!rawTitle) return [];
   const cleaned = rawTitle.replace(/\[[^\]]*\]\s*$/u, '').trim();
   return cleaned
@@ -145,7 +145,7 @@ export async function findAnimeVostMatch(
   targetTitles: string[],
   targetYear?: number | null
 ): Promise<AnimeVostMatch | null> {
-  const queries = dedupeSearchQueries(targetTitles).slice(0, 2);
+  const queries = dedupeSearchQueries(targetTitles).slice(0, 4);
   if (queries.length === 0) return null;
 
   let bestItem: RawAnimeVostItem | null = null;

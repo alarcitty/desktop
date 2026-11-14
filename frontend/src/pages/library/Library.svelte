@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { cubicIn, cubicOut } from 'svelte/easing';
+  import ArrowDown from '@lucide/svelte/icons/arrow-down';
+  import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import LayoutList from '@lucide/svelte/icons/layout-list';
   import LayoutGrid from '@lucide/svelte/icons/layout-grid';
-  import Play from '@lucide/svelte/icons/play';
   import Search from '@lucide/svelte/icons/search';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import X from '@lucide/svelte/icons/x';
@@ -34,12 +35,22 @@
     poster: string;
     posterPosition?: string;
     score?: number;
+    year?: number;
+    updatedAt?: number;
     tags: string[];
     episodeOrdinal?: number;
     episodeIndex?: number;
     resumeTime?: number;
     progressPct?: number;
   }
+
+  type LibrarySortKey = 'date' | 'year' | 'rating' | 'title';
+  const sortOptions: Array<{ key: LibrarySortKey; label: string }> = [
+    { key: 'date', label: 'Date' },
+    { key: 'year', label: 'Year' },
+    { key: 'rating', label: 'Rating' },
+    { key: 'title', label: 'A–Z' }
+  ];
 
   const tabs = ['Likes', 'watch later', 'favorites', 'history'];
   const listByTab: Array<LibraryListKind | null> = ['likes', 'watch_later', 'favorites', null];
@@ -62,6 +73,24 @@
   let hasToggledView = $state(false);
   let loadingId = $state<string | null>(null);
   let searchQuery = $state('');
+  let sortBy = $state<LibrarySortKey>('date');
+  let sortDir = $state<'desc' | 'asc'>('desc');
+
+  function toggleSort(key: LibrarySortKey)
+  {
+    if (sortBy === key) {
+      sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+      return;
+    }
+    sortBy = key;
+    sortDir = key === 'title' ? 'asc' : 'desc';
+  }
+
+  function extractYear(tags: string[]): number | undefined
+  {
+    const match = tags.find((t) => /^(19|20)\d{2}$/.test(t.trim()));
+    return match ? Number(match) : undefined;
+  }
 
   let tabLayout = $derived.by(() =>
   {
@@ -150,6 +179,8 @@
         poster: entry.poster || fallbackPoster,
         posterPosition: entry.posterPosition,
         score: entry.score,
+        year: extractYear(baseTags),
+        updatedAt: entry.updatedAt,
         tags: [progressTag, ...baseTags].slice(0, 5),
         episodeOrdinal: entry.episodeOrdinal,
         episodeIndex: entry.episodeIndex,
@@ -164,19 +195,42 @@
   {
     if (isHistoryTab) return historyItems;
     const listKind = listByTab[activeTab];
-    if (!listKind) return localLibrary.items;
-    return localLibrary.items.filter((item) => item.lists.includes(listKind));
+    const items = !listKind
+      ? localLibrary.items
+      : localLibrary.items.filter((item) => item.lists.includes(listKind));
+    return items.map((item) => ({
+      ...item,
+      year: extractYear(item.tags)
+    }));
   });
   const displayedItems = $derived.by((): DisplayLibraryItem[] =>
   {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return tabItems;
-    return tabItems.filter((item) =>
+    const filtered = !q
+      ? [...tabItems]
+      : tabItems.filter((item) =>
+        {
+          if (item.title.toLowerCase().includes(q)) return true;
+          if (item.searchQueries?.some((sq) => sq.toLowerCase().includes(q))) return true;
+          if (item.description.toLowerCase().includes(q)) return true;
+          return item.tags.some((t) => t.toLowerCase().includes(q));
+        });
+
+    const dir = sortDir === 'asc' ? 1 : -1;
+    filtered.sort((a, b) =>
     {
-      if (item.title.toLowerCase().includes(q)) return true;
-      if (item.description.toLowerCase().includes(q)) return true;
-      return item.tags.some((t) => t.toLowerCase().includes(q));
+      if (sortBy === 'date') {
+        return ((a.updatedAt ?? 0) - (b.updatedAt ?? 0)) * dir;
+      }
+      if (sortBy === 'year') {
+        return ((a.year ?? 0) - (b.year ?? 0)) * dir;
+      }
+      if (sortBy === 'rating') {
+        return ((a.score ?? 0) - (b.score ?? 0)) * dir;
+      }
+      return a.title.localeCompare(b.title) * dir;
     });
+    return filtered;
   });
   const ambientPoster = $derived(displayedItems[0]?.poster || tabItems[0]?.poster || localLibrary.items[0]?.poster || '');
 
@@ -318,6 +372,28 @@
         {/if}
       </div>
 
+      <div class="library-sort-group" role="group" aria-label="Sort library">
+        {#each sortOptions as opt (opt.key)}
+          {@const active = sortBy === opt.key}
+          <button
+            type="button"
+            class="sort-chip-btn"
+            class:active
+            aria-pressed={active}
+            onclick={() => toggleSort(opt.key)}
+          >
+            <span>{opt.label}</span>
+            {#if active}
+              {#if sortDir === 'desc'}
+                <ArrowDown size={12} strokeWidth={2} />
+              {:else}
+                <ArrowUp size={12} strokeWidth={2} />
+              {/if}
+            {/if}
+          </button>
+        {/each}
+      </div>
+
       <!-- View mode switch -->
       <div class="library-view-modes" class:is-grid={viewMode === 'grid'}>
         <span class="view-pill" aria-hidden="true"></span>
@@ -373,7 +449,20 @@
         {:else if viewMode === 'list'}
           <ul class="library-list">
         {#each displayedItems as item, index (item.id)}
-          <li class="library-row">
+          <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+          <li
+            class="library-row"
+            class:is-loading={loadingId === item.id}
+            role="button"
+            tabindex="0"
+            onclick={() => handleWatch(item.id)}
+            onkeydown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                void handleWatch(item.id);
+              }
+            }}
+          >
             <img
               src={item.poster}
               alt=""
@@ -384,12 +473,7 @@
             />
             <div class="row-dim"></div>
 
-            <button
-              type="button"
-              class="row-poster-wrap row-poster-btn"
-              aria-label={`Watch ${item.title}`}
-              onclick={() => handleWatch(item.id)}
-            >
+            <div class="row-poster-wrap">
               <img
                 src={item.poster}
                 alt={item.title}
@@ -398,57 +482,36 @@
                 loading={index > 1 ? 'lazy' : undefined}
                 decoding="async"
               />
-            </button>
+            </div>
 
             <div class="row-info">
-              <h3 class="row-title">
-                <button
-                  type="button"
-                  class="row-title-btn"
-                  onclick={() => handleWatch(item.id)}
-                >
-                  {item.title}
-                </button>
-              </h3>
+              <h3 class="row-title">{item.title}</h3>
               <div class="row-meta">
                 <MetaLine score={item.score} tags={item.tags} />
               </div>
+              {#if item.progressPct && item.progressPct > 0}
+                <div class="progress-track row-progress" aria-hidden="true">
+                  <div class="progress-fill" style:width={`${item.progressPct}%`}></div>
+                </div>
+              {/if}
               <p class="row-description">{item.description}</p>
             </div>
 
-            <div class="row-action">
-              {#if isHistoryTab}
+            {#if isHistoryTab}
+              <div class="row-action">
                 <button
                   type="button"
                   class="remove-entry-btn"
                   aria-label={`Remove ${item.title} from history`}
-                  onclick={() => removeHistoryEntry(item.id)}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    removeHistoryEntry(item.id);
+                  }}
                 >
                   <X size={15} strokeWidth={2} />
                 </button>
-              {/if}
-              <div class="row-continue-stack">
-                {#if item.progressPct && item.progressPct > 0}
-                  <div class="progress-track action-progress" aria-hidden="true">
-                    <div class="progress-fill" style:width={`${item.progressPct}%`}></div>
-                  </div>
-                {/if}
-                <button
-                  type="button"
-                  class="action-ghost-btn"
-                  class:is-loading={loadingId === item.id}
-                  disabled={loadingId === item.id}
-                  onclick={() => handleWatch(item.id)}
-                >
-                  {#if loadingId === item.id}
-                    <span class="ghost-spinner" aria-hidden="true"></span>
-                  {:else}
-                    <Play size={13} fill="currentColor" strokeWidth={0} />
-                  {/if}
-                  <span>{isHistoryTab ? 'Continue' : 'Watch'}</span>
-                </button>
               </div>
-            </div>
+            {/if}
           </li>
         {/each}
       </ul>
@@ -757,6 +820,49 @@
     transform: scale(0.92);
   }
 
+  .library-sort-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 36px;
+    padding: 3px;
+    margin-bottom: 2px;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.04);
+    box-sizing: border-box;
+  }
+
+  .sort-chip-btn {
+    height: 30px;
+    padding: 0 10px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.44);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.2s ease, background-color 0.2s ease, transform 0.1s ease;
+  }
+
+  .sort-chip-btn:hover {
+    color: rgba(255, 255, 255, 0.78);
+  }
+
+  .sort-chip-btn.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+  }
+
+  .sort-chip-btn:active {
+    transform: scale(0.95);
+  }
+
   .library-view-modes {
     position: relative;
     display: flex;
@@ -876,6 +982,12 @@
     box-sizing: border-box;
     flex-shrink: 0;
     contain: layout paint;
+    cursor: pointer;
+    outline: none;
+  }
+
+  .library-row.is-loading {
+    cursor: wait;
   }
 
   /* Blurred poster as the row background (1/4-scale for low GPU cost while scrolling) */
@@ -917,14 +1029,6 @@
     overflow: hidden;
   }
 
-  .row-poster-btn {
-    padding: 0;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    display: block;
-  }
-
   .row-poster {
     display: block;
     width: 100%;
@@ -956,20 +1060,13 @@
     border-radius: 999px;
   }
 
-  .progress-track.action-progress {
-    width: 100%;
-    min-width: 72px;
+  .progress-track.row-progress {
+    max-width: 260px;
+    margin-top: 8px;
   }
 
   .progress-track.tile-progress {
     margin-top: 2px;
-  }
-
-  .row-continue-stack {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 5px;
   }
 
   .row-info {
@@ -988,17 +1085,6 @@
     font-weight: 700;
     line-height: 1.1;
     color: #ffffff;
-  }
-
-  .row-title-btn {
-    padding: 0;
-    margin: 0;
-    border: none;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
   }
 
   .row-meta {
@@ -1027,54 +1113,6 @@
     align-self: flex-start;
     display: flex;
     align-items: center;
-    gap: 8px;
-  }
-
-  .action-ghost-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 32px;
-    padding: 0 8px;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.48);
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13.5px;
-    font-weight: 500;
-    cursor: pointer;
-    white-space: nowrap;
-    user-select: none;
-    transition:
-      color 0.2s ease,
-      opacity 0.2s ease,
-      transform 0.12s ease;
-  }
-
-  .action-ghost-btn:hover:not(:disabled),
-  .library-row:hover .action-ghost-btn {
-    color: rgba(255, 255, 255, 0.92);
-    opacity: 1;
-  }
-
-  .action-ghost-btn:disabled {
-    cursor: wait;
-  }
-
-  .ghost-spinner {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    border: 1.8px solid rgba(255, 255, 255, 0.24);
-    border-top-color: #ffffff;
-    animation: ghost-spin 0.7s linear infinite;
-  }
-
-  @keyframes ghost-spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
 
   .remove-entry-btn {

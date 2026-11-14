@@ -1,6 +1,11 @@
 import type { HlsSources, SkipRange, VoiceTrackOption } from '../marlakit/player/types';
-import { fetchAnimeVostEpisodes, findAnimeVostMatch } from './providers/animevost';
-import { fetchDreamCastEpisodes, findDreamCastMatch } from './providers/dreamcast';
+import {
+  fetchAnimeVostEpisodes,
+  findAnimeVostMatch,
+  searchAnimeVost,
+  splitAnimeVostTitles
+} from './providers/animevost';
+import { fetchDreamCastEpisodes, findDreamCastMatch, searchDreamCast } from './providers/dreamcast';
 import {
   dedupeSearchQueries,
   fetchJsonWithTimeout,
@@ -11,6 +16,7 @@ import {
 
 const BACKEND_BASE = 'http://localhost:8080/api/v1';
 const SHIKI_GRAPHQL = 'https://shikimori.io/api/graphql';
+const SHIKI_REST_ANIMES = 'https://shikimori.io/api/animes';
 // Official AniLibria v1 API (https://anilibria.top/api/docs/v1) with mirror and local proxy fallback.
 const ANILIBRIA_API_BASES = [
   'https://anilibria.top/api/v1',
@@ -1437,6 +1443,128 @@ export async function loadCatalogGenres(signal?: AbortSignal): Promise<CatalogGe
   return catalogGenresPending;
 }
 
+interface RawShikiRestAnime {
+  id: number;
+  name?: string | null;
+  russian?: string | null;
+  kind?: string | null;
+  score?: string | number | null;
+  status?: string | null;
+  episodes?: number | null;
+  episodes_aired?: number | null;
+  aired_on?: string | null;
+  image?: {
+    original?: string | null;
+    preview?: string | null;
+  } | null;
+}
+
+const EN_TO_RU_KEY: Record<string, string> = {
+  q: 'й', w: 'ц', e: 'у', r: 'к', t: 'е', y: 'н', u: 'г', i: 'ш', o: 'щ', p: 'з', '[': 'х', ']': 'ъ',
+  a: 'ф', s: 'ы', d: 'в', f: 'а', g: 'п', h: 'р', j: 'о', k: 'л', l: 'д', ';': 'ж', "'": 'э',
+  z: 'я', x: 'ч', c: 'с', v: 'м', b: 'и', n: 'т', m: 'ь', ',': 'б', '.': 'ю'
+};
+const RU_TO_EN_KEY: Record<string, string> = Object.fromEntries(
+  Object.entries(EN_TO_RU_KEY).map(([en, ru]) => [ru, en])
+);
+
+function swapKeyboardLayout(raw: string): string {
+  const lower = raw.toLowerCase();
+  const hasCyr = /[а-яё]/i.test(lower);
+  const map = hasCyr ? RU_TO_EN_KEY : EN_TO_RU_KEY;
+  let out = '';
+  let changed = false;
+  for (let i = 0; i < lower.length; i += 1) {
+    const ch = lower[i];
+    if (map[ch]) {
+      out += map[ch];
+      changed = true;
+    } else {
+      out += ch;
+    }
+  }
+  return changed ? out.trim() : '';
+}
+
+function parseYearFromDate(raw?: string | null): number | undefined {
+  if (!raw) return undefined;
+  const m = raw.match(/^(\d{4})/);
+  if (!m) return undefined;
+  const y = Number(m[1]);
+  return Number.isFinite(y) && y > 1900 ? y : undefined;
+}
+
+async function fetchShikimoriRestSearch(
+  query: string,
+  o: SearchQueryOptions,
+  filter: SearchFilterMode,
+  signal?: AbortSignal
+): Promise<RawShikiRestAnime[]> {
+  const params = new URLSearchParams({
+    limit: '32',
+    censored: 'false'
+  });
+  if (query.length >= 2) params.set('search', query);
+  const order =
+    o.sorting === 'RATING_DESC'
+      ? 'ranked'
+      : o.sorting === 'FRESH_AT_DESC'
+        ? 'aired_on'
+        : 'popularity';
+  params.set('order', order);
+  if (filter === 'ongoing') params.set('status', 'ongoing');
+  if (o.type) params.set('kind', o.type.toLowerCase());
+  if (o.minScore && o.minScore > 0) params.set('score', String(Math.floor(o.minScore)));
+
+  try {
+    const rows = await fetchJsonWithTimeout<RawShikiRestAnime[]>(
+      `${SHIKI_REST_ANIMES}?${params.toString()}`,
+      { signal },
+      5500
+    );
+    return Array.isArray(rows) ? rows.filter((r) => r && r.id > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+function scoreSearchRelevance(item: SearchGroupItem, rawQuery: string): number {
+  const qNorm = normalizeTitleText(rawQuery);
+  if (!qNorm) return item.score ?? 0;
+
+  let best = 0;
+  const fields = [item.title, item.subTitle, ...(item.searchQueries ?? [])]
+    .map((s) => normalizeTitleText(s ?? ''))
+    .filter(Boolean);
+
+  for (const field of fields) {
+    if (field === qNorm) {
+      best = Math.max(best, 10_000);
+    } else if (field.startsWith(qNorm)) {
+      best = Math.max(best, 6_000);
+    } else if (` ${field} `.includes(` ${qNorm} `)) {
+      best = Math.max(best, 4_000);
+    } else if (field.includes(qNorm)) {
+      best = Math.max(best, 2_000);
+    }
+  }
+
+  const qTokens = titleTokens(rawQuery);
+  if (best === 0 && qTokens.length > 0) {
+    for (const field of fields) {
+      const fTokens = new Set(titleTokens(field));
+      const matched = qTokens.filter((t) => fTokens.has(t)).length;
+      if (matched > 0) {
+        best = Math.max(best, Math.round((matched / qTokens.length) * 1_500));
+      }
+    }
+  }
+
+  const playableBoost = item.releaseAlias ? 180 : 0;
+  const scoreBoost = (item.score ?? 0) * 20;
+  return best + playableBoost + scoreBoost;
+}
+
 export async function searchGroupedAnime(
   rawQuery: string,
   opts?: AbortSignal | SearchQueryOptions
@@ -1502,8 +1630,10 @@ export async function searchGroupedAnime(
   const catalogPath2 = `/anime/catalog/releases?${catalogParamsPage2.toString()}`;
   const useAppSearch = filter === 'all' && !hasAdvancedFilter && query.length >= 2;
   const needPage2 = query.length < 2 || hasAdvancedFilter || filter === 'ongoing';
+  const hasGenreIds = Boolean(o.genreIds && o.genreIds.length > 0);
+  const swappedQuery = query.length >= 3 ? swapKeyboardLayout(query) : '';
 
-  const [appRes, catRes1, catRes2] = await Promise.allSettled([
+  const [appRes, catRes1, catRes2, shikiRestRes, shikiSwapRes, dcRes, avRes] = await Promise.allSettled([
     useAppSearch
       ? fetchLibJson<RawLibFeedItem[]>(
           `/app/search/releases?query=${encodeURIComponent(query)}`,
@@ -1514,7 +1644,19 @@ export async function searchGroupedAnime(
     fetchLibJson<{ data?: RawLibFeedItem[] }>(catalogPath1, { signal }, 5000),
     needPage2
       ? fetchLibJson<{ data?: RawLibFeedItem[] }>(catalogPath2, { signal }, 5000)
-      : Promise.resolve({ data: [] as RawLibFeedItem[] })
+      : Promise.resolve({ data: [] as RawLibFeedItem[] }),
+    !hasGenreIds && query.length >= 2
+      ? fetchShikimoriRestSearch(query, o, filter, signal)
+      : Promise.resolve([] as RawShikiRestAnime[]),
+    !hasGenreIds && swappedQuery.length >= 3 && swappedQuery !== query.toLowerCase()
+      ? fetchShikimoriRestSearch(swappedQuery, o, filter, signal)
+      : Promise.resolve([] as RawShikiRestAnime[]),
+    !hasGenreIds && filter !== 'ongoing' && query.length >= 2
+      ? searchDreamCast(query).catch(() => [])
+      : Promise.resolve([]),
+    !hasGenreIds && filter !== 'ongoing' && query.length >= 2
+      ? searchAnimeVost(query).catch(() => [])
+      : Promise.resolve([])
   ]);
   if (signal?.aborted) return [];
 
@@ -1552,6 +1694,20 @@ export async function searchGroupedAnime(
 
   const groups = new Map<string, PendingGroup>();
   const orderedKeys: string[] = [];
+  const shikiToGroupKey = new Map<number, string>();
+  const normTitleToGroupKey = new Map<string, string>();
+
+  const registerKeys = (groupKey: string, item: SearchGroupItem) => {
+    if (item.shikiId && !shikiToGroupKey.has(item.shikiId)) {
+      shikiToGroupKey.set(item.shikiId, groupKey);
+    }
+    for (const qTitle of [item.title, item.subTitle, ...(item.searchQueries ?? [])]) {
+      const n = normalizeTitleText(qTitle ?? '');
+      if (n && !normTitleToGroupKey.has(n)) {
+        normTitleToGroupKey.set(n, groupKey);
+      }
+    }
+  };
 
   for (let i = 0; i < candidates.length; i += 1) {
     const hit = candidates[i];
@@ -1574,6 +1730,7 @@ export async function searchGroupedAnime(
         count: 1,
         hasFranchise: Boolean(franchise)
       });
+      registerKeys(groupKey, candidateItem);
       continue;
     }
 
@@ -1604,9 +1761,151 @@ export async function searchGroupedAnime(
         existing.item.seasonCount = Math.max(existing.item.seasonCount, existing.count);
       }
     }
+    registerKeys(groupKey, candidateItem);
   }
 
-  const grouped = orderedKeys
+  // Merge comprehensive Shikimori catalog matches (Russian, English, Romaji & older classics)
+  const shikiRestRows: RawShikiRestAnime[] = [
+    ...(shikiRestRes.status === 'fulfilled' ? shikiRestRes.value : []),
+    ...(shikiSwapRes.status === 'fulfilled' ? shikiSwapRes.value : [])
+  ];
+  const seenShikiIds = new Set<number>();
+  for (const s of shikiRestRows) {
+    if (!s?.id || seenShikiIds.has(s.id)) continue;
+    seenShikiIds.add(s.id);
+    if (s.status === 'anons') continue;
+
+    const engTitle = (s.name ?? '').trim();
+    const ruTitle = (s.russian ?? '').trim();
+    const title = engTitle || ruTitle || 'Anime';
+    const subTitle = ruTitle && ruTitle !== title ? ruTitle : undefined;
+    const queries = dedupeSearchQueries([ruTitle, engTitle]);
+    const parsedScore = Number(s.score);
+    const score = Number.isFinite(parsedScore) && parsedScore > 0 ? Number(parsedScore.toFixed(1)) : undefined;
+    const year = parseYearFromDate(s.aired_on);
+    const epCount =
+      (typeof s.episodes === 'number' && s.episodes > 0 ? s.episodes : undefined) ??
+      (typeof s.episodes_aired === 'number' && s.episodes_aired > 0 ? s.episodes_aired : undefined);
+
+    const existingKey =
+      shikiToGroupKey.get(s.id) ??
+      normTitleToGroupKey.get(normalizeTitleText(engTitle)) ??
+      normTitleToGroupKey.get(normalizeTitleText(ruTitle));
+
+    if (existingKey && groups.has(existingKey)) {
+      const existing = groups.get(existingKey)!;
+      if (!existing.item.shikiId) existing.item.shikiId = s.id;
+      if (!existing.item.score && score) existing.item.score = score;
+      if (!existing.item.subTitle && subTitle) existing.item.subTitle = subTitle;
+      if (!existing.item.episodesTotal && epCount) existing.item.episodesTotal = epCount;
+      existing.item.searchQueries = dedupeSearchQueries([
+        ...(existing.item.searchQueries ?? []),
+        ...queries
+      ]);
+      registerKeys(existingKey, existing.item);
+      continue;
+    }
+
+    const groupKey = `shiki:${s.id}`;
+    const item: SearchGroupItem = {
+      id: `shiki-${s.id}`,
+      title,
+      subTitle,
+      year,
+      score,
+      typeLabel: (s.kind ?? 'tv').toUpperCase(),
+      isOngoing: s.status === 'ongoing',
+      episodesTotal: epCount,
+      poster: resolveShikiUrl(s.image?.original || s.image?.preview),
+      shikiId: s.id,
+      searchQueries: queries,
+      seasonCount: 1
+    };
+    orderedKeys.push(groupKey);
+    groups.set(groupKey, {
+      item,
+      earliestYear: year ?? 9999,
+      count: 1,
+      hasFranchise: false
+    });
+    registerKeys(groupKey, item);
+  }
+
+  // Merge Dream Cast hits for Russian/native dub matches
+  if (dcRes.status === 'fulfilled' && Array.isArray(dcRes.value)) {
+    for (const dc of dcRes.value.slice(0, 8)) {
+      const ru = (dc.russian ?? '').trim();
+      const orig = (dc.original ?? '').trim();
+      const title = orig || ru;
+      if (!title) continue;
+      if (
+        normTitleToGroupKey.has(normalizeTitleText(ru)) ||
+        normTitleToGroupKey.has(normalizeTitleText(orig))
+      ) {
+        continue;
+      }
+      const yearNum = Number(dc.dateissue) || undefined;
+      const groupKey = `dc:${dc.id}`;
+      const posterRaw = (dc.image ?? '').trim();
+      const item: SearchGroupItem = {
+        id: `dc-${dc.id}`,
+        title,
+        subTitle: ru && ru !== title ? ru : undefined,
+        year: yearNum,
+        typeLabel: 'TV',
+        episodesTotal: (dc.series ?? dc.currentSeries) || undefined,
+        poster: posterRaw.startsWith('//') ? `https:${posterRaw}` : posterRaw,
+        searchQueries: dedupeSearchQueries([ru, orig]),
+        seasonCount: 1
+      };
+      orderedKeys.push(groupKey);
+      groups.set(groupKey, {
+        item,
+        earliestYear: yearNum ?? 9999,
+        count: 1,
+        hasFranchise: false
+      });
+      registerKeys(groupKey, item);
+    }
+  }
+
+  // Merge AnimeVost hits for native MP4 & Russian titles
+  if (avRes.status === 'fulfilled' && Array.isArray(avRes.value)) {
+    for (const av of avRes.value.slice(0, 8)) {
+      const parts = splitAnimeVostTitles(av.title);
+      const ru = parts[0] ?? '';
+      const orig = parts[1] ?? '';
+      const title = orig || ru;
+      if (!title) continue;
+      if (
+        parts.some((p) => normTitleToGroupKey.has(normalizeTitleText(p)))
+      ) {
+        continue;
+      }
+      const yearNum = Number(av.year) || undefined;
+      const groupKey = `av:${av.id}`;
+      const item: SearchGroupItem = {
+        id: `av-${av.id}`,
+        title,
+        subTitle: ru && ru !== title ? ru : undefined,
+        year: yearNum,
+        typeLabel: av.type || 'TV',
+        poster: av.urlImagePreview || '',
+        searchQueries: dedupeSearchQueries(parts),
+        seasonCount: 1
+      };
+      orderedKeys.push(groupKey);
+      groups.set(groupKey, {
+        item,
+        earliestYear: yearNum ?? 9999,
+        count: 1,
+        hasFranchise: false
+      });
+      registerKeys(groupKey, item);
+    }
+  }
+
+  let grouped = orderedKeys
     .map((k) => groups.get(k)!.item)
     .filter((item) => {
       if (o.fromYear && item.year && item.year < o.fromYear) return false;
@@ -1621,8 +1920,13 @@ export async function searchGroupedAnime(
         if (item.episodesTotal != null && item.episodesTotal > o.maxEpisodes) return false;
       }
       return true;
-    })
-    .slice(0, 50);
+    });
+
+  if (query.length >= 2 && !o.sorting) {
+    grouped.sort((a, b) => scoreSearchRelevance(b, query) - scoreSearchRelevance(a, query));
+  }
+
+  grouped = grouped.slice(0, 50);
   if (grouped.length > 0) {
     groupedSearchCache.set(cacheKey, grouped);
   }
