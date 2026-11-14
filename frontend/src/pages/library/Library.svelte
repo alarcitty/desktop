@@ -508,7 +508,7 @@
                     removeHistoryEntry(item.id);
                   }}
                 >
-                  <X size={15} strokeWidth={2} />
+                  <Trash2 size={16} strokeWidth={1.75} />
                 </button>
               </div>
             {/if}
@@ -552,7 +552,7 @@
                   removeHistoryEntry(item.id);
                 }}
               >
-                <X size={14} strokeWidth={2} />
+                <Trash2 size={16} strokeWidth={1.75} />
               </button>
             {/if}
 
@@ -1116,13 +1116,12 @@
   }
 
   .remove-entry-btn {
-    width: 32px;
-    height: 32px;
-    padding: 0;
+    padding: 4px;
     border: none;
-    border-radius: 999px;
-    background: rgba(12, 12, 12, 0.56);
-    color: rgba(255, 255, 255, 0.64);
+    outline: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.75));
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1131,7 +1130,6 @@
     transition:
       opacity 0.2s ease,
       color 0.2s ease,
-      background-color 0.2s ease,
       transform 0.1s ease;
   }
 
@@ -1143,20 +1141,18 @@
 
   .remove-entry-btn:hover {
     color: #ffffff;
-    background: rgba(255, 255, 255, 0.14);
+    background: transparent;
   }
 
   .remove-entry-btn:active {
-    transform: scale(0.92);
+    transform: scale(0.9);
   }
 
   .remove-entry-btn.tile-remove {
     position: absolute;
-    top: 14px;
-    right: 14px;
+    top: 12px;
+    right: 12px;
     z-index: 4;
-    width: 30px;
-    height: 30px;
   }
 
   .library-grid {
