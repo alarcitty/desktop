@@ -398,11 +398,6 @@
                 loading={index > 1 ? 'lazy' : undefined}
                 decoding="async"
               />
-              {#if item.progressPct && item.progressPct > 0}
-                <div class="progress-track" aria-hidden="true">
-                  <div class="progress-fill" style:width={`${item.progressPct}%`}></div>
-                </div>
-              {/if}
             </button>
 
             <div class="row-info">
@@ -432,20 +427,27 @@
                   <X size={15} strokeWidth={2} />
                 </button>
               {/if}
-              <button
-                type="button"
-                class="action-ghost-btn"
-                class:is-loading={loadingId === item.id}
-                disabled={loadingId === item.id}
-                onclick={() => handleWatch(item.id)}
-              >
-                {#if loadingId === item.id}
-                  <span class="ghost-spinner" aria-hidden="true"></span>
-                {:else}
-                  <Play size={13} fill="currentColor" strokeWidth={0} />
+              <div class="row-continue-stack">
+                {#if item.progressPct && item.progressPct > 0}
+                  <div class="progress-track action-progress" aria-hidden="true">
+                    <div class="progress-fill" style:width={`${item.progressPct}%`}></div>
+                  </div>
                 {/if}
-                <span>{isHistoryTab ? 'Continue' : 'Watch'}</span>
-              </button>
+                <button
+                  type="button"
+                  class="action-ghost-btn"
+                  class:is-loading={loadingId === item.id}
+                  disabled={loadingId === item.id}
+                  onclick={() => handleWatch(item.id)}
+                >
+                  {#if loadingId === item.id}
+                    <span class="ghost-spinner" aria-hidden="true"></span>
+                  {:else}
+                    <Play size={13} fill="currentColor" strokeWidth={0} />
+                  {/if}
+                  <span>{isHistoryTab ? 'Continue' : 'Watch'}</span>
+                </button>
+              </div>
             </div>
           </li>
         {/each}
@@ -496,23 +498,12 @@
             <div class="tile-footer">
               <h3 class="tile-title">{item.title}</h3>
               <MetaLine score={item.score} tags={item.tags.slice(0, 3)} size="sm" />
-              <div class="tile-action">
-                <span class="action-ghost-btn is-subtle" class:is-loading={loadingId === item.id}>
-                  {#if loadingId === item.id}
-                    <span class="ghost-spinner" aria-hidden="true"></span>
-                  {:else}
-                    <Play size={12} fill="currentColor" strokeWidth={0} />
-                  {/if}
-                  <span>{isHistoryTab ? 'Continue' : 'Watch'}</span>
-                </span>
-              </div>
+              {#if item.progressPct && item.progressPct > 0}
+                <div class="progress-track tile-progress" aria-hidden="true">
+                  <div class="progress-fill" style:width={`${item.progressPct}%`}></div>
+                </div>
+              {/if}
             </div>
-
-            {#if item.progressPct && item.progressPct > 0}
-              <div class="progress-track tile-edge-progress" aria-hidden="true">
-                <div class="progress-fill" style:width={`${item.progressPct}%`}></div>
-              </div>
-            {/if}
           </li>
         {/each}
       </ul>
@@ -950,11 +941,10 @@
   }
 
   .progress-track {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    position: relative;
+    width: 100%;
     height: 3px;
+    border-radius: 999px;
     background: rgba(255, 255, 255, 0.16);
     overflow: hidden;
     pointer-events: none;
@@ -966,14 +956,20 @@
     border-radius: 999px;
   }
 
-  .progress-track.tile-edge-progress {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 4;
-    height: 3px;
-    border-radius: 0;
+  .progress-track.action-progress {
+    width: 100%;
+    min-width: 72px;
+  }
+
+  .progress-track.tile-progress {
+    margin-top: 2px;
+  }
+
+  .row-continue-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
   }
 
   .row-info {
@@ -1057,17 +1053,9 @@
   }
 
   .action-ghost-btn:hover:not(:disabled),
-  .library-row:hover .action-ghost-btn,
-  .library-tile:hover .action-ghost-btn {
+  .library-row:hover .action-ghost-btn {
     color: rgba(255, 255, 255, 0.92);
     opacity: 1;
-  }
-
-  .action-ghost-btn.is-subtle {
-    height: auto;
-    padding: 2px 0;
-    font-size: 13px;
-    opacity: 0.52;
   }
 
   .action-ghost-btn:disabled {
@@ -1284,10 +1272,5 @@
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
-  }
-
-  .tile-action {
-    display: flex;
-    align-items: center;
   }
 </style>
