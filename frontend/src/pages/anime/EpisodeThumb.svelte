@@ -786,7 +786,6 @@
     font-weight: 700;
     letter-spacing: -0.01em;
     line-height: 1.2;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.86);
   }
 
   .ep-badge-watched {

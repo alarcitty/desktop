@@ -1359,7 +1359,7 @@
 
       {#if visibleCharacters.length > 0}
         {#if charViewMode === 'strip'}
-          <div class="cast-strip-wrap" in:fade={{ duration: 180, easing: cubicOut }}>
+          <div class="cast-strip-wrap" in:fade={{ duration: 360, easing: cubicOut }}>
             <div
               class="cast-strip"
               bind:this={charStripEl}
@@ -1432,7 +1432,7 @@
             {/if}
           </div>
         {:else}
-          <div class="cast-grid-wrap" in:fade={{ duration: 180, easing: cubicOut }}>
+          <div class="cast-grid-wrap" in:fade={{ duration: 360, easing: cubicOut }}>
             <div class="cast-grid">
               {#each visibleCharacters as ch (ch.id)}
                 <div class="cast-card">
@@ -2108,6 +2108,10 @@
     gap: clamp(32px, 3.8vw, 48px);
   }
 
+  .anime-body:last-child {
+    padding-bottom: clamp(40px, 5vw, 64px);
+  }
+
   .stage-state {
     display: flex;
     flex-direction: column;
@@ -2178,16 +2182,16 @@
   }
 
   .range-pill {
-    height: 32px;
+    height: 36px;
     padding: 0 13px;
     border: none;
     outline: none;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.06);
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.04);
     color: rgba(255, 255, 255, 0.72);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
-    font-weight: 400;
+    font-weight: 500;
     cursor: pointer;
     transition: background-color 0.18s var(--ease-out), color 0.18s var(--ease-out);
   }
@@ -2549,7 +2553,6 @@
     font-size: 11.5px;
     font-weight: 700;
     letter-spacing: -0.01em;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
   }
 
   .trailer-name {
@@ -2745,7 +2748,7 @@
     padding-right: var(--page-pad-x);
   }
 
-  /* Shared Horizontal Strip Chevron Arrows */
+  /* Shared Horizontal Strip Chevron Arrows (borderless, no background) */
   .strip-arrow-btn {
     position: absolute;
     top: 50%;
@@ -2755,30 +2758,28 @@
     border: none;
     outline: none;
     border-radius: 50%;
-    background: rgba(12, 12, 14, 0.68);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    color: rgba(255, 255, 255, 0.9);
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     transform: translateY(-50%);
-    transition: background-color 0.2s var(--ease-out), transform 0.2s var(--ease-out), color 0.2s var(--ease-out);
+    transition: transform 0.2s var(--ease-out), color 0.2s var(--ease-out);
   }
 
   .strip-arrow-btn.is-left {
-    left: 16px;
+    left: 14px;
   }
 
   .strip-arrow-btn.is-right {
-    right: 16px;
+    right: 14px;
   }
 
   .strip-arrow-btn:hover {
-    background: rgba(255, 255, 255, 0.92);
-    color: #0c0c0c;
-    transform: translateY(-50%) scale(1.06);
+    background: transparent;
+    color: #ffffff;
+    transform: translateY(-50%) scale(1.12);
   }
 
   /* Franchise & Related Section (full-bleed edge-to-edge strip, zero gap, zero radius) */
@@ -2859,7 +2860,6 @@
     font-size: 11.5px;
     font-weight: 700;
     letter-spacing: -0.01em;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.88);
   }
 
   .franchise-kind-pill.is-current {
@@ -2882,7 +2882,8 @@
   .franchise-title {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
     font-size: 13.5px;
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: -0.01em;
     line-height: 1.25;
     color: #ffffff;
     display: -webkit-box;
@@ -3038,7 +3039,6 @@
     font-size: 11px;
     font-weight: 700;
     letter-spacing: -0.01em;
-    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.88);
   }
 
   .cast-strip-pill.is-main {
@@ -3054,7 +3054,6 @@
     color: rgba(255, 255, 255, 0.56);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 10.5px;
-    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
   }
 
   .cast-strip-overlay {
@@ -3071,7 +3070,8 @@
   .cast-strip-name {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
     font-size: 14px;
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: -0.01em;
     line-height: 1.2;
     color: #ffffff;
     overflow: hidden;
@@ -3095,6 +3095,10 @@
   /* View 2: Refined Editorial Cast Grid */
   .cast-grid-wrap {
     padding: 0 var(--page-pad-x);
+  }
+
+  .cast-section:last-child .cast-grid-wrap {
+    padding-bottom: clamp(40px, 5vw, 64px);
   }
 
   .cast-grid {
@@ -3134,12 +3138,12 @@
 
   .cast-portrait-wrap {
     position: relative;
-    width: 72px;
+    width: 78px;
     height: 100%;
     flex-shrink: 0;
     background: rgba(255, 255, 255, 0.05);
-    -webkit-mask-image: linear-gradient(90deg, #000 72%, transparent 100%);
-    mask-image: linear-gradient(90deg, #000 72%, transparent 100%);
+    -webkit-mask-image: linear-gradient(90deg, #000 44%, transparent 100%);
+    mask-image: linear-gradient(90deg, #000 44%, transparent 100%);
   }
 
   .cast-portrait {
@@ -3186,7 +3190,8 @@
   .cast-name {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
     font-size: 13.5px;
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: -0.01em;
     color: #ffffff;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3207,8 +3212,10 @@
   }
 
   .cast-role-tag.is-main {
-    color: rgba(255, 255, 255, 0.88);
-    font-weight: 500;
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    color: #ffffff;
+    font-weight: 700;
+    letter-spacing: -0.01em;
   }
 
   .cast-gender-tag {
@@ -3279,6 +3286,10 @@
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13.5px;
     color: rgba(255, 255, 255, 0.42);
+  }
+
+  .cast-section:last-child .cast-empty {
+    padding-bottom: clamp(40px, 5vw, 64px);
   }
 
   /* More Like This Section (max 3 visible cards, right chevron, unified blur, flush bottom) */
