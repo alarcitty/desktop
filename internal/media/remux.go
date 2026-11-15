@@ -39,6 +39,8 @@ type MediaSubtitleTrack struct {
 type ProbeResult struct {
 	Duration    float64              `json:"duration"`
 	VideoCodec  string               `json:"videoCodec,omitempty"`
+	PixFmt      string               `json:"pixFmt,omitempty"`
+	Profile     string               `json:"profile,omitempty"`
 	Width       int                  `json:"width,omitempty"`
 	Height      int                  `json:"height,omitempty"`
 	AudioTracks []MediaAudioTrack    `json:"audioTracks"`
@@ -105,6 +107,8 @@ func parseFFprobeJSON(raw []byte) (*ProbeResult, error) {
 			Index     int               `json:"index"`
 			CodecType string            `json:"codec_type"`
 			CodecName string            `json:"codec_name"`
+			PixFmt    string            `json:"pix_fmt"`
+			Profile   string            `json:"profile"`
 			Width     int               `json:"width"`
 			Height    int               `json:"height"`
 			Channels  int               `json:"channels"`
@@ -131,6 +135,8 @@ func parseFFprobeJSON(raw []byte) (*ProbeResult, error) {
 		case "video":
 			if res.VideoCodec == "" && s.Width > 0 && s.Height > 0 {
 				res.VideoCodec = s.CodecName
+				res.PixFmt = s.PixFmt
+				res.Profile = s.Profile
 				res.Width = s.Width
 				res.Height = s.Height
 			}
@@ -198,9 +204,25 @@ func isTextSubtitleCodec(codec string) bool {
 	}
 }
 
+// RemuxOptions controls optional codec tagging or software transcode fallback during live fMP4 remuxing.
+type RemuxOptions struct {
+	VideoCodec string
+	Transcode  bool
+}
+
 // BuildRemuxArgs builds zero-video-reencode FFmpeg arguments for fragmented MP4 live streaming.
 func BuildRemuxArgs(inputURL string, audioOrdinal int, startSec float64) []string {
-	args := []string{"-v", "error"}
+	return BuildRemuxArgsWithOptions(inputURL, audioOrdinal, startSec, RemuxOptions{})
+}
+
+// BuildRemuxArgsWithOptions builds FFmpeg arguments for fragmented MP4 live streaming with optional codec handling.
+func BuildRemuxArgsWithOptions(inputURL string, audioOrdinal int, startSec float64, opts RemuxOptions) []string {
+	args := []string{
+		"-v", "error",
+		"-fflags", "+genpts+discardcorrupt",
+		"-analyzeduration", "3M",
+		"-probesize", "3M",
+	}
 	if startSec > 0.25 {
 		args = append(args, "-ss", strconv.FormatFloat(startSec, 'f', 3, 64))
 	}
@@ -210,10 +232,30 @@ func BuildRemuxArgs(inputURL string, audioOrdinal int, startSec float64) []strin
 		"-map", "0:v:0",
 		"-map", fmt.Sprintf("0:a:%d?", max(0, audioOrdinal)),
 		"-sn",
-		"-c:v", "copy",
+	)
+	if opts.Transcode {
+		args = append(
+			args,
+			"-c:v", "libx264",
+			"-preset", "veryfast",
+			"-tune", "zerolatency",
+			"-pix_fmt", "yuv420p",
+			"-crf", "21",
+		)
+	} else {
+		args = append(args, "-c:v", "copy")
+		vcodec := strings.ToLower(strings.TrimSpace(opts.VideoCodec))
+		if vcodec == "hevc" || vcodec == "h265" {
+			args = append(args, "-tag:v", "hvc1")
+		}
+	}
+	args = append(
+		args,
 		"-c:a", "aac",
 		"-b:a", "192k",
 		"-ac", "2",
+		"-avoid_negative_ts", "make_zero",
+		"-max_muxing_queue_size", "1024",
 		"-movflags", "frag_keyframe+empty_moov+default_base_moof",
 		"-f", "mp4",
 		"pipe:1",
@@ -232,15 +274,57 @@ func BuildSubtitleVTTArgs(inputURL string, subOrdinal int) []string {
 	}
 }
 
+// StreamFlushed copies bytes from src to w in 32 KiB chunks, flushing immediately after each write.
+func StreamFlushed(w http.ResponseWriter, src io.Reader) error {
+	buf := make([]byte, 32*1024)
+	flusher, hasFlusher := w.(http.Flusher)
+	for {
+		n, readErr := src.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+			if hasFlusher {
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				return nil
+			}
+			return readErr
+		}
+	}
+}
+
+func setRemuxStreamHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Accept-Ranges", "none")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+}
+
 // StreamRemuxedMP4 executes FFmpeg remux and streams fragmented MP4 bytes directly to the HTTP client.
 func StreamRemuxedMP4(w http.ResponseWriter, r *http.Request, inputURL string, audioOrdinal int, startSec float64) {
+	StreamRemuxedMP4WithOptions(w, r, inputURL, audioOrdinal, startSec, RemuxOptions{})
+}
+
+// StreamRemuxedMP4WithOptions executes FFmpeg remux with codec options and flushes fMP4 chunks progressively.
+func StreamRemuxedMP4WithOptions(w http.ResponseWriter, r *http.Request, inputURL string, audioOrdinal int, startSec float64, opts RemuxOptions) {
+	if r.Method == http.MethodHead {
+		setRemuxStreamHeaders(w)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	ffPath, _, err := EnsureFFmpeg(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	args := BuildRemuxArgs(inputURL, audioOrdinal, startSec)
+	args := BuildRemuxArgsWithOptions(inputURL, audioOrdinal, startSec, opts)
 	cmd := exec.CommandContext(r.Context(), ffPath, args...)
 	configureHiddenProcess(cmd)
 
@@ -257,12 +341,13 @@ func StreamRemuxedMP4(w http.ResponseWriter, r *http.Request, inputURL string, a
 		return
 	}
 
-	w.Header().Set("Content-Type", "video/mp4")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	setRemuxStreamHeaders(w)
 	w.WriteHeader(http.StatusOK)
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
 
-	_, _ = io.Copy(w, stdout)
+	_ = StreamFlushed(w, stdout)
 	_ = cmd.Wait()
 }
 

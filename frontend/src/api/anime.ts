@@ -1,22 +1,12 @@
 import type { HlsSources, SkipRange, TorrentRemuxConfig, VoiceTrackOption } from '../marlakit/player/types';
-import {
-  fetchAnimeGOEpisodes,
-  findAnimeGOMatch,
-  type AnimeGODubOption
-} from './providers/animego';
-import {
-  fetchAnimeVostEpisodes,
-  findAnimeVostMatch,
-  searchAnimeVost,
-  splitAnimeVostTitles
-} from './providers/animevost';
-import { fetchDreamCastEpisodes, findDreamCastMatch, searchDreamCast } from './providers/dreamcast';
-import {
-  fetchKodikEpisodes,
-  findKodikMatch,
-  normalizeCanonicalStudioKey,
-  type KodikDubOption
-} from './providers/kodik';
+import { createLazyModuleLoader } from './providers/lazy';
+import type { AnimeGODubOption } from './providers/animego';
+import type { KodikDubOption } from './providers/kodik';
+
+const animeGoLoader = createLazyModuleLoader(() => import('./providers/animego'));
+const animeVostLoader = createLazyModuleLoader(() => import('./providers/animevost'));
+const dreamCastLoader = createLazyModuleLoader(() => import('./providers/dreamcast'));
+const kodikLoader = createLazyModuleLoader(() => import('./providers/kodik'));
 import {
   dedupeSearchQueries,
   fetchJsonWithTimeout,
@@ -24,8 +14,8 @@ import {
   SPECIAL_TITLE_RE,
   titleTokens
 } from './providers/shared';
+import { resolveBackendApiBase } from './bridge';
 
-const BACKEND_BASE = 'http://localhost:8080/api/v1';
 const SHIKI_GRAPHQL = 'https://shikimori.io/api/graphql';
 const SHIKI_REST_ANIMES = 'https://shikimori.io/api/animes';
 // Official AniLibria v1 API (https://anilibria.top/api/docs/v1) with mirror and local proxy fallback.
@@ -254,7 +244,6 @@ hydrateShikiCache();
 
 const initialHomeEnvelope = readPersistedCache<HomeFeeds>(HOME_CACHE_KEY, HOME_CACHE_MAX_AGE_MS);
 let batchPromise: Promise<void> | null = null;
-let backendAvailable: boolean | null = null;
 let homeFeedsCache: HomeFeeds | null = initialHomeEnvelope?.data ?? null;
 let homeFeedsCacheTs = initialHomeEnvelope?.ts ?? 0;
 let homeFeedsPromise: Promise<HomeFeeds> | null = null;
@@ -311,19 +300,8 @@ function resolveLibUrl(raw?: string | null): string {
   return raw;
 }
 
-async function isBackendUp(): Promise<boolean> {
-  if (backendAvailable !== null) return backendAvailable;
-  try {
-    await fetchJsonWithTimeout('http://localhost:8080/health', undefined, 700);
-    backendAvailable = true;
-  } catch {
-    backendAvailable = false;
-  }
-  // Re-probe periodically so starting the Go backend later picks up automatically.
-  window.setTimeout(() => {
-    backendAvailable = null;
-  }, 15_000);
-  return backendAvailable;
+async function getBackendBase(): Promise<string | null> {
+  return resolveBackendApiBase();
 }
 
 interface ShikiGqlNode {
@@ -676,10 +654,11 @@ async function fetchReleaseByIdOrAlias(
   shikiArt?: ShikiArtwork,
   expectedShikiId?: number
 ): Promise<PlayableRelease | null> {
-  if (await isBackendUp()) {
+  const backendBase = await getBackendBase();
+  if (backendBase) {
     try {
       const env = await fetchJsonWithTimeout<BackendDetailEnvelope>(
-        `${BACKEND_BASE}/anime/releases/${encodeURIComponent(idOrAlias)}`,
+        `${backendBase}/anime/releases/${encodeURIComponent(idOrAlias)}`,
         undefined,
         7000
       );
@@ -690,6 +669,26 @@ async function fetchReleaseByIdOrAlias(
           env.data.shikimori_id !== expectedShikiId
         ) {
           return null;
+        }
+        let mappedEpisodes = env.data.episodes ?? [];
+        const hasSkipRanges = mappedEpisodes.some(
+          (ep) => ep.opening?.stop != null || ep.ending?.stop != null
+        );
+        if (!hasSkipRanges) {
+          const timecodes = await fetchReleaseTimecodes(String(env.data.id || idOrAlias));
+          if (timecodes.length > 0) {
+            const tcById = new Map(timecodes.filter((t) => t.id).map((t) => [t.id!, t]));
+            mappedEpisodes = mappedEpisodes.map((ep) => {
+              const tc = tcById.get(ep.id);
+              return tc
+                ? {
+                    ...ep,
+                    opening: ep.opening ?? tc.opening,
+                    ending: ep.ending ?? tc.ending
+                  }
+                : ep;
+            });
+          }
         }
         return {
           id: env.data.id,
@@ -705,7 +704,7 @@ async function fetchReleaseByIdOrAlias(
           ),
           poster: env.data.poster?.original || env.data.poster?.main || shikiArt?.posterOriginal,
           banner: env.data.banner || shikiArt?.screenshots[0],
-          episodes: env.data.episodes ?? []
+          episodes: mappedEpisodes
         };
       }
     } catch {
@@ -909,7 +908,26 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
     ...(target.searchQueries ?? [])
   ]);
 
-  const dcMatch = await findDreamCastMatch(providerTitles, shikiArt?.year ?? null).catch(() => null);
+  const [dcRes, agoRes, avRes, kodikRes] = await Promise.allSettled([
+    dreamCastLoader
+      .load()
+      .then((m) => m.findDreamCastMatch(providerTitles, shikiArt?.year ?? null))
+      .catch(() => null),
+    animeGoLoader
+      .load()
+      .then((m) => m.findAnimeGOMatch(providerTitles, shikiArt?.year ?? null))
+      .catch(() => null),
+    animeVostLoader
+      .load()
+      .then((m) => m.findAnimeVostMatch(providerTitles, shikiArt?.year ?? null))
+      .catch(() => null),
+    kodikLoader
+      .load()
+      .then((m) => m.findKodikMatch(providerTitles, shikiArt?.year ?? null, target.shikiId))
+      .catch(() => null)
+  ]);
+
+  const dcMatch = dcRes.status === 'fulfilled' ? dcRes.value : null;
   if (dcMatch && dcMatch.episodes.length > 0) {
     return {
       id: dcMatch.releaseId,
@@ -926,7 +944,7 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
     };
   }
 
-  const agoMatch = await findAnimeGOMatch(providerTitles, shikiArt?.year ?? null).catch(() => null);
+  const agoMatch = agoRes.status === 'fulfilled' ? agoRes.value : null;
   if (agoMatch && agoMatch.dubs.length > 0) {
     const preferredOrder = ['студийная банда', 'anilibria', 'dream cast', 'shiza', 'anidub'];
     const pickBestDub = (): AnimeGODubOption => {
@@ -953,7 +971,7 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
     }
   }
 
-  const avMatch = await findAnimeVostMatch(providerTitles, shikiArt?.year ?? null).catch(() => null);
+  const avMatch = avRes.status === 'fulfilled' ? avRes.value : null;
   if (avMatch && avMatch.episodes.length > 0) {
     return {
       id: avMatch.releaseId,
@@ -969,9 +987,7 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
     };
   }
 
-  const kodikMatch = await findKodikMatch(providerTitles, shikiArt?.year ?? null, target.shikiId).catch(
-    () => null
-  );
+  const kodikMatch = kodikRes.status === 'fulfilled' ? kodikRes.value : null;
   if (kodikMatch && kodikMatch.dubs.length > 0) {
     const preferredOrder = ['anidub', 'студийная банда', 'anilibria', 'dream cast', 'shiza'];
     const pickBestKodik = (): KodikDubOption => {
@@ -1901,10 +1917,10 @@ export async function searchGroupedAnime(
       ? fetchShikimoriRestSearch(swappedQuery, o, filter, signal)
       : Promise.resolve([] as RawShikiRestAnime[]),
     !hasGenreIds && filter !== 'ongoing' && query.length >= 2
-      ? searchDreamCast(query).catch(() => [])
+      ? dreamCastLoader.load().then((m) => m.searchDreamCast(query)).catch(() => [])
       : Promise.resolve([]),
     !hasGenreIds && filter !== 'ongoing' && query.length >= 2
-      ? searchAnimeVost(query).catch(() => [])
+      ? animeVostLoader.load().then((m) => m.searchAnimeVost(query)).catch(() => [])
       : Promise.resolve([])
   ]);
   if (signal?.aborted) return [];
@@ -2119,7 +2135,8 @@ export async function searchGroupedAnime(
   }
 
   // Merge AnimeVost hits for native MP4 & Russian titles
-  if (avRes.status === 'fulfilled' && Array.isArray(avRes.value)) {
+  if (avRes.status === 'fulfilled' && Array.isArray(avRes.value) && avRes.value.length > 0) {
+    const { splitAnimeVostTitles } = await animeVostLoader.load();
     for (const av of avRes.value.slice(0, 8)) {
       const parts = splitAnimeVostTitles(av.title);
       const ru = parts[0] ?? '';
@@ -2219,6 +2236,7 @@ export async function resolveVoiceTrackRelease(
   if (voice.provider === 'dreamcast') {
     const releaseId = Number(voice.providerId);
     const releaseUrl = typeof voice.sourceId === 'string' ? voice.sourceId : '';
+    const { fetchDreamCastEpisodes } = await dreamCastLoader.load();
     const episodes = await fetchDreamCastEpisodes(releaseId, releaseUrl);
     if (episodes.length === 0) {
       throw new Error(`Dream Cast: нет доступных серий для ${target.title}`);
@@ -2256,6 +2274,7 @@ export async function resolveVoiceTrackRelease(
       trId = parts[0];
       embedUrl = parts.slice(1).join('|');
     }
+    const { fetchAnimeGOEpisodes } = await animeGoLoader.load();
     const episodes = await fetchAnimeGOEpisodes(animeId, trId, embedUrl, providerSlug);
     if (episodes.length === 0) {
       throw new Error(`AnimeGO: нет доступных серий для ${target.title}`);
@@ -2281,6 +2300,7 @@ export async function resolveVoiceTrackRelease(
   if (voice.provider === 'kodik') {
     const yaniId = Number(voice.providerId);
     const studioKey = typeof voice.sourceId === 'string' ? voice.sourceId : '';
+    const { fetchKodikEpisodes } = await kodikLoader.load();
     const episodes = await fetchKodikEpisodes(yaniId, studioKey);
     if (episodes.length === 0) {
       throw new Error(`Kodik: нет доступных серий для ${target.title}`);
@@ -2305,6 +2325,7 @@ export async function resolveVoiceTrackRelease(
 
   if (voice.provider === 'animevost') {
     const releaseId = Number(voice.providerId);
+    const { fetchAnimeVostEpisodes } = await animeVostLoader.load();
     const episodes = await fetchAnimeVostEpisodes(releaseId);
     if (episodes.length === 0) {
       throw new Error(`AnimeVost: нет доступных серий для ${target.title}`);
@@ -2375,16 +2396,20 @@ export async function findVoiceOptions(
 
   const dcPromise =
     primaryProvider !== 'dreamcast'
-      ? findDreamCastMatch(searchTitles, shikiArt?.year ?? primary.year ?? null)
+      ? dreamCastLoader.load().then((m) => m.findDreamCastMatch(searchTitles, shikiArt?.year ?? primary.year ?? null))
       : Promise.resolve(null);
 
   const avPromise =
     primaryProvider !== 'animevost'
-      ? findAnimeVostMatch(searchTitles, shikiArt?.year ?? primary.year ?? null)
+      ? animeVostLoader.load().then((m) => m.findAnimeVostMatch(searchTitles, shikiArt?.year ?? primary.year ?? null))
       : Promise.resolve(null);
 
-  const agoPromise = findAnimeGOMatch(searchTitles, shikiArt?.year ?? primary.year ?? null);
-  const kodikPromise = findKodikMatch(searchTitles, shikiArt?.year ?? primary.year ?? null, shikiId);
+  const agoPromise = animeGoLoader
+    .load()
+    .then((m) => m.findAnimeGOMatch(searchTitles, shikiArt?.year ?? primary.year ?? null));
+  const kodikPromise = kodikLoader
+    .load()
+    .then((m) => m.findKodikMatch(searchTitles, shikiArt?.year ?? primary.year ?? null, shikiId));
 
   const [libSettled, dcSettled, avSettled, agoSettled, kodikSettled] = await Promise.allSettled([
     libPromise,
@@ -2444,8 +2469,13 @@ export async function findVoiceOptions(
     options.push(avSettled.value.voice);
   }
 
+  const kodikMod = await kodikLoader.load().catch(() => null);
+  const normalizeStudio =
+    kodikMod?.normalizeCanonicalStudioKey ??
+    ((label: string, isSub?: boolean) => (isSub ? 'sub' : label.trim().toLowerCase()));
+
   const seenStudioKeys = new Set<string>(
-    options.map((opt) => normalizeCanonicalStudioKey(opt.label, opt.isSub)).filter(Boolean)
+    options.map((opt) => normalizeStudio(opt.label, opt.isSub)).filter(Boolean)
   );
 
   if (agoSettled.status === 'fulfilled' && agoSettled.value) {
@@ -2453,7 +2483,7 @@ export async function findVoiceOptions(
       if (seenIds.has(dub.voice.id)) continue;
       // Skip duplicate voice entries when the exact studio is already present natively (e.g., direct AniLibria or Dream Cast),
       // while always keeping Original (Sub) cleanly available for 1080p Dual-Stream pairing.
-      const studioKey = normalizeCanonicalStudioKey(dub.voice.label, dub.voice.isSub);
+      const studioKey = normalizeStudio(dub.voice.label, dub.voice.isSub);
       if (!dub.voice.isSub && studioKey && seenStudioKeys.has(studioKey)) continue;
       seenIds.add(dub.voice.id);
       if (studioKey) seenStudioKeys.add(studioKey);
@@ -2464,7 +2494,7 @@ export async function findVoiceOptions(
   if (kodikSettled.status === 'fulfilled' && kodikSettled.value) {
     for (const dub of kodikSettled.value.dubs) {
       if (seenIds.has(dub.voice.id)) continue;
-      const studioKey = dub.studioKey || normalizeCanonicalStudioKey(dub.voice.label, dub.voice.isSub);
+      const studioKey = dub.studioKey || normalizeStudio(dub.voice.label, dub.voice.isSub);
       if (studioKey && seenStudioKeys.has(studioKey)) continue;
       seenIds.add(dub.voice.id);
       if (studioKey) seenStudioKeys.add(studioKey);
@@ -2523,62 +2553,182 @@ export function getCachedHeroOpeningPreview(
   return heroOpeningCache.get(key) ?? null;
 }
 
-async function warmOpeningHlsCache(clip: HeroOpeningPreview): Promise<void> {
-  const url = clip.streamUrlFast || clip.streamUrl;
+export interface WarmOpeningOptions {
+  quality?: 'hero' | 'fast';
+  maxSeconds?: number;
+}
+
+function resolvePlaylistVariantUrl(playlistText: string, playlistUrl: string): string | null {
+  const lines = playlistText.split(/\r?\n/);
+  let expectUri = false;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith('#EXT-X-STREAM-INF')) {
+      expectUri = true;
+      continue;
+    }
+    if (expectUri && !line.startsWith('#')) {
+      try {
+        return new URL(line, playlistUrl).href;
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function collectHlsWarmUrls(
+  playlistText: string,
+  playlistUrl: string,
+  startSec: number,
+  endSec: number,
+  maxSeconds: number
+): string[] {
+  const lines = playlistText.split(/\r?\n/);
+  const urls: string[] = [];
+  const windowEnd = Math.min(endSec > startSec ? endSec : startSec + maxSeconds, startSec + maxSeconds);
+  let accSec = 0;
+  let pendingDur = 0;
+  let pastWindowCount = 0;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    if (line.startsWith('#EXT-X-MAP:')) {
+      const uriMatch = line.match(/URI="([^"]+)"/i);
+      if (uriMatch?.[1]) {
+        try {
+          urls.push(new URL(uriMatch[1], playlistUrl).href);
+        } catch {}
+      }
+      continue;
+    }
+    if (line.startsWith('#EXTINF:')) {
+      const durMatch = line.match(/#EXTINF:([\d.]+)/);
+      pendingDur = durMatch ? parseFloat(durMatch[1]) || 0 : 0;
+      continue;
+    }
+    if (line.startsWith('#')) continue;
+
+    const segStart = accSec;
+    const segEnd = accSec + pendingDur;
+    accSec = segEnd;
+    pendingDur = 0;
+
+    if (segEnd >= startSec && segStart <= windowEnd) {
+      try {
+        urls.push(new URL(line, playlistUrl).href);
+      } catch {}
+    } else if (segStart > windowEnd && pastWindowCount < 1) {
+      // Include one extra lookahead segment past windowEnd so loop boundaries never stall.
+      try {
+        urls.push(new URL(line, playlistUrl).href);
+      } catch {}
+      pastWindowCount += 1;
+      break;
+    }
+  }
+
+  return urls;
+}
+
+async function fetchWarmBatch(urls: string[], concurrency = 3): Promise<void> {
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < urls.length) {
+      const idx = cursor++;
+      const url = urls[idx];
+      if (!url) continue;
+      await fetch(url).catch(() => {});
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, () => worker()));
+}
+
+async function warmOpeningHlsCache(
+  clip: HeroOpeningPreview,
+  options?: WarmOpeningOptions
+): Promise<void> {
+  const quality = options?.quality ?? 'hero';
+  const maxSeconds = Math.max(8, options?.maxSeconds ?? (quality === 'fast' ? 12 : 26));
+  const url = quality === 'fast' ? clip.streamUrlFast || clip.streamUrl : clip.streamUrl;
   if (!url || clip.isDirectVideo) return;
-  const cacheKey = `${url}#${Math.floor(clip.startSec)}`;
+
+  const cacheKey = `${url}#${Math.floor(clip.startSec)}:${maxSeconds}`;
   if (warmedPlaylists.has(cacheKey)) return;
   warmedPlaylists.add(cacheKey);
 
   try {
-    const res = await fetch(url);
-    if (!res.ok) return;
-    const text = await res.text();
-    const lines = text.split(/\r?\n/);
-    let accSec = 0;
-    let pendingDur = 0;
-    let warmedSegments = 0;
+    let targetUrl = url;
+    let res = await fetch(targetUrl);
+    if (!res.ok) {
+      warmedPlaylists.delete(cacheKey);
+      return;
+    }
+    let text = await res.text();
 
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) continue;
-      if (line.startsWith('#EXTINF:')) {
-        const durMatch = line.match(/#EXTINF:([\d.]+)/);
-        pendingDur = durMatch ? parseFloat(durMatch[1]) || 0 : 0;
-        continue;
+    // If upstream points to a master playlist, resolve the primary variant first.
+    if (text.includes('#EXT-X-STREAM-INF')) {
+      const variantUrl = resolvePlaylistVariantUrl(text, targetUrl);
+      if (!variantUrl) return;
+      targetUrl = variantUrl;
+      res = await fetch(targetUrl);
+      if (!res.ok) {
+        warmedPlaylists.delete(cacheKey);
+        return;
       }
-      if (line.startsWith('#')) continue;
+      text = await res.text();
+    }
 
-      const segEnd = accSec + pendingDur;
-      accSec = segEnd;
-      pendingDur = 0;
-
-      if (segEnd >= clip.startSec) {
-        const segUrl = new URL(line, url).href;
-        void fetch(segUrl).catch(() => {});
-        warmedSegments += 1;
-        if (warmedSegments >= 2) break;
-      }
+    const segmentUrls = collectHlsWarmUrls(text, targetUrl, clip.startSec, clip.endSec, maxSeconds);
+    if (segmentUrls.length > 0) {
+      await fetchWarmBatch(segmentUrls, 3);
     }
   } catch {
-    // Ignore background cache warming errors
+    warmedPlaylists.delete(cacheKey);
   }
 }
 
-export function warmHeroOpeningPreview(target: HeroOpeningTarget): void {
+export function warmHeroOpeningPreview(
+  target: HeroOpeningTarget,
+  options?: WarmOpeningOptions
+): void {
   const cached = getCachedHeroOpeningPreview(target);
   if (cached) {
-    void warmOpeningHlsCache(cached);
+    void warmOpeningHlsCache(cached, options);
     return;
   }
   if (cached === null) return;
   void resolveHeroOpeningPreview(target)
     .then((clip) => {
       if (clip) {
-        void warmOpeningHlsCache(clip);
+        void warmOpeningHlsCache(clip, options);
       }
     })
     .catch(() => {});
+}
+
+export function clampOpeningClipWindow(
+  startSec: number,
+  endSec: number,
+  videoDuration: number
+): { startSec: number; endSec: number } {
+  const dur = Number.isFinite(videoDuration) && videoDuration > 0 ? videoDuration : Infinity;
+  if (!Number.isFinite(dur)) {
+    return {
+      startSec: Math.max(0, startSec),
+      endSec: Math.max(startSec + 4, endSec)
+    };
+  }
+  const safeStart =
+    startSec >= dur - 4
+      ? Math.max(0, Math.min(dur * 0.25, Math.max(0, dur - 10)))
+      : Math.max(0, startSec);
+  const safeEnd = Math.max(safeStart + 2, Math.min(endSec, dur - 0.25));
+  return { startSec: safeStart, endSec: safeEnd };
 }
 
 export async function resolveHeroOpeningPreview(
@@ -2612,11 +2762,24 @@ export async function resolveHeroOpeningPreview(
         releaseAlias: previewAlias,
         shikiId: target.openingAlias ? undefined : target.shikiId
       });
+      const pickEpisodeStream = (ep: (typeof rel.episodes)[number]) => {
+        const hlsMain = ep.hls_720 || ep.hls_480 || ep.hls_1080 || '';
+        const hlsFast = ep.hls_480 || ep.hls_720 || ep.hls_1080 || '';
+        if (hlsMain) {
+          return { streamUrl: hlsMain, streamUrlFast: hlsFast || hlsMain, isDirectVideo: false };
+        }
+        const mp4Main = ep.mp4_720 || ep.mp4_480 || ep.mp4_1080 || '';
+        const mp4Fast = ep.mp4_480 || ep.mp4_720 || ep.mp4_1080 || '';
+        if (mp4Main) {
+          return { streamUrl: mp4Main, streamUrlFast: mp4Fast || mp4Main, isDirectVideo: true };
+        }
+        return null;
+      };
       const hasValidOpening = (ep: (typeof rel.episodes)[number], minDuration: number) =>
         ep.opening?.start != null &&
         ep.opening?.stop != null &&
         ep.opening.stop > ep.opening.start + minDuration &&
-        Boolean(ep.hls_720 || ep.hls_480 || ep.hls_1080);
+        pickEpisodeStream(ep) !== null;
 
       // Prefer episodes 2+ with full openings (since Episode 1 often omits OP or places it over ending credits).
       const opEp =
@@ -2630,9 +2793,8 @@ export async function resolveHeroOpeningPreview(
         rel.episodes.find((ep) => hasValidOpening(ep, 6));
 
       if (opEp?.opening?.start != null && opEp.opening.stop != null) {
-        const streamUrl = opEp.hls_720 || opEp.hls_480 || opEp.hls_1080 || '';
-        const streamUrlFast = opEp.hls_480 || opEp.hls_720 || opEp.hls_1080 || '';
-        if (streamUrl) {
+        const picked = pickEpisodeStream(opEp);
+        if (picked) {
           const opLen = Math.max(0, opEp.opening.stop - opEp.opening.start);
           // Start around the middle (~46%) of the opening by default to skip intro sponsor/staff credits and drop straight into the chorus.
           const defaultMidOffset =
@@ -2650,11 +2812,12 @@ export async function resolveHeroOpeningPreview(
             Math.max(opEp.opening.start, opEp.opening.stop - 14)
           );
           const result: HeroOpeningPreview = {
-            streamUrl,
-            streamUrlFast: streamUrlFast || streamUrl,
+            streamUrl: picked.streamUrl,
+            streamUrlFast: picked.streamUrlFast,
             startSec: trimmedStart,
             endSec: opEp.opening.stop,
-            episodeOrdinal: opEp.ordinal
+            episodeOrdinal: opEp.ordinal,
+            isDirectVideo: picked.isDirectVideo
           };
           heroOpeningCache.set(key, result);
           if (previewAlias && rel.alias && rel.alias !== previewAlias) {
@@ -2666,23 +2829,22 @@ export async function resolveHeroOpeningPreview(
 
       // If no opening markers exist on the release, prefer Episode 2 (where regular TV OP sits around 1:35) over Episode 1.
       const fallbackEp =
-        rel.episodes.find((ep) => ep.ordinal >= 2 && Boolean(ep.hls_720 || ep.hls_480 || ep.hls_1080)) ??
-        rel.episodes.find((ep) => Boolean(ep.hls_720 || ep.hls_480 || ep.hls_1080));
-      const fallbackUrl = fallbackEp?.hls_720 || fallbackEp?.hls_480 || fallbackEp?.hls_1080;
-      const fallbackFast = fallbackEp?.hls_480 || fallbackEp?.hls_720 || fallbackEp?.hls_1080;
-      if (fallbackEp && fallbackUrl && (fallbackEp.duration === 0 || fallbackEp.duration >= 150)) {
+        rel.episodes.find((ep) => ep.ordinal >= 2 && pickEpisodeStream(ep) !== null) ??
+        rel.episodes.find((ep) => pickEpisodeStream(ep) !== null);
+      const fallbackStream = fallbackEp ? pickEpisodeStream(fallbackEp) : null;
+      if (fallbackEp && fallbackStream && (fallbackEp.duration === 0 || fallbackEp.duration >= 150)) {
         const result: HeroOpeningPreview = {
-          streamUrl: fallbackUrl,
-          streamUrlFast: fallbackFast || fallbackUrl,
+          streamUrl: fallbackStream.streamUrl,
+          streamUrlFast: fallbackStream.streamUrlFast,
           startSec: 96,
           endSec: 138,
-          episodeOrdinal: fallbackEp.ordinal
+          episodeOrdinal: fallbackEp.ordinal,
+          isDirectVideo: fallbackStream.isDirectVideo
         };
         heroOpeningCache.set(key, result);
         return result;
       }
 
-      heroOpeningCache.set(key, null);
       return null;
     } catch {
       return null;

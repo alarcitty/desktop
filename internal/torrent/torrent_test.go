@@ -1,6 +1,9 @@
 package torrent
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -48,5 +51,40 @@ func TestParseEpisodeOrdinal(t *testing.T) {
 		if got := ParseEpisodeOrdinal(name); got != want {
 			t.Errorf("ParseEpisodeOrdinal(%q) = %d, want %d", name, got, want)
 		}
+	}
+}
+
+func TestManagerMountHandlerAndReleaseJSON(t *testing.T) {
+	m := &Manager{}
+	mux := http.NewServeMux()
+	m.loopbackMux = mux
+
+	called := false
+	m.MountHandler("/media/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	// Idempotent duplicate mount should not panic.
+	m.MountHandler("/media/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/media/stream.mp4?hash=abc&file=0", nil)
+	mux.ServeHTTP(rec, req)
+	if !called || rec.Code != http.StatusNoContent {
+		t.Fatalf("expected mounted handler to run cleanly (called=%v code=%d)", called, rec.Code)
+	}
+
+	raw, err := json.Marshal(TorrentReleaseInfo{
+		InfoHash:     "abc",
+		Name:         "Show",
+		MediaBaseURL: "http://127.0.0.1:54321",
+	})
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	if !strings.Contains(string(raw), `"mediaBaseUrl":"http://127.0.0.1:54321"`) {
+		t.Fatalf("expected mediaBaseUrl in serialized release info, got %s", string(raw))
 	}
 }

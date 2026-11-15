@@ -2,8 +2,10 @@ package mila
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -14,22 +16,54 @@ import (
 )
 
 type Mila struct {
-	ctx          context.Context
-	log          *logger.Logger
-	isFullscreen atomic.Bool
-	isPip        atomic.Bool
+	ctx             context.Context
+	log             *logger.Logger
+	isFullscreen    atomic.Bool
+	isPip           atomic.Bool
+	runtimeStarted  atomic.Bool
+	windowStatePath string
+	emitCloseEvent  func(ctx context.Context, eventName string)
+	captureGeometry func(ctx context.Context) (screen.WindowGeometry, bool)
 }
 
 // make_unique mila instance
 func New() *Mila {
-	return &Mila{
-		log: logger.Make("mila"),
+	statePath, _ := screen.DefaultWindowStatePath()
+	m := &Mila{
+		log:             logger.Make("mila"),
+		windowStatePath: statePath,
 	}
+	m.emitCloseEvent = func(ctx context.Context, eventName string) {
+		if ctx == nil || !m.runtimeStarted.Load() {
+			return
+		}
+		wailsRuntime.EventsEmit(ctx, eventName)
+	}
+	m.captureGeometry = func(ctx context.Context) (screen.WindowGeometry, bool) {
+		if geom, ok := screen.CurrentWindowGeometry("milaWindow", "mila"); ok {
+			return geom, true
+		}
+		if ctx == nil || !m.runtimeStarted.Load() {
+			return screen.WindowGeometry{}, false
+		}
+		w, h := wailsRuntime.WindowGetSize(ctx)
+		x, y := wailsRuntime.WindowGetPosition(ctx)
+		maximized := wailsRuntime.WindowIsMaximised(ctx)
+		return screen.NormalizeWindowGeometry(screen.WindowGeometry{
+			X:         x,
+			Y:         y,
+			Width:     w,
+			Height:    h,
+			Maximized: maximized,
+		})
+	}
+	return m
 }
 
 // wails startup hook
 func (m *Mila) Startup(ctx context.Context) {
 	m.ctx = ctx
+	m.runtimeStarted.Store(true)
 	m.log.Info("runtime.init", "go_os", runtime.GOOS, "arch", runtime.GOARCH, "cpus", runtime.NumCPU())
 
 	screens, err := wailsRuntime.ScreenGetAll(ctx)
@@ -74,6 +108,75 @@ func (m *Mila) Startup(ctx context.Context) {
 			time.Sleep(25 * time.Millisecond)
 		}
 	}()
+}
+
+// BeforeClose notifies the frontend to flush unsaved progress, persists window geometry, and flushes logs.
+func (m *Mila) BeforeClose(ctx context.Context) (prevent bool) {
+	if ctx == nil {
+		ctx = m.ctx
+	}
+	if m.emitCloseEvent != nil {
+		m.emitCloseEvent(ctx, "mila:before-close")
+	}
+	if m.captureGeometry != nil {
+		if geom, ok := m.captureGeometry(ctx); ok {
+			if err := screen.SaveWindowGeometry(m.windowStatePath, geom); err != nil {
+				m.log.Warn("window.state_save_failed", "err", err.Error())
+			} else {
+				m.log.Info("window.state_saved", "width", geom.Width, "height", geom.Height, "maximized", geom.Maximized)
+			}
+		}
+	}
+	_ = logger.FlushDefaultSink()
+	return false
+}
+
+// Shutdown finalizes background logging when the desktop host terminates.
+func (m *Mila) Shutdown(ctx context.Context) {
+	m.log.Info("runtime.shutdown")
+	_ = logger.CloseDefaultSink()
+}
+
+// SaveWindowState persists explicit window placement metrics into local JSON config.
+func (m *Mila) SaveWindowState(x, y, width, height int, maximized bool) error {
+	return screen.SaveWindowGeometry(m.windowStatePath, screen.WindowGeometry{
+		X:         x,
+		Y:         y,
+		Width:     width,
+		Height:    height,
+		Maximized: maximized,
+	})
+}
+
+// ExportDiagnosticsLogs exports sanitized rotating log archives to a ZIP bundle and returns a `{data}` envelope.
+func (m *Mila) ExportDiagnosticsLogs(destDir string) (string, error) {
+	_ = logger.FlushDefaultSink()
+	report, err := logger.ExportDiagnosticsZip(strings.TrimSpace(destDir))
+	if err != nil {
+		return `{"error":"failed to export diagnostic logs"}`, err
+	}
+	raw, err := json.Marshal(map[string]any{"data": report})
+	if err != nil {
+		return `{"error":"failed to serialize report"}`, err
+	}
+	return string(raw), nil
+}
+
+// GetContractInfo exposes the unified Go<->JS contract descriptor for parity with HTTP `/health`.
+func (m *Mila) GetContractInfo() (string, error) {
+	raw, err := json.Marshal(map[string]any{
+		"data": map[string]any{
+			"status":       "ok",
+			"mode":         "wails",
+			"apiBase":      "/api/v1",
+			"extBase":      "/ext",
+			"capabilities": []string{"anime", "shikimori", "image", "providers", "torrent", "diagnostics"},
+		},
+	})
+	if err != nil {
+		return `{"error":"marshal failed"}`, err
+	}
+	return string(raw), nil
 }
 
 // SetFullscreen toggles true OS monitor fullscreen (covering the taskbar).

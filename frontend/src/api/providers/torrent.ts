@@ -1,3 +1,5 @@
+import { getWailsMilaBridge } from '../bridge';
+
 export interface TorrentSearchItem {
   source: 'nyaa' | 'anilibria' | string;
   title: string;
@@ -23,6 +25,7 @@ export interface TorrentFileItem {
 export interface TorrentReleaseInfo {
   infoHash: string;
   name: string;
+  mediaBaseUrl?: string;
   files: TorrentFileItem[];
 }
 
@@ -48,10 +51,45 @@ export interface MediaSubtitleTrack {
 export interface MediaProbeResult {
   duration: number;
   videoCodec?: string;
+  pixFmt?: string;
+  profile?: string;
   width?: number;
   height?: number;
   audioTracks: MediaAudioTrack[];
   subtitles: MediaSubtitleTrack[];
+}
+
+export interface TorrentMediaUrlOptions {
+  videoCodec?: string;
+  transcode?: boolean;
+}
+
+let cachedTorrentMediaBase = '';
+
+export function setTorrentMediaBaseUrl(url?: string): void {
+  const cleaned = (url || '').trim().replace(/\/+$/, '');
+  if (!cleaned) return;
+  if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(cleaned)) {
+    cachedTorrentMediaBase = cleaned;
+  }
+}
+
+export function getTorrentMediaBaseUrl(): string {
+  return cachedTorrentMediaBase;
+}
+
+export async function ensureTorrentMediaBaseUrl(): Promise<string> {
+  if (cachedTorrentMediaBase) return cachedTorrentMediaBase;
+  const bridge = getWailsTorrentBridge();
+  if (bridge?.GetTorrentMediaBase) {
+    try {
+      const base = await bridge.GetTorrentMediaBase();
+      setTorrentMediaBaseUrl(base);
+    } catch {
+      // Fallback to relative paths
+    }
+  }
+  return cachedTorrentMediaBase;
 }
 
 export interface FFmpegStatus {
@@ -62,19 +100,8 @@ export interface FFmpegStatus {
   error?: string;
 }
 
-interface WailsTorrentBindings {
-  TorrentSearch?: (query: string, aniLibriaID: number) => Promise<string>;
-  TorrentOpen?: (magnet: string) => Promise<string>;
-  TorrentProbeFile?: (infoHash: string, fileIndex: number) => Promise<string>;
-  GetFFmpegStatus?: () => Promise<string>;
-}
-
-function getWailsTorrentBridge(): WailsTorrentBindings | null {
-  if (typeof window === 'undefined') return null;
-  const w = window as unknown as {
-    go?: { mila?: { Mila?: WailsTorrentBindings } };
-  };
-  return w.go?.mila?.Mila ?? null;
+function getWailsTorrentBridge() {
+  return getWailsMilaBridge();
 }
 
 export async function searchTorrents(
@@ -104,13 +131,18 @@ export async function openTorrentMagnet(magnet: string): Promise<TorrentReleaseI
   if (bridge?.TorrentOpen) {
     const raw = await bridge.TorrentOpen(magnet);
     const parsed = JSON.parse(raw) as TorrentReleaseInfo;
-    if (parsed?.infoHash) return parsed;
+    if (parsed?.infoHash) {
+      setTorrentMediaBaseUrl(parsed.mediaBaseUrl);
+      return parsed;
+    }
   }
   const res = await fetch(`/torrent/open?magnet=${encodeURIComponent(magnet)}`);
   if (!res.ok) {
     throw new Error(await res.text());
   }
-  return (await res.json()) as TorrentReleaseInfo;
+  const parsed = (await res.json()) as TorrentReleaseInfo;
+  setTorrentMediaBaseUrl(parsed.mediaBaseUrl);
+  return parsed;
 }
 
 export async function probeTorrentFile(
@@ -152,10 +184,12 @@ export function buildTorrentMediaUrl(
   fileIndex: number,
   needsRemux: boolean,
   audioOrdinal = 0,
-  startSec = 0
+  startSec = 0,
+  options?: TorrentMediaUrlOptions
 ): string {
+  const base = cachedTorrentMediaBase;
   if (!needsRemux) {
-    return `/torrent/stream/${encodeURIComponent(hash)}/${encodeURIComponent(String(fileIndex))}`;
+    return `${base}/torrent/stream/${encodeURIComponent(hash)}/${encodeURIComponent(String(fileIndex))}`;
   }
   const params = new URLSearchParams();
   params.set('hash', hash);
@@ -164,7 +198,13 @@ export function buildTorrentMediaUrl(
   if (startSec > 0.25) {
     params.set('t', startSec.toFixed(2));
   }
-  return `/media/stream.mp4?${params.toString()}`;
+  if (options?.videoCodec) {
+    params.set('vcodec', options.videoCodec);
+  }
+  if (options?.transcode) {
+    params.set('transcode', '1');
+  }
+  return `${base}/media/stream.mp4?${params.toString()}`;
 }
 
 export function buildTorrentSubtitleUrl(
@@ -176,5 +216,5 @@ export function buildTorrentSubtitleUrl(
   params.set('hash', hash);
   params.set('file', String(fileIndex));
   params.set('s', String(Math.max(0, subOrdinal)));
-  return `/media/subtitles.vtt?${params.toString()}`;
+  return `${cachedTorrentMediaBase}/media/subtitles.vtt?${params.toString()}`;
 }

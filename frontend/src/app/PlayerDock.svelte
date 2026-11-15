@@ -259,33 +259,43 @@
     closeCustomPip();
   }
 
+  let activeDragCleanup: (() => void) | null = null;
+
   onMount(() => {
     registerPlayerPauseControl(() => {
       hlsPlayerRef?.pause();
     });
     return () => {
+      activeDragCleanup?.();
+      activeDragCleanup = null;
       registerPlayerPauseControl(null);
     };
   });
 
   function handlePipDragStart(e: PointerEvent) {
     if (!isPipVisible) return;
+    activeDragCleanup?.();
+    activeDragCleanup = null;
 
     // In OS-wide Always-On-Top mode inside Wails app, dragging >= 5px moves the actual Windows OS window!
     if (bindings.osPipActive) {
       const startX = e.clientX;
       const startY = e.clientY;
-      const onOsMove = (ev: PointerEvent) => {
-        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
+      const cleanupOsDrag = () => {
         window.removeEventListener('pointermove', onOsMove);
         window.removeEventListener('pointerup', onOsUp);
+        if (activeDragCleanup === cleanupOsDrag) activeDragCleanup = null;
+      };
+      const onOsMove = (ev: PointerEvent) => {
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
+        cleanupOsDrag();
         hlsPlayerRef?.notifyPipDragged();
         startOsPipWindowDrag();
       };
       const onOsUp = () => {
-        window.removeEventListener('pointermove', onOsMove);
-        window.removeEventListener('pointerup', onOsUp);
+        cleanupOsDrag();
       };
+      activeDragCleanup = cleanupOsDrag;
       window.addEventListener('pointermove', onOsMove);
       window.addEventListener('pointerup', onOsUp);
       return;
@@ -296,6 +306,13 @@
     const startY = e.clientY;
     const initialRect = pipShellEl.getBoundingClientRect();
     let moved = false;
+
+    const detachDrag = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      if (activeDragCleanup === detachDrag) activeDragCleanup = null;
+    };
 
     const onMove = (ev: PointerEvent) => {
       const rawDx = ev.clientX - startX;
@@ -316,9 +333,7 @@
     };
 
     const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
+      detachDrag();
 
       if (!moved || !pipShellEl) {
         isDragging = false;
@@ -348,6 +363,7 @@
       dragDy = 0;
     };
 
+    activeDragCleanup = detachDrag;
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);

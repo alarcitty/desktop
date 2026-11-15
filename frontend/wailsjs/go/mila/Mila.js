@@ -18,8 +18,24 @@ export function AnimeVostSearch(arg1) {
   return window['go']['mila']['Mila']['AnimeVostSearch'](arg1);
 }
 
+export function ExportDiagnosticsLogs(arg1) {
+  return window['go']['mila']['Mila']['ExportDiagnosticsLogs'](arg1);
+}
+
+export function GetContractInfo() {
+  return window['go']['mila']['Mila']['GetContractInfo']();
+}
+
 export function GetFFmpegStatus() {
   return window['go']['mila']['Mila']['GetFFmpegStatus']();
+}
+
+export function GetTorrentMediaBase() {
+  return window['go']['mila']['Mila']['GetTorrentMediaBase']();
+}
+
+export function SaveWindowState(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['mila']['Mila']['SaveWindowState'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function SetFullscreen(arg1) {

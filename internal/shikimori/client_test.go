@@ -88,3 +88,41 @@ func TestGetByIDsBatchesCachesAndRetries(t *testing.T) {
 		t.Fatalf("expected cache hit on second GetByID call")
 	}
 }
+
+func TestShikimoriDiskCacheSurvivesClientRestart(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"animes": []map[string]any{
+					{"id": "63098", "malId": "63098", "name": "Psyren", "score": 7.5},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	cacheDir := t.TempDir()
+	c1 := New(Config{BaseURL: srv.URL, MinInterval: time.Millisecond, CacheDir: cacheDir})
+	if _, err := c1.GetByID(context.Background(), 63098); err != nil {
+		t.Fatalf("first GetByID failed: %v", err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("expected 1 upstream call, got %d", hits.Load())
+	}
+
+	// Simulate app restart with fresh Client pointing at same CacheDir
+	c2 := New(Config{BaseURL: srv.URL, MinInterval: time.Millisecond, CacheDir: cacheDir})
+	got, err := c2.GetByID(context.Background(), 63098)
+	if err != nil {
+		t.Fatalf("warmed GetByID failed: %v", err)
+	}
+	if got.Name != "Psyren" {
+		t.Fatalf("expected Psyren from L2 cache, got %q", got.Name)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("expected 0 extra upstream requests after L2 restore, got total %d", hits.Load())
+	}
+}

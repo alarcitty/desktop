@@ -11,6 +11,19 @@ import (
 	"mila/internal/torrent"
 )
 
+func init() {
+	torrent.DefaultManager().MountHandler("/media/", http.HandlerFunc(serveMediaRoute))
+}
+
+// GetTorrentMediaBase returns the direct TCP loopback HTTP origin for unbuffered remux/media streaming.
+func (m *Mila) GetTorrentMediaBase() string {
+	base, err := torrent.DefaultManager().MediaBaseURL()
+	if err != nil {
+		return ""
+	}
+	return base
+}
+
 // TorrentSearch queries Nyaa and AniLibria torrents for a release or query string.
 func (m *Mila) TorrentSearch(query string, aniLibriaID int) (string, error) {
 	items, err := torrent.SearchTorrents(context.Background(), query, aniLibriaID)
@@ -134,12 +147,17 @@ func serveMediaRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		audioOrd, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("a")))
 		startSec, _ := strconv.ParseFloat(strings.TrimSpace(r.URL.Query().Get("t")), 64)
+		vcodec := strings.TrimSpace(r.URL.Query().Get("vcodec"))
+		transcode := strings.TrimSpace(r.URL.Query().Get("transcode")) == "1"
 		localURL, err := torrent.DefaultManager().LocalStreamURL(hash, fileIdx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		media.StreamRemuxedMP4(w, r, localURL, audioOrd, startSec)
+		media.StreamRemuxedMP4WithOptions(w, r, localURL, audioOrd, startSec, media.RemuxOptions{
+			VideoCodec: vcodec,
+			Transcode:  transcode,
+		})
 	case "/media/subtitles.vtt":
 		hash := strings.TrimSpace(r.URL.Query().Get("hash"))
 		fileIdx, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("file")))

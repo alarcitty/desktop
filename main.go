@@ -19,6 +19,11 @@ var assets embed.FS
 
 func main() {
 	// make_unique logger and app instance
+	_ = logger.EnableDefaultFileLogging()
+	defer func() {
+		_ = logger.CloseDefaultSink()
+	}()
+
 	log := logger.Make("boot")
 	m := mila.New()
 
@@ -39,6 +44,8 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0}, // transparent for rounded corners
 		OnStartup:        m.Startup,
+		OnBeforeClose:    m.BeforeClose,
+		OnShutdown:       m.Shutdown,
 		Bind: []interface{}{
 			m,
 		},

@@ -7,9 +7,17 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"mila/internal/aniliberty"
+	"mila/internal/anime"
+	"mila/internal/cache"
+	"mila/internal/server"
+	"mila/internal/shikimori"
 )
 
 const (
@@ -96,13 +104,42 @@ func (m *Mila) AnimeVostPlaylist(id int) (string, error) {
 	return postProviderForm(animeVostBaseURL+"/playlist", params)
 }
 
-// NewProviderHandler serves same-origin `/ext/*` reverse-proxy routes for provider APIs and HLS streams inside Wails.
+// NewProviderHandler serves same-origin `/api/v1/*`, `/ext/*`, `/torrent/*`, and `/media/*` routes inside Wails.
 func NewProviderHandler() http.Handler {
 	return newProviderProxyHandler(defaultProviderRoutes())
 }
 
+func newDefaultAPIHandler() http.Handler {
+	shikiCacheDir, _ := cache.DefaultDiskCacheDir("shikimori")
+	libCacheDir, _ := cache.DefaultDiskCacheDir("aniliberty")
+	shikiClient := shikimori.New(shikimori.Config{
+		BaseURL:  os.Getenv("SHIKIMORI_BASE_URL"),
+		Token:    os.Getenv("SHIKIMORI_TOKEN"),
+		CacheDir: shikiCacheDir,
+	})
+	libClient := aniliberty.New(aniliberty.Config{
+		BaseURL:  os.Getenv("ANILIBERTY_BASE_URL"),
+		CacheDir: libCacheDir,
+	})
+	animeSvc := anime.NewService(libClient, shikiClient)
+	return server.New(animeSvc).Handler()
+}
+
 func newProviderProxyHandler(routes []providerRoute) http.Handler {
+	var apiOnce sync.Once
+	var apiHandler http.Handler
+	getAPIHandler := func() http.Handler {
+		apiOnce.Do(func() {
+			apiHandler = newDefaultAPIHandler()
+		})
+		return apiHandler
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			getAPIHandler().ServeHTTP(w, r)
+			return
+		}
 		switch r.URL.Path {
 		case "/ext/stream":
 			serveStreamProxy(w, r, false)

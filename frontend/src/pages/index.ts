@@ -8,7 +8,7 @@ import Home from './home/Home.svelte';
 import LibraryPage from './library/Library.svelte';
 import News from './news/News.svelte';
 import ImportPage from './import/Import.svelte';
-import AnimePage from './anime/AnimePage.svelte';
+import { createLazyModuleLoader } from '../api/providers/lazy';
 
 export type PageId = 'home' | 'library' | 'news' | 'import' | 'anime';
 
@@ -29,13 +29,11 @@ export const pages: PageDef[] = [
   { id: 'import', name: 'Import', icon: Import, component: ImportPage }
 ];
 
-const hiddenPages: Record<string, PageDef> = {
-  anime: { id: 'anime', name: 'Anime', icon: House, component: AnimePage }
-};
+export const loadAnimePage = createLazyModuleLoader(() => import('./anime/AnimePage.svelte').then((m) => m.default));
 
 export const defaultPage: PageId = 'home';
 
 export function getPage(aId: PageId): PageDef
 {
-  return hiddenPages[aId] ?? pages.find((p) => p.id === aId) ?? pages[0];
+  return pages.find((p) => p.id === aId) ?? pages[0];
 }

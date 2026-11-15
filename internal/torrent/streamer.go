@@ -36,19 +36,22 @@ type TorrentFileItem struct {
 
 // TorrentReleaseInfo describes an opened magnet/torrent release and its sorted episode files.
 type TorrentReleaseInfo struct {
-	InfoHash string            `json:"infoHash"`
-	Name     string            `json:"name"`
-	Files    []TorrentFileItem `json:"files"`
+	InfoHash     string            `json:"infoHash"`
+	Name         string            `json:"name"`
+	MediaBaseURL string            `json:"mediaBaseUrl,omitempty"`
+	Files        []TorrentFileItem `json:"files"`
 }
 
 // Manager coordinates anacrolix/torrent client lifecycle, sequential readers, and local HTTP range streaming.
 type Manager struct {
-	mu           sync.Mutex
-	client       *bt.Client
-	torrents     map[string]*bt.Torrent
-	dataDir      string
-	loopbackAddr string
-	loopbackSrv  *http.Server
+	mu            sync.Mutex
+	client        *bt.Client
+	torrents      map[string]*bt.Torrent
+	dataDir       string
+	loopbackAddr  string
+	loopbackMux   *http.ServeMux
+	loopbackSrv   *http.Server
+	extraHandlers map[string]http.Handler
 }
 
 var (
@@ -112,6 +115,9 @@ func (m *Manager) ensureInitialized() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/torrent/stream/", m.ServeHTTPStream)
+	for pattern, h := range m.extraHandlers {
+		mux.Handle(pattern, h)
+	}
 	srv := &http.Server{Handler: mux}
 	go func() {
 		_ = srv.Serve(ln)
@@ -120,8 +126,39 @@ func (m *Manager) ensureInitialized() error {
 	m.dataDir = dir
 	m.client = cl
 	m.loopbackAddr = "http://" + ln.Addr().String()
+	m.loopbackMux = mux
 	m.loopbackSrv = srv
 	return nil
+}
+
+// MountHandler registers an HTTP route prefix on the direct TCP loopback server, bypassing Wails AssetServer buffering.
+func (m *Manager) MountHandler(pattern string, handler http.Handler) {
+	if pattern == "" || handler == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.extraHandlers == nil {
+		m.extraHandlers = make(map[string]http.Handler)
+	}
+	if _, exists := m.extraHandlers[pattern]; exists {
+		return
+	}
+	m.extraHandlers[pattern] = handler
+	if m.loopbackMux != nil {
+		m.loopbackMux.Handle(pattern, handler)
+	}
+}
+
+// MediaBaseURL ensures the TCP loopback HTTP server is running and returns its base URL.
+func (m *Manager) MediaBaseURL() (string, error) {
+	if err := m.ensureInitialized(); err != nil {
+		return "", err
+	}
+	m.mu.Lock()
+	addr := m.loopbackAddr
+	m.mu.Unlock()
+	return addr, nil
 }
 
 // LocalStreamURL returns the fast loopback HTTP Range URL that ffmpeg/ffprobe read from sequentially.
@@ -165,6 +202,7 @@ func (m *Manager) OpenMagnet(ctx context.Context, magnet string) (*TorrentReleas
 	hashHex := strings.ToLower(t.InfoHash().HexString())
 	m.mu.Lock()
 	m.torrents[hashHex] = t
+	baseURL := m.loopbackAddr
 	m.mu.Unlock()
 
 	files := MapTorrentVideoFiles(t.Files())
@@ -173,9 +211,10 @@ func (m *Manager) OpenMagnet(ctx context.Context, magnet string) (*TorrentReleas
 	}
 
 	return &TorrentReleaseInfo{
-		InfoHash: hashHex,
-		Name:     t.Name(),
-		Files:    files,
+		InfoHash:     hashHex,
+		Name:         t.Name(),
+		MediaBaseURL: baseURL,
+		Files:        files,
 	}, nil
 }
 
@@ -318,11 +357,19 @@ func (m *Manager) ServeHTTPStream(w http.ResponseWriter, r *http.Request) {
 	reader := file.NewReader()
 	defer reader.Close()
 	reader.SetResponsive()
-	reader.SetReadahead(16 << 20)
+	reader.SetReadahead(32 << 20)
 
-	// Prioritize this file ahead of remaining batch episodes for smooth streaming.
-	file.SetPriority(bt.PiecePriorityNormal)
+	// Prioritize this file plus its header and tail Cues pieces for rapid probe and playback startup.
+	file.SetPriority(bt.PiecePriorityHigh)
+	beginPiece := file.BeginPieceIndex()
+	endPiece := file.EndPieceIndex()
+	for _, idx := range []int{beginPiece, beginPiece + 1, endPiece - 1} {
+		if idx >= beginPiece && idx < endPiece {
+			t.Piece(idx).SetPriority(bt.PiecePriorityNow)
+		}
+	}
 
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	ext := strings.ToLower(filepath.Ext(file.DisplayPath()))
 	switch ext {
 	case ".mp4":

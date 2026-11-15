@@ -35,7 +35,7 @@
     type ShikiSimilarAnime,
     type ShikiVideoItem
   } from '../../api/anime';
-  import { searchTorrents, type TorrentSearchItem } from '../../api/providers/torrent';
+  import type { TorrentSearchItem } from '../../api/providers/torrent';
   import { episodeProgressMap, getEpisodeProgress } from '../../app/history.svelte';
   import { isInWatchLater, toggleWatchLater } from '../../app/library.svelte';
   import { encodeMilaShareLink, goBack } from '../../app/router.svelte';
@@ -105,6 +105,7 @@
   let torrentsError = $state('');
   let torrentResults = $state<TorrentSearchItem[]>([]);
   let torrentResultsFor = $state('');
+  let torrentReqToken = 0;
 
   const currentShikiId = $derived(player.shikiArt?.id ?? player.target?.shikiId ?? 0);
 
@@ -416,6 +417,12 @@
     // Reset page-local transient modals/filters when switching to a different title.
     void currentShikiId;
     void player.target?.releaseAlias;
+    torrentReqToken += 1;
+    torrentsLoading = false;
+    torrentsOpen = false;
+    torrentResults = [];
+    torrentResultsFor = '';
+    torrentsError = '';
     lightboxUrl = null;
     activeTrailer = null;
     epSortBy = 'order';
@@ -433,8 +440,13 @@
   });
 
   onDestroy(() => {
+    torrentReqToken += 1;
+    torrentResults = [];
+    lightboxUrl = null;
+    activeTrailer = null;
     if (shareTimer !== undefined) {
       window.clearTimeout(shareTimer);
+      shareTimer = undefined;
     }
   });
 
@@ -652,22 +664,32 @@
 
   async function toggleTorrentsDrawer() {
     torrentsOpen = !torrentsOpen;
-    if (!torrentsOpen) return;
+    if (!torrentsOpen) {
+      torrentReqToken += 1;
+      torrentsLoading = false;
+      return;
+    }
     const key = `${player.shikiArt?.id ?? 0}:${displayTitle}`;
     if (torrentResultsFor === key && torrentResults.length > 0) return;
 
+    const reqToken = ++torrentReqToken;
     torrentsLoading = true;
     torrentsError = '';
     try {
       const q = (player.shikiArt?.english || player.shikiArt?.name || displayTitle || '').trim();
       const libId = player.release?.provider === 'aniliberty' ? player.release.id : 0;
+      const { searchTorrents } = await import('../../api/providers/torrent');
       const items = await searchTorrents(q, libId);
+      if (reqToken !== torrentReqToken) return;
       torrentResults = items;
       torrentResultsFor = key;
     } catch (err) {
+      if (reqToken !== torrentReqToken) return;
       torrentsError = err instanceof Error ? err.message : 'Failed to search torrents';
     } finally {
-      torrentsLoading = false;
+      if (reqToken === torrentReqToken) {
+        torrentsLoading = false;
+      }
     }
   }
 

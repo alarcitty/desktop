@@ -188,9 +188,7 @@
     border: none;
     border-radius: 9px;
     opacity: 1;
-    background: rgba(255, 255, 255, 0.08);
-    -webkit-backdrop-filter: blur(28px);
-    backdrop-filter: blur(28px);
+    background: rgba(18, 18, 22, 0.94);
     box-shadow: 0 36px 100px rgba(0, 0, 0, 0);
     transition:
       left var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1),

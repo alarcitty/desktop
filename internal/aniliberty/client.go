@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,13 +17,15 @@ import (
 )
 
 const (
-	defaultBaseURL    = "https://anilibria.top/api/v1"
-	defaultMirrorURL  = "https://aniliberty.top/api/v1"
-	defaultUserAgent  = "mila-desktop/1.0"
-	defaultListTTL    = 2 * time.Minute
-	defaultReleaseTTL = 3 * time.Minute
-	defaultRefTTL     = 6 * time.Hour
-	maxRetryAttempts  = 2
+	defaultBaseURL     = "https://anilibria.top/api/v1"
+	defaultMirrorURL   = "https://aniliberty.top/api/v1"
+	defaultUserAgent   = "mila-desktop/1.0"
+	defaultListTTL     = cache.TTLSchedule
+	defaultScheduleTTL = cache.TTLSchedule
+	defaultSearchTTL   = cache.TTLSearch
+	defaultReleaseTTL  = cache.TTLSchedule
+	defaultRefTTL      = cache.TTLMetadata
+	maxRetryAttempts   = 2
 )
 
 // ErrNotFound is returned when AniLiberty reports 404 for a release.
@@ -30,25 +33,30 @@ var ErrNotFound = errors.New("aniliberty: release not found")
 
 // Config configures the AniLiberty API v1 client.
 type Config struct {
-	BaseURL    string
-	MirrorURL  string
-	UserAgent  string
-	HTTPClient *http.Client
-	ListTTL    time.Duration
-	ReleaseTTL time.Duration
-	RefTTL     time.Duration
+	BaseURL     string
+	MirrorURL   string
+	UserAgent   string
+	HTTPClient  *http.Client
+	ListTTL     time.Duration
+	ScheduleTTL time.Duration
+	SearchTTL   time.Duration
+	ReleaseTTL  time.Duration
+	RefTTL      time.Duration
+	CacheDir    string
 }
 
 // Client interacts with AniLiberty API v1 with caching, mirror fallback, and URL normalization.
 type Client struct {
-	baseURL    string
-	mirrorURL  string
-	mediaRoot  string
-	userAgent  string
-	http       *http.Client
-	listTTL    time.Duration
-	releaseTTL time.Duration
-	refTTL     time.Duration
+	baseURL     string
+	mirrorURL   string
+	mediaRoot   string
+	userAgent   string
+	http        *http.Client
+	listTTL     time.Duration
+	scheduleTTL time.Duration
+	searchTTL   time.Duration
+	releaseTTL  time.Duration
+	refTTL      time.Duration
 
 	releasesCache   *cache.Cache[string, Release]
 	listCache       *cache.Cache[string, []Release]
@@ -80,6 +88,14 @@ func New(cfg Config) *Client {
 	if listTTL <= 0 {
 		listTTL = defaultListTTL
 	}
+	scheduleTTL := cfg.ScheduleTTL
+	if scheduleTTL <= 0 {
+		scheduleTTL = defaultScheduleTTL
+	}
+	searchTTL := cfg.SearchTTL
+	if searchTTL <= 0 {
+		searchTTL = defaultSearchTTL
+	}
 	releaseTTL := cfg.ReleaseTTL
 	if releaseTTL <= 0 {
 		releaseTTL = defaultReleaseTTL
@@ -89,6 +105,14 @@ func New(cfg Config) *Client {
 		refTTL = defaultRefTTL
 	}
 
+	cacheDir := strings.TrimSpace(cfg.CacheDir)
+	withDir := func(sub string) string {
+		if cacheDir == "" {
+			return ""
+		}
+		return filepath.Join(cacheDir, sub)
+	}
+
 	return &Client{
 		baseURL:         baseURL,
 		mirrorURL:       mirrorURL,
@@ -96,14 +120,16 @@ func New(cfg Config) *Client {
 		userAgent:       userAgent,
 		http:            httpClient,
 		listTTL:         listTTL,
+		scheduleTTL:     scheduleTTL,
+		searchTTL:       searchTTL,
 		releaseTTL:      releaseTTL,
 		refTTL:          refTTL,
-		releasesCache:   cache.New[string, Release](),
-		listCache:       cache.New[string, []Release](),
-		catalogCache:    cache.New[string, CatalogResponse](),
-		schedNowCache:   cache.New[string, ScheduleNow](),
-		schedWeekCache:  cache.New[string, []ScheduleItem](),
-		referencesCache: cache.New[string, References](),
+		releasesCache:   cache.New[string, Release](cache.WithMaxEntries[string, Release](1024), cache.WithMaxBytes[string, Release](24<<20), cache.WithDiskDir[string, Release](withDir("releases"))),
+		listCache:       cache.New[string, []Release](cache.WithMaxEntries[string, []Release](256), cache.WithMaxBytes[string, []Release](16<<20), cache.WithDiskDir[string, []Release](withDir("lists"))),
+		catalogCache:    cache.New[string, CatalogResponse](cache.WithMaxEntries[string, CatalogResponse](256), cache.WithMaxBytes[string, CatalogResponse](16<<20), cache.WithDiskDir[string, CatalogResponse](withDir("catalog"))),
+		schedNowCache:   cache.New[string, ScheduleNow](cache.WithMaxEntries[string, ScheduleNow](16), cache.WithMaxBytes[string, ScheduleNow](4<<20), cache.WithDiskDir[string, ScheduleNow](withDir("schedule_now"))),
+		schedWeekCache:  cache.New[string, []ScheduleItem](cache.WithMaxEntries[string, []ScheduleItem](16), cache.WithMaxBytes[string, []ScheduleItem](8<<20), cache.WithDiskDir[string, []ScheduleItem](withDir("schedule_week"))),
+		referencesCache: cache.New[string, References](cache.WithMaxEntries[string, References](8), cache.WithMaxBytes[string, References](4<<20), cache.WithDiskDir[string, References](withDir("references"))),
 	}
 }
 
@@ -171,7 +197,11 @@ func (c *Client) Catalog(ctx context.Context, params CatalogParams) (CatalogResp
 	}
 
 	encoded := q.Encode()
-	return c.catalogCache.Do(ctx, encoded, c.listTTL, func(ctx context.Context) (CatalogResponse, error) {
+	ttl := c.listTTL
+	if strings.TrimSpace(params.Search) != "" {
+		ttl = c.searchTTL
+	}
+	return c.catalogCache.Do(ctx, encoded, ttl, func(ctx context.Context) (CatalogResponse, error) {
 		var raw struct {
 			Data []Release `json:"data"`
 			Meta struct {
@@ -198,7 +228,7 @@ func (c *Client) Search(ctx context.Context, query string) ([]Release, error) {
 		return []Release{}, nil
 	}
 	key := "search:" + strings.ToLower(trimmed)
-	return c.listCache.Do(ctx, key, c.listTTL, func(ctx context.Context) ([]Release, error) {
+	return c.listCache.Do(ctx, key, c.searchTTL, func(ctx context.Context) ([]Release, error) {
 		var items []Release
 		path := "/app/search/releases?query=" + url.QueryEscape(trimmed)
 		if err := c.getJSON(ctx, path, &items); err != nil {
@@ -230,7 +260,7 @@ func (c *Client) Release(ctx context.Context, idOrAlias string) (Release, error)
 
 // ScheduleNow fetches yesterday, today, and tomorrow broadcast schedules.
 func (c *Client) ScheduleNow(ctx context.Context) (ScheduleNow, error) {
-	return c.schedNowCache.Do(ctx, "now", c.listTTL, func(ctx context.Context) (ScheduleNow, error) {
+	return c.schedNowCache.Do(ctx, "now", c.scheduleTTL, func(ctx context.Context) (ScheduleNow, error) {
 		var sched ScheduleNow
 		if err := c.getJSON(ctx, "/anime/schedule/now", &sched); err != nil {
 			return ScheduleNow{}, err
@@ -244,7 +274,7 @@ func (c *Client) ScheduleNow(ctx context.Context) (ScheduleNow, error) {
 
 // ScheduleWeek fetches the full weekly release schedule.
 func (c *Client) ScheduleWeek(ctx context.Context) ([]ScheduleItem, error) {
-	return c.schedWeekCache.Do(ctx, "week", c.listTTL, func(ctx context.Context) ([]ScheduleItem, error) {
+	return c.schedWeekCache.Do(ctx, "week", c.scheduleTTL, func(ctx context.Context) ([]ScheduleItem, error) {
 		var items []ScheduleItem
 		if err := c.getJSON(ctx, "/anime/schedule/week", &items); err != nil {
 			return nil, err

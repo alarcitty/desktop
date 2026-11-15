@@ -408,6 +408,29 @@ func StartWindowDrag(className, title string) bool {
 	return true
 }
 
+// CurrentWindowGeometry reads current HWND coordinates, dimensions, and maximize flag.
+func CurrentWindowGeometry(className, title string) (WindowGeometry, bool) {
+	hwnd := findAppWindow(className, title)
+	if hwnd == 0 {
+		return WindowGeometry{}, false
+	}
+	var wr rect
+	ok, _, _ := getWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&wr)))
+	if ok == 0 {
+		return WindowGeometry{}, false
+	}
+	style, _, _ := getWindowLongW.Call(hwnd, ^uintptr(15)) // GWL_STYLE = -16
+	maximized := (style & uintptr(wsMaximize)) != 0
+
+	return NormalizeWindowGeometry(WindowGeometry{
+		X:         int(wr.left),
+		Y:         int(wr.top),
+		Width:     int(wr.right - wr.left),
+		Height:    int(wr.bottom - wr.top),
+		Maximized: maximized,
+	})
+}
+
 // remove blur in corners by replacing ACCENT_ENABLE_BLURBEHIND with pure transparency
 func ClearWindowBlur(className, title string) bool {
 	hwnd := findAppWindow(className, title)

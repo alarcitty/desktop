@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
-  import { pages, getPage, type PageId } from '../pages';
+  import { untrack, type Component } from 'svelte';
+  import { pages, getPage, loadAnimePage, type PageId } from '../pages';
   import { router } from './router.svelte';
 
   interface Props {
@@ -10,6 +10,7 @@
   let { onBeforeEnter }: Props = $props();
 
   const CACHED_PAGES = new Set<PageId>(pages.map((p) => p.id));
+  let animePageComponent = $state<Component | null>(loadAnimePage.getLoaded());
   const LEAVE_MS = 130;
   const ENTER_SETTLE_MS = 300;
 
@@ -39,6 +40,11 @@
   $effect(() => {
     const next = router.current;
     const nextKey = router.routeKey;
+    if (next === 'anime' && !animePageComponent) {
+      void loadAnimePage.load().then((Comp) => {
+        animePageComponent = Comp;
+      });
+    }
     if (CACHED_PAGES.has(next) && !visited.includes(next)) {
       visited = [...visited, next];
     }
@@ -99,14 +105,16 @@
 
   {#if !CACHED_PAGES.has(router.current)}
     {#key router.current}
-      {@const Page = getPage(router.current).component}
-      <div
-        class="page-slot is-active is-animating"
-        class:is-pre-enter={!enterReady}
-        class:is-entered={enterReady}
-      >
-        <Page />
-      </div>
+      {@const Page = router.current === 'anime' ? animePageComponent : getPage(router.current).component}
+      {#if Page}
+        <div
+          class="page-slot is-active is-animating"
+          class:is-pre-enter={!enterReady}
+          class:is-entered={enterReady}
+        >
+          <Page />
+        </div>
+      {/if}
     {/key}
   {/if}
 </div>

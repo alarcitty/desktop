@@ -1,3 +1,4 @@
+import { getWailsMilaBridge } from '../bridge';
 import type { VoiceTrackOption } from '../../marlakit/player/types';
 import type { PlayableEpisode } from '../anime';
 import { dedupeSearchQueries, fetchJsonWithTimeout, scoreTitleSimilarity } from './shared';
@@ -40,22 +41,13 @@ export interface AnimeGOMatch {
   dubs: AnimeGODubOption[];
 }
 
-interface WailsAnimeGOBindings {
-  AnimeGOSearch?: (query: string) => Promise<string>;
-  AnimeGOPlayer?: (animeId: number) => Promise<string>;
-}
-
 const searchCache = new Map<string, RawAnimeGOSearchItem[]>();
 const playerCache = new Map<number, RawAnimeGOPlayer>();
 const episodesByKey = new Map<string, PlayableEpisode[]>();
 const embedByKey = new Map<string, string>();
 
-function getWailsAnimeGO(): WailsAnimeGOBindings | null {
-  if (typeof window === 'undefined') return null;
-  const w = window as unknown as {
-    go?: { mila?: { Mila?: WailsAnimeGOBindings } };
-  };
-  return w.go?.mila?.Mila ?? null;
+function getWailsAnimeGO() {
+  return getWailsMilaBridge();
 }
 
 export function buildAniboomMasterUrl(embedUrl: string, ordinal: number): string {

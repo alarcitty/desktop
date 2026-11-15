@@ -15,9 +15,18 @@ import {
   type ShikiArtwork,
   type WatchTarget
 } from '../api/anime';
-import { openTorrentMagnet, type TorrentSearchItem } from '../api/providers/torrent';
+import { createLazyModuleLoader } from '../api/providers/lazy';
+import type { TorrentSearchItem } from '../api/providers/torrent';
+
+const torrentLoader = createLazyModuleLoader(() => import('../api/providers/torrent'));
 import type { VoiceTrackOption } from '../marlakit/player/types';
-import { recordHistoryEntry } from './history.svelte';
+import { flushHistoryPersistence, recordHistoryEntry } from './history.svelte';
+import {
+  createDebouncedStorageWriter,
+  registerBeforeCloseFlush,
+  safeStorageSet,
+  setBoundedMapEntry
+} from './lifecycle';
 import {
   navigate,
   onRouteRestore,
@@ -31,15 +40,35 @@ export type PipCorner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left
 const PIP_CORNER_STORAGE_KEY = 'mila.player.pipCorner';
 const DUB_OFFSET_STORAGE_PREFIX = 'mila.player.dubOffset:';
 
+const MAX_TORRENT_RELEASE_CACHE = 20;
+
+const dubOffsetWriter = createDebouncedStorageWriter<{ key: string; value: string }>(
+  250,
+  ({ key, value }) => safeStorageSet(key, value)
+);
+
 function readSavedDubOffset(releaseAlias: string, dubId: string): number {
   if (typeof localStorage === 'undefined' || !dubId) return 0;
-  const raw = Number(localStorage.getItem(`${DUB_OFFSET_STORAGE_PREFIX}${releaseAlias}:${dubId}`));
-  return Number.isFinite(raw) ? Math.max(-5, Math.min(5, raw)) : 0;
+  try {
+    const raw = Number(localStorage.getItem(`${DUB_OFFSET_STORAGE_PREFIX}${releaseAlias}:${dubId}`));
+    return Number.isFinite(raw) ? Math.max(-5, Math.min(5, raw)) : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function saveDubOffset(releaseAlias: string, dubId: string, sec: number): void {
   if (typeof localStorage === 'undefined' || !dubId) return;
-  localStorage.setItem(`${DUB_OFFSET_STORAGE_PREFIX}${releaseAlias}:${dubId}`, String(sec));
+  dubOffsetWriter.schedule({
+    key: `${DUB_OFFSET_STORAGE_PREFIX}${releaseAlias}:${dubId}`,
+    value: String(sec)
+  });
+}
+
+registerBeforeCloseFlush(() => dubOffsetWriter.flush());
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => dubOffsetWriter.flush());
+  window.addEventListener('pagehide', () => dubOffsetWriter.flush());
 }
 
 function readSavedPipCorner(): PipCorner {
@@ -148,6 +177,9 @@ export function reportPlaybackProgress(currentTime: number, duration: number, fo
   if (!force && now - lastHistorySyncMs < 3000) return;
   lastHistorySyncMs = now;
   syncPlayerHistory(currentTime, duration);
+  if (force) {
+    flushHistoryPersistence();
+  }
 }
 
 function applyPreservedEpisode(
@@ -361,6 +393,7 @@ export async function openTorrentStream(
   player.autoplay = true;
 
   try {
+    const { openTorrentMagnet } = await torrentLoader.load();
     const info = await openTorrentMagnet(magnet);
     if (token !== activeRequestToken) return;
 
@@ -394,7 +427,7 @@ export async function openTorrentStream(
       episodes
     };
 
-    torrentReleaseCache.set(voiceId, torrentRel);
+    setBoundedMapEntry(torrentReleaseCache, voiceId, torrentRel, MAX_TORRENT_RELEASE_CACHE);
     const torrentVoice: VoiceTrackOption = {
       id: voiceId,
       label,
@@ -738,8 +771,13 @@ export function closeCustomPip(): void {
 
 export function resetPlayer(): void {
   activeRequestToken += 1;
+  dubRequestToken += 1;
   extrasRequestToken += 1;
   lastLoadedExtrasShikiId = 0;
+  voiceDiscoveryPromise = null;
+  failedVoiceIds.clear();
+  dubOffsetWriter.flush();
+  flushHistoryPersistence();
   player.loading = false;
   player.release = null;
   player.seasons = [];
@@ -747,6 +785,9 @@ export function resetPlayer(): void {
   player.extrasLoading = false;
   player.voices = [];
   player.selectedVoiceId = '';
+  player.dubRelease = null;
+  player.dubVoiceId = '';
+  player.dubOffsetSec = 0;
   player.resumeTime = 0;
   player.error = '';
   player.isPlaying = false;

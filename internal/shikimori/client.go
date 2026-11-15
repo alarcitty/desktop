@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,8 +21,8 @@ import (
 const (
 	defaultBaseURL     = "https://shikimori.io"
 	defaultUserAgent   = "mila-desktop/1.0"
-	defaultCacheTTL    = 6 * time.Hour
-	defaultSearchTTL   = 15 * time.Minute
+	defaultCacheTTL    = cache.TTLMetadata
+	defaultSearchTTL   = cache.TTLSearch
 	defaultMinInterval = 250 * time.Millisecond // ~4 req/s, safely under Shikimori's 5 RPS cap
 	maxBatchIDs        = 50
 	maxRetryAttempts   = 3
@@ -42,6 +43,7 @@ type Config struct {
 	MinInterval time.Duration
 	CacheTTL    time.Duration
 	SearchTTL   time.Duration
+	CacheDir    string
 }
 
 // Client communicates with Shikimori GraphQL API with rate limiting, retries, and caching.
@@ -86,6 +88,19 @@ func New(cfg Config) *Client {
 	if searchTTL <= 0 {
 		searchTTL = defaultSearchTTL
 	}
+	byIDOpts := []cache.Option[int, Anime]{
+		cache.WithMaxEntries[int, Anime](4096),
+		cache.WithMaxBytes[int, Anime](32 << 20),
+	}
+	byQueryOpts := []cache.Option[string, []Anime]{
+		cache.WithMaxEntries[string, []Anime](512),
+		cache.WithMaxBytes[string, []Anime](16 << 20),
+	}
+	if dir := strings.TrimSpace(cfg.CacheDir); dir != "" {
+		byIDOpts = append(byIDOpts, cache.WithDiskDir[int, Anime](filepath.Join(dir, "by_id")))
+		byQueryOpts = append(byQueryOpts, cache.WithDiskDir[string, []Anime](filepath.Join(dir, "by_query")))
+	}
+
 	return &Client{
 		baseURL:     baseURL,
 		userAgent:   userAgent,
@@ -94,8 +109,8 @@ func New(cfg Config) *Client {
 		minInterval: minInterval,
 		cacheTTL:    cacheTTL,
 		searchTTL:   searchTTL,
-		byID:        cache.New[int, Anime](),
-		byQuery:     cache.New[string, []Anime](),
+		byID:        cache.New[int, Anime](byIDOpts...),
+		byQuery:     cache.New[string, []Anime](byQueryOpts...),
 	}
 }
 

@@ -1,4 +1,9 @@
 import { buildMetaTags, ensureShikimoriArtwork } from '../api/anime';
+import {
+  createDebouncedStorageWriter,
+  registerBeforeCloseFlush,
+  safeStorageSet
+} from './lifecycle';
 
 export interface WatchHistoryEntry {
   id: string;
@@ -77,13 +82,30 @@ function loadHistory(): WatchHistoryEntry[] {
   }
 }
 
-function saveHistory(entries: WatchHistoryEntry[]): void {
+const HISTORY_SAVE_DEBOUNCE_MS = 1000;
+const EPISODE_PROGRESS_DEBOUNCE_MS = 300;
+
+function writeHistoryEntries(entries: WatchHistoryEntry[]): void {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    safeStorageSet(STORAGE_KEY, JSON.stringify(entries));
   } catch {
-    // Ignore storage quota or private-mode errors.
+    // Ignore serialization errors.
   }
+}
+
+const historyWriter = createDebouncedStorageWriter<WatchHistoryEntry[]>(
+  HISTORY_SAVE_DEBOUNCE_MS,
+  writeHistoryEntries
+);
+
+function saveHistory(entries: WatchHistoryEntry[], immediate = false): void {
+  if (immediate) {
+    historyWriter.cancel();
+    writeHistoryEntries(entries);
+    return;
+  }
+  historyWriter.schedule(entries);
 }
 
 export const watchHistory = $state<{ entries: WatchHistoryEntry[] }>({
@@ -108,24 +130,49 @@ export const episodeProgressMap = $state<{ items: Record<string, EpisodeProgress
   items: loadEpisodeProgressMap()
 });
 
-let episodeProgressSaveTimer: number | undefined;
-function scheduleSaveEpisodeProgress(): void {
-  if (typeof localStorage === 'undefined' || typeof window === 'undefined') return;
-  if (episodeProgressSaveTimer !== undefined) {
-    window.clearTimeout(episodeProgressSaveTimer);
-  }
-  episodeProgressSaveTimer = window.setTimeout(() => {
-    episodeProgressSaveTimer = undefined;
+const episodeProgressWriter = createDebouncedStorageWriter<Record<string, EpisodeProgressEntry>>(
+  EPISODE_PROGRESS_DEBOUNCE_MS,
+  (items) => {
+    if (typeof localStorage === 'undefined') return;
     try {
-      const entries = Object.entries(episodeProgressMap.items)
+      const entries = Object.entries(items)
         .sort((a, b) => (b[1]?.updatedAt ?? 0) - (a[1]?.updatedAt ?? 0))
         .slice(0, MAX_EPISODE_PROGRESS_KEYS);
-      localStorage.setItem(EPISODE_PROGRESS_KEY, JSON.stringify(Object.fromEntries(entries)));
+      safeStorageSet(EPISODE_PROGRESS_KEY, JSON.stringify(Object.fromEntries(entries)));
     } catch {
       // Ignore storage quota errors.
     }
-  }, 300);
+  }
+);
+
+function scheduleSaveEpisodeProgress(): void {
+  if (typeof localStorage === 'undefined') return;
+  episodeProgressWriter.schedule(episodeProgressMap.items);
 }
+
+/** Synchronously flushes any debounced history/progress writes to localStorage. */
+export function flushHistoryPersistence(): void {
+  historyWriter.flush();
+  episodeProgressWriter.flush();
+}
+
+let flushHooksRegistered = false;
+function ensureFlushHooks(): void {
+  if (flushHooksRegistered) return;
+  flushHooksRegistered = true;
+  registerBeforeCloseFlush(flushHistoryPersistence);
+  if (typeof window === 'undefined') return;
+  window.addEventListener('beforeunload', flushHistoryPersistence);
+  window.addEventListener('pagehide', flushHistoryPersistence);
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        flushHistoryPersistence();
+      }
+    });
+  }
+}
+ensureFlushHooks();
 
 function episodeProgressKeys(
   input: { shikiId?: number; releaseAlias?: string; title?: string },
@@ -234,28 +281,39 @@ export function recordHistoryEntry(input: RecordHistoryInput): void {
     const existingEp = keys.map((k) => episodeProgressMap.items[k]).find(Boolean);
     const dur = nextDuration > 0 ? nextDuration : existingEp?.duration ?? 0;
     const isWatchedNow = dur > 0 && nextTime / dur >= 0.85;
-    const mergedEp: EpisodeProgressEntry = {
-      currentTime: nextTime,
-      duration: dur,
-      watched: Boolean(existingEp?.watched || isWatchedNow),
-      updatedAt: Date.now()
-    };
-    const nextMap = { ...episodeProgressMap.items };
-    for (const key of keys) {
-      nextMap[key] = mergedEp;
+    const nextWatched = Boolean(existingEp?.watched || isWatchedNow);
+    const allKeysPresent = keys.every((k) => Boolean(episodeProgressMap.items[k]));
+    const timeChanged =
+      !existingEp ||
+      Math.abs(existingEp.currentTime - nextTime) >= 0.5 ||
+      existingEp.watched !== nextWatched ||
+      existingEp.duration !== dur ||
+      !allKeysPresent;
+    if (timeChanged) {
+      const mergedEp: EpisodeProgressEntry = {
+        currentTime: nextTime,
+        duration: dur,
+        watched: nextWatched,
+        updatedAt: Date.now()
+      };
+      const nextMap = { ...episodeProgressMap.items };
+      for (const key of keys) {
+        nextMap[key] = mergedEp;
+      }
+      episodeProgressMap.items = nextMap;
+      scheduleSaveEpisodeProgress();
     }
-    episodeProgressMap.items = nextMap;
-    scheduleSaveEpisodeProgress();
   }
 }
 
 export function removeHistoryEntry(id: string): void {
   const next = watchHistory.entries.filter((entry) => entry.id !== id);
   watchHistory.entries = next;
-  saveHistory(next);
+  saveHistory(next, true);
 }
 
 export function resetAllEpisodeProgress(): void {
+  episodeProgressWriter.cancel();
   episodeProgressMap.items = {};
   if (typeof localStorage !== 'undefined') {
     try {
@@ -268,7 +326,7 @@ export function resetAllEpisodeProgress(): void {
 
 export function clearWatchHistory(): void {
   watchHistory.entries = [];
-  saveHistory([]);
+  saveHistory([], true);
   resetAllEpisodeProgress();
 }
 

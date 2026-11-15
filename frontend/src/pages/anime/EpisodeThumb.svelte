@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import Hls from 'hls.js';
+  import type HlsType from 'hls.js';
+  import { getLoadedHls, loadHls } from '../../app/hlsLoader';
+  import { releaseVideoElementBuffers } from '../../app/lifecycle';
   import Play from '@lucide/svelte/icons/play';
   import Check from '@lucide/svelte/icons/check';
   import type { PlayableEpisode } from '../../api/anime';
@@ -39,7 +41,7 @@
   let hoverActive = $state(false);
   let videoReady = $state(false);
   let videoEl = $state<HTMLVideoElement | null>(null);
-  let hlsInstance: Hls | null = null;
+  let hlsInstance: HlsType | null = null;
   let capturedFrameUrl = $state<string | null>(null);
   let failedUrls = $state<Record<string, boolean>>({});
   let excerptStart = $state(0);
@@ -149,15 +151,21 @@
     hoverTimer = undefined;
     videoReady = false;
     if (hlsInstance) {
-      hlsInstance.destroy();
+      try {
+        hlsInstance.destroy();
+      } catch {
+        // Ignore already destroyed instance
+      }
       hlsInstance = null;
     }
-    if (videoEl) {
-      videoEl.pause();
-      videoEl.removeAttribute('src');
-      videoEl.load();
-    }
+    releaseVideoElementBuffers(videoEl);
   }
+
+  $effect(() => {
+    void episode.id;
+    capturedFrameUrl = null;
+    failedUrls = {};
+  });
 
   function handleMouseEnter() {
     if (typeof window === 'undefined' || !previewStream) return;
@@ -230,25 +238,57 @@
     video.addEventListener('canplay', handlePlaying);
     video.addEventListener('timeupdate', handleTimeUpdate);
 
-    if (stream.kind === 'hls' && Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: false,
-        capLevelToPlayerSize: true,
-        startPosition: startSec,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 16,
-        fragLoadingMaxRetry: 1,
-        manifestLoadingMaxRetry: 1
-      });
-      hlsInstance = hls;
-      hls.loadSource(stream.url);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        if (!cancelled) {
-          void video.play().catch(() => {});
-        }
-      });
+    const attachThumbHls = (HlsCtor: typeof HlsType) => {
+      if (cancelled) return;
+      if (HlsCtor.isSupported()) {
+        const hls = new HlsCtor({
+          enableWorker: true,
+          lowLatencyMode: false,
+          capLevelToPlayerSize: true,
+          startPosition: startSec,
+          maxBufferLength: 10,
+          maxMaxBufferLength: 16,
+          fragLoadingMaxRetry: 1,
+          manifestLoadingMaxRetry: 1
+        });
+        hlsInstance = hls;
+        hls.loadSource(stream.url);
+        hls.attachMedia(video);
+        hls.on(HlsCtor.Events.MANIFEST_PARSED, () => {
+          if (!cancelled) {
+            void video.play().catch(() => {});
+          }
+        });
+        hls.on(HlsCtor.Events.ERROR, (_ev, data) => {
+          if (data.fatal) {
+            try {
+              hls.destroy();
+            } catch {
+              // Ignore destroy errors
+            }
+            if (hlsInstance === hls) hlsInstance = null;
+          }
+        });
+      } else {
+        video.src = stream.url;
+        video.load();
+      }
+    };
+
+    if (stream.kind === 'hls') {
+      const CachedHls = getLoadedHls();
+      if (CachedHls) {
+        attachThumbHls(CachedHls);
+      } else {
+        void loadHls()
+          .then(attachThumbHls)
+          .catch(() => {
+            if (!cancelled) {
+              video.src = stream.url;
+              video.load();
+            }
+          });
+      }
     } else {
       video.src = stream.url;
       video.load();

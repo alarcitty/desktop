@@ -1,4 +1,12 @@
 import {
+  getWailsMilaBridge,
+  getWailsRuntimeBridge,
+  isDesktopWailsApp,
+  type WailsMilaGoBindings,
+  type WailsRuntimeBridge
+} from '../api/bridge';
+import { flushBeforeClose } from './lifecycle';
+import {
   back,
   forward,
   getLastHistoryNavTimestamp,
@@ -23,50 +31,16 @@ export interface BindingDescriptor {
   handler: () => void | boolean | Promise<void | boolean>;
 }
 
-interface WailsMilaGoBindings {
-  SetFullscreen?: (fullscreen: boolean) => Promise<void>;
-  SetFullscreenFocus?: (focused: boolean) => Promise<void>;
-  SetPipMode?: (pip: boolean) => Promise<void>;
-  StartPipDrag?: () => Promise<void>;
-  AnimeVostSearch?: (query: string) => Promise<string>;
-  AnimeVostPlaylist?: (id: number) => Promise<string>;
-}
-
-interface WailsRuntimeBridge {
-  WindowFullscreen?: () => void;
-  WindowUnfullscreen?: () => void;
-  WindowIsFullscreen?: () => Promise<boolean>;
-  WindowIsMaximised?: () => Promise<boolean>;
-  BrowserOpenURL?: (url: string) => void;
-}
-
-interface WindowWithBridges extends Window {
-  chrome?: { webview?: unknown };
-  runtime?: WailsRuntimeBridge;
-  go?: {
-    mila?: {
-      Mila?: WailsMilaGoBindings;
-    };
-  };
-}
-
-function getWindowBridge(): WindowWithBridges | null {
-  if (typeof window === 'undefined') return null;
-  return window as unknown as WindowWithBridges;
-}
-
 export function getWailsMilaBindings(): WailsMilaGoBindings | null {
-  return getWindowBridge()?.go?.mila?.Mila ?? null;
+  return getWailsMilaBridge();
 }
 
 export function getWailsRuntime(): WailsRuntimeBridge | null {
-  return getWindowBridge()?.runtime ?? null;
+  return getWailsRuntimeBridge();
 }
 
 export function detectDesktopApp(): boolean {
-  const w = getWindowBridge();
-  if (!w) return false;
-  return Boolean(w.chrome?.webview || w.runtime || w.go?.mila?.Mila);
+  return isDesktopWailsApp();
 }
 
 export const bindings = $state<{
@@ -414,6 +388,15 @@ export function mountBindingsController(): () => void {
   const onBlur = () => {
     void setAppFullscreenFocus(false);
   };
+  const onBeforeCloseFlush = () => {
+    flushBeforeClose();
+  };
+
+  const runtime = getWailsRuntime();
+  const offWailsBeforeClose =
+    typeof runtime?.EventsOn === 'function'
+      ? runtime.EventsOn('mila:before-close', onBeforeCloseFlush)
+      : undefined;
 
   window.addEventListener('mousedown', onMouseDown, { capture: true });
   window.addEventListener('mouseup', onMouseUp, { capture: true });
@@ -424,8 +407,11 @@ export function mountBindingsController(): () => void {
   document.addEventListener('fullscreenchange', onCheck);
   window.addEventListener('focus', onFocus);
   window.addEventListener('blur', onBlur);
+  window.addEventListener('beforeunload', onBeforeCloseFlush);
+  window.addEventListener('pagehide', onBeforeCloseFlush);
 
   return () => {
+    offWailsBeforeClose?.();
     window.removeEventListener('mousedown', onMouseDown, { capture: true });
     window.removeEventListener('mouseup', onMouseUp, { capture: true });
     window.removeEventListener('auxclick', onAuxClick, { capture: true });
@@ -435,5 +421,7 @@ export function mountBindingsController(): () => void {
     document.removeEventListener('fullscreenchange', onCheck);
     window.removeEventListener('focus', onFocus);
     window.removeEventListener('blur', onBlur);
+    window.removeEventListener('beforeunload', onBeforeCloseFlush);
+    window.removeEventListener('pagehide', onBeforeCloseFlush);
   };
 }

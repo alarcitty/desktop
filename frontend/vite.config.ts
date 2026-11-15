@@ -85,6 +85,14 @@ export default defineConfig({
         target: 'https://anilibria.top/api/v1',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ext\/anilibria/, '') || '/'
+      },
+      '/api/v1': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
+      },
+      '/health': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
       }
     }
   }

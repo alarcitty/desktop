@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { cubicOut } from 'svelte/easing';
   import { fade } from 'svelte/transition';
-  import Hls from 'hls.js';
+  import type HlsType from 'hls.js';
+  import { getLoadedHls, loadHls } from '../../app/hlsLoader';
+  import { createDeferredDestroyQueue, releaseVideoElementBuffers } from '../../app/lifecycle';
   import Search from '@lucide/svelte/icons/search';
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
@@ -26,6 +28,7 @@
   import { openWatch } from '../../app/player.svelte';
   import { parseMilaShareLink } from '../../app/router.svelte';
   import {
+    clampOpeningClipWindow,
     ensureShikimoriArtwork,
     getCachedArtwork,
     getCachedHeroOpeningPreview,
@@ -193,9 +196,11 @@
   let rootEl = $state<HTMLDivElement | null>(null);
   let resultRefs: Array<HTMLButtonElement | undefined> = [];
 
+  let popupDestroyed = false;
+
   onMount(() => {
     loadCatalogGenres().then((list) => {
-      if (list.length > 0) genreOptions = list;
+      if (!popupDestroyed && list.length > 0) genreOptions = list;
     });
 
     const seedShikiIds = [
@@ -206,20 +211,48 @@
     if (seedShikiIds.length > 0) {
       ensureShikimoriArtwork(seedShikiIds)
         .then(() => {
-          shikiTick += 1;
+          if (!popupDestroyed) shikiTick += 1;
         })
         .catch(() => {});
     }
 
-    // Pre-warm opening streams + initial HLS segments for top catalog titles so hover is instantaneous
-    for (const entry of catalog.slice(0, 8)) {
-      warmHeroOpeningPreview({
+    void loadHls().catch(() => {});
+
+    // Pre-warm opening streams + initial 480p HLS segments for top History/Library/Catalog titles so hover is instantaneous
+    const prewarmSeen = new Set<string>();
+    const prewarmTargets = [
+      ...watchHistory.entries.slice(0, 4).map((e) => ({
+        title: e.title,
+        releaseAlias: e.releaseAlias,
+        shikiId: e.shikiId
+      })),
+      ...localLibrary.items.slice(0, 4).map((item) => ({
+        title: item.title,
+        releaseAlias: item.releaseAlias,
+        shikiId: item.shikiId
+      })),
+      ...catalog.slice(0, 8).map((entry) => ({
         title: entry.title,
         releaseAlias: entry.releaseAlias,
         shikiId: entry.shikiId,
         searchQueries: entry.searchQueries
-      });
+      }))
+    ];
+    let prewarmedCount = 0;
+    for (const target of prewarmTargets) {
+      if (prewarmedCount >= 10) break;
+      const key =
+        target.releaseAlias || (target.shikiId ? `s:${target.shikiId}` : target.title.toLowerCase());
+      if (!key || prewarmSeen.has(key)) continue;
+      prewarmSeen.add(key);
+      prewarmedCount += 1;
+      warmHeroOpeningPreview(target, { quality: 'fast', maxSeconds: 10 });
     }
+
+    return () => {
+      popupDestroyed = true;
+      resultRefs.length = 0;
+    };
   });
 
   const activeYearRange = $derived(
@@ -752,30 +785,35 @@
   let openingClip = $state<HeroOpeningPreview | null>(null);
   let openingItemId = $state<string>('');
   let openingVideoReady = $state(false);
-  let openingHls: Hls | null = null;
+  let openingHls: HlsType | null = null;
   let openingReqToken = 0;
+  let openingSeekTries = 0;
+  let activeOpeningTargetKey = '';
+  const openingDestroyQueue = createDeferredDestroyQueue();
 
   function destroyOpeningStream(immediate = false) {
     const hls = openingHls;
     const vid = openingVideoEl;
     openingHls = null;
+    if (immediate) {
+      openingDestroyQueue.flushAll();
+      if (hls) {
+        try {
+          hls.destroy();
+        } catch {}
+      }
+      releaseVideoElementBuffers(vid);
+      return;
+    }
     if (vid) {
       try {
         vid.pause();
       } catch {}
     }
     if (hls) {
-      if (immediate) {
-        try {
-          hls.destroy();
-        } catch {}
-      } else {
-        window.setTimeout(() => {
-          try {
-            hls.destroy();
-          } catch {}
-        }, 380);
-      }
+      openingDestroyQueue.schedule(() => {
+        hls.destroy();
+      }, 380);
     }
   }
 
@@ -786,24 +824,34 @@
     for (const i of warmIndices) {
       const candidate = results[i];
       if (!candidate) continue;
-      warmHeroOpeningPreview({
-        title: candidate.title,
-        releaseAlias: candidate.releaseAlias,
-        shikiId: candidate.shikiId,
-        searchQueries: candidate.searchQueries
-      });
+      warmHeroOpeningPreview(
+        {
+          title: candidate.title,
+          releaseAlias: candidate.releaseAlias,
+          shikiId: candidate.shikiId,
+          searchQueries: candidate.searchQueries
+        },
+        { quality: 'fast', maxSeconds: 10 }
+      );
     }
   });
 
   $effect(() => {
     const isOpen = search.open;
     const item = selectedItem;
+    const targetKey = isOpen && item ? item.id : '';
+
+    if (targetKey === activeOpeningTargetKey) {
+      return;
+    }
+    activeOpeningTargetKey = targetKey;
 
     untrack(() => {
       destroyOpeningStream(!isOpen);
       openingVideoReady = false;
       openingClip = null;
       openingItemId = '';
+      openingSeekTries = 0;
     });
 
     if (!isOpen || !item) {
@@ -839,12 +887,64 @@
       .catch(() => {});
   });
 
+  function getOpeningClipWindow(clip: HeroOpeningPreview, vid: HTMLVideoElement) {
+    return clampOpeningClipWindow(clip.startSec, clip.endSec, vid.duration);
+  }
+
+  function handleOpeningMediaReady(vid: HTMLVideoElement) {
+    if (!openingClip || vid !== openingVideoEl) return;
+    const win = getOpeningClipWindow(openingClip, vid);
+    if (vid.currentTime < win.startSec - 3.5 && openingSeekTries < 2) {
+      openingSeekTries += 1;
+      try {
+        vid.currentTime = win.startSec;
+      } catch {}
+      if (vid.paused) vid.play().catch(() => {});
+      return;
+    }
+    if (vid.paused) {
+      vid.play().catch(() => {});
+    }
+    if (!vid.seeking && vid.readyState >= 2) {
+      openingVideoReady = true;
+    }
+  }
+
+  function handleOpeningTimeUpdate(vid: HTMLVideoElement) {
+    if (!openingClip || vid !== openingVideoEl) return;
+    const win = getOpeningClipWindow(openingClip, vid);
+    const t = vid.currentTime;
+    if (!vid.seeking && t < win.startSec - 3.5 && openingSeekTries < 2) {
+      openingSeekTries += 1;
+      try {
+        vid.currentTime = win.startSec;
+      } catch {}
+      return;
+    }
+    if (
+      !openingVideoReady &&
+      !vid.seeking &&
+      vid.readyState >= 2 &&
+      (t >= win.startSec - 3.5 || openingSeekTries >= 2)
+    ) {
+      openingVideoReady = true;
+    }
+    if (t >= win.endSec) {
+      try {
+        vid.currentTime = win.startSec;
+      } catch {}
+      vid.play().catch(() => {});
+    }
+  }
+
   $effect(() => {
     const clip = openingClip;
     const video = openingVideoEl;
     if (!clip || !video) return;
 
     let cancelled = false;
+    let triedMainFallback = false;
+    openingSeekTries = 0;
     untrack(() => {
       if (openingHls) {
         try {
@@ -859,70 +959,127 @@
 
     const trySeekAndPlay = () => {
       if (cancelled || !video) return;
-      const dur = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : Infinity;
-      const endSec = Math.min(clip.endSec, dur - 0.25);
-      if (video.currentTime < clip.startSec - 0.25 || video.currentTime >= endSec) {
+      const win = getOpeningClipWindow(clip, video);
+      if (video.currentTime < win.startSec - 0.25 || video.currentTime >= win.endSec) {
         try {
-          video.currentTime = clip.startSec;
+          video.currentTime = win.startSec;
         } catch {}
       }
       video.play().catch(() => {});
     };
 
-    let localHls: Hls | null = null;
+    let localHls: HlsType | null = null;
     const streamSource = clip.streamUrlFast || clip.streamUrl;
+
+    const attachOpeningHls = (HlsCtor: typeof HlsType, sourceUrl: string) => {
+      if (cancelled) return;
+      if (HlsCtor.isSupported()) {
+        const hls = new HlsCtor({
+          enableWorker: true,
+          lowLatencyMode: false,
+          startLevel: 0,
+          startPosition: clip.startSec,
+          startFragPrefetch: true,
+          maxBufferLength: 6,
+          maxMaxBufferLength: 12,
+          backBufferLength: 2
+        });
+        localHls = hls;
+        openingHls = hls;
+        hls.loadSource(sourceUrl);
+        hls.attachMedia(video);
+        hls.on(HlsCtor.Events.MANIFEST_PARSED, trySeekAndPlay);
+        hls.on(HlsCtor.Events.ERROR, (_ev, data) => {
+          if (data.fatal && !cancelled) {
+            try {
+              hls.destroy();
+            } catch {}
+            if (openingHls === hls) openingHls = null;
+            if (!triedMainFallback && clip.streamUrl && sourceUrl !== clip.streamUrl) {
+              triedMainFallback = true;
+              openingSeekTries = 0;
+              attachOpeningHls(HlsCtor, clip.streamUrl);
+            }
+          }
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = sourceUrl;
+        video.addEventListener('loadedmetadata', trySeekAndPlay, { once: true });
+      }
+    };
+
+    const handleDirectError = () => {
+      if (cancelled || triedMainFallback || !clip.streamUrl || clip.streamUrl === streamSource) {
+        return;
+      }
+      triedMainFallback = true;
+      openingSeekTries = 0;
+      video.src = clip.streamUrl;
+      video.load();
+      trySeekAndPlay();
+    };
 
     if (clip.isDirectVideo) {
       video.src = streamSource;
+      video.addEventListener('loadedmetadata', trySeekAndPlay, { once: true });
+      video.addEventListener('error', handleDirectError);
       video.load();
       trySeekAndPlay();
-      video.addEventListener('loadedmetadata', trySeekAndPlay, { once: true });
-    } else if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: false,
-        startPosition: clip.startSec,
-        startFragPrefetch: true,
-        maxBufferLength: 6,
-        maxMaxBufferLength: 12,
-        backBufferLength: 2
-      });
-      localHls = hls;
-      openingHls = hls;
-      hls.loadSource(streamSource);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, trySeekAndPlay);
-      hls.on(Hls.Events.ERROR, (_ev, data) => {
-        if (data.fatal && !cancelled) {
-          try {
-            hls.destroy();
-          } catch {}
-          if (openingHls === hls) openingHls = null;
-        }
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = streamSource;
-      video.addEventListener('loadedmetadata', trySeekAndPlay, { once: true });
+    } else {
+      const CachedHls = getLoadedHls();
+      if (CachedHls) {
+        attachOpeningHls(CachedHls, streamSource);
+      } else {
+        void loadHls()
+          .then((HlsCtor) => attachOpeningHls(HlsCtor, streamSource))
+          .catch(() => {});
+      }
     }
 
     return () => {
       cancelled = true;
+      video.removeEventListener('loadedmetadata', trySeekAndPlay);
+      video.removeEventListener('error', handleDirectError);
       try {
         video.pause();
       } catch {}
       if (localHls) {
         const hlsToDestroy = localHls;
         if (openingHls === hlsToDestroy) openingHls = null;
-        window.setTimeout(() => {
+        if (popupDestroyed || !search.open) {
           try {
             hlsToDestroy.destroy();
           } catch {}
+          releaseVideoElementBuffers(video);
+        } else {
+          openingDestroyQueue.schedule(() => {
+            try {
+              hlsToDestroy.destroy();
+            } catch {}
+            releaseVideoElementBuffers(video);
+          }, 380);
+        }
+      } else if (popupDestroyed || !search.open) {
+        releaseVideoElementBuffers(video);
+      } else {
+        openingDestroyQueue.schedule(() => {
+          releaseVideoElementBuffers(video);
         }, 380);
       }
     };
   });
 
   $effect(() => () => {
+    activeOpeningTargetKey = '';
+    destroyOpeningStream(true);
+  });
+
+  onDestroy(() => {
+    popupDestroyed = true;
+    activeOpeningTargetKey = '';
+    openingReqToken += 1;
+    searchSeq += 1;
+    resultRefs.length = 0;
     destroyOpeningStream(true);
   });
 
@@ -946,9 +1103,19 @@
     16 + 48 + filterBarGap + filterBarH + 10 + listHeight + 16
   );
 
+  let lastSelectionQueryKey = '';
   $effect(() => {
-    results;
-    selected = 0;
+    const len = results.length;
+    const queryKey = currentRemoteExpectedKey;
+    if (queryKey !== lastSelectionQueryKey) {
+      lastSelectionQueryKey = queryKey;
+      selected = 0;
+    } else if (len === 0 || selected >= len) {
+      selected = 0;
+    }
+    if (resultRefs.length > len) {
+      resultRefs.length = len;
+    }
   });
 
   $effect(() => {
@@ -1377,7 +1544,7 @@
                       <div
                         class="result-opening-stage"
                         class:is-ready={openingVideoReady}
-                        out:fade={{ duration: 340, easing: cubicOut }}
+                        out:fade={{ duration: 160, easing: cubicOut }}
                         aria-hidden="true"
                       >
                         <video
@@ -1386,53 +1553,12 @@
                           muted
                           playsinline
                           preload="auto"
-                          onloadeddata={(e) => {
-                            const vid = e.currentTarget;
-                            if (!openingClip || vid !== openingVideoEl) return;
-                            if (vid.currentTime < openingClip.startSec - 0.25) {
-                              try {
-                                vid.currentTime = openingClip.startSec;
-                              } catch {}
-                              return;
-                            }
-                            if (!vid.seeking && vid.readyState >= 2) {
-                              openingVideoReady = true;
-                            }
-                          }}
-                          onplaying={(e) => {
-                            const vid = e.currentTarget;
-                            if (!openingClip || vid !== openingVideoEl) return;
-                            if (vid.currentTime < openingClip.startSec - 0.25) {
-                              try {
-                                vid.currentTime = openingClip.startSec;
-                              } catch {}
-                              return;
-                            }
-                            if (!vid.seeking) {
-                              openingVideoReady = true;
-                            }
-                          }}
-                          ontimeupdate={(e) => {
-                            const vid = e.currentTarget;
-                            if (!openingClip || vid !== openingVideoEl) return;
-                            const t = vid.currentTime;
-                            if (!vid.seeking && t < openingClip.startSec - 0.25) {
-                              vid.currentTime = openingClip.startSec;
-                              return;
-                            }
-                            if (!openingVideoReady && !vid.seeking && t >= openingClip.startSec - 0.25) {
-                              openingVideoReady = true;
-                            }
-                            const dur =
-                              Number.isFinite(vid.duration) && vid.duration > 0
-                                ? vid.duration
-                                : Infinity;
-                            const endSec = Math.min(openingClip.endSec, dur - 0.25);
-                            if (t >= endSec) {
-                              vid.currentTime = openingClip.startSec;
-                              vid.play().catch(() => {});
-                            }
-                          }}
+                          onloadedmetadata={(e) => handleOpeningMediaReady(e.currentTarget)}
+                          onloadeddata={(e) => handleOpeningMediaReady(e.currentTarget)}
+                          oncanplay={(e) => handleOpeningMediaReady(e.currentTarget)}
+                          onseeked={(e) => handleOpeningMediaReady(e.currentTarget)}
+                          onplaying={(e) => handleOpeningMediaReady(e.currentTarget)}
+                          ontimeupdate={(e) => handleOpeningTimeUpdate(e.currentTarget)}
                         ></video>
                       </div>
                     {/if}
@@ -1943,19 +2069,16 @@
     pointer-events: none;
     overflow: hidden;
     opacity: 0;
-    transform: scale(1.06);
-    filter: blur(10px);
+    transform: scale(1.02);
     transition:
-      opacity 0.58s cubic-bezier(0.22, 1, 0.36, 1),
-      transform 0.64s cubic-bezier(0.22, 1, 0.36, 1),
-      filter 0.58s cubic-bezier(0.22, 1, 0.36, 1);
-    will-change: opacity, transform, filter;
+      opacity 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
   }
 
   .result-opening-stage.is-ready {
     opacity: 1;
     transform: scale(1);
-    filter: blur(0px);
   }
 
   .result-opening-video {
@@ -1979,7 +2102,7 @@
     );
     opacity: 0.94;
     pointer-events: none;
-    transition: opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: opacity 0.18s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .result.selected .result-dim {

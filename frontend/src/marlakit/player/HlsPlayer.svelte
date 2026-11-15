@@ -1,5 +1,6 @@
 <script lang="ts">
-  import Hls, { type ErrorData } from 'hls.js';
+  import type HlsType from 'hls.js';
+  import type { ErrorData } from 'hls.js';
   import Play from '@lucide/svelte/icons/play';
   import Pause from '@lucide/svelte/icons/pause';
   import Volume1 from '@lucide/svelte/icons/volume-1';
@@ -18,25 +19,24 @@
   import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left';
   import ArrowUpLeft from '@lucide/svelte/icons/arrow-up-left';
   import X from '@lucide/svelte/icons/x';
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { fade, fly, scale } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
 
   import ComboBox from '../combo/ComboBox.svelte';
   import type { ComboSection } from '../combo/types';
   import Slider from '../slider/Slider.svelte';
+  import { getLoadedHls, loadHls } from '../../app/hlsLoader';
+  import { releaseVideoElementBuffers, safeStorageSet } from '../../app/lifecycle';
+  import { createLazyModuleLoader } from '../../api/providers/lazy';
   import {
     createMaxQualityHlsConfig,
     formatQualityLabel,
     resolvePlaybackSource,
     type Mp4Variant
   } from './hlsConfig';
-  import {
-    buildTorrentMediaUrl,
-    buildTorrentSubtitleUrl,
-    getFFmpegStatus,
-    probeTorrentFile
-  } from '../../api/providers/torrent';
+
+  const torrentLoader = createLazyModuleLoader(() => import('../../api/providers/torrent'));
   import type {
     AudioTrackOption,
     DubAudioSource,
@@ -149,9 +149,9 @@
   let previewCanvasEl = $state<HTMLCanvasElement | null>(null);
   let seekEl = $state<HTMLDivElement | null>(null);
 
-  let hls: Hls | null = null;
-  let dubHls: Hls | null = null;
-  let previewHls: Hls | null = null;
+  let hls: HlsType | null = null;
+  let dubHls: HlsType | null = null;
+  let previewHls: HlsType | null = null;
   let playing = $state(false);
   let buffering = $state(false);
   let dubReady = $state(false);
@@ -186,6 +186,7 @@
   let activeRemuxConfig = $state<TorrentRemuxConfig | null>(null);
   let remuxSeekOffset = $state(0);
   let remuxTotalDuration = $state(0);
+  let remuxStreamOptions = $state<{ videoCodec?: string; transcode?: boolean }>({});
   let ffmpegNotice = $state('');
   let mp4Variants = $state<Mp4Variant[]>([]);
   let reloadTick = $state(0);
@@ -199,11 +200,15 @@
   let previewLastRequestedSec = -1;
   let draggingSeek = $state(false);
   let hideTimer: number | undefined;
+  let lastHideArmMs = 0;
   let spaceHoldTimer: number | undefined;
+  let pipClickTimer: number | undefined;
   let spaceIsDown = false;
   let networkRetries = 0;
   let reparentingGuard = false;
   let suppressNextVideoClick = false;
+  let activeBlobRevoke: (() => void) | null = null;
+  let pendingRestoreSeek: (() => void) | null = null;
 
   export function pause(): void {
     videoEl?.pause();
@@ -453,11 +458,22 @@
   }
 
   function scheduleHideControls() {
+    if (!controlsVisible) {
+      controlsVisible = true;
+    } else if (playing && activeMenu === 'none') {
+      const now = Date.now();
+      if (now - lastHideArmMs < 150) return;
+      lastHideArmMs = now;
+    }
     window.clearTimeout(hideTimer);
-    controlsVisible = true;
-    if (!playing || activeMenu !== 'none') return;
+    if (!playing || activeMenu !== 'none') {
+      lastHideArmMs = 0;
+      return;
+    }
+    lastHideArmMs = Date.now();
     hideTimer = window.setTimeout(() => {
       controlsVisible = false;
+      lastHideArmMs = 0;
     }, 2400);
   }
 
@@ -484,14 +500,41 @@
 
   function resetPreviewScrubber() {
     window.clearTimeout(previewSeekTimer);
+    previewSeekTimer = undefined;
     previewAttachedUrl = '';
     previewLastRequestedSec = -1;
     previewHasFrame = false;
     destroyPreviewHls();
-    if (previewVideoEl) {
-      previewVideoEl.pause();
-      previewVideoEl.removeAttribute('src');
-      previewVideoEl.load();
+    releaseVideoElementBuffers(previewVideoEl);
+  }
+
+  function attachPreviewWithHls(HlsCtor: typeof HlsType, pVideo: HTMLVideoElement, url: string) {
+    if (previewAttachedUrl !== url || previewVideoEl !== pVideo || isPip) return;
+    if (HlsCtor.isSupported()) {
+      destroyPreviewHls();
+      const pHls = new HlsCtor(
+        createMaxQualityHlsConfig({
+          capLevelToPlayerSize: false,
+          startLevel: 0,
+          abrEwmaDefaultEstimate: 450_000,
+          maxBufferLength: 2,
+          maxMaxBufferLength: 4
+        })
+      );
+      previewHls = pHls;
+      pHls.on(HlsCtor.Events.MANIFEST_PARSED, (_ev, data) => {
+        if (data.levels.length > 0) {
+          const minIdx = pickLowestLevelIndex(data.levels);
+          pHls.startLevel = minIdx;
+          pHls.currentLevel = minIdx;
+        }
+      });
+      pHls.loadSource(url);
+      pHls.attachMedia(pVideo);
+    } else {
+      destroyPreviewHls();
+      pVideo.src = url;
+      pVideo.load();
     }
   }
 
@@ -505,27 +548,15 @@
     previewHasFrame = false;
     previewLastRequestedSec = -1;
 
-    if (spec.mode === 'hls' && Hls.isSupported()) {
-      destroyPreviewHls();
-      const pHls = new Hls(
-        createMaxQualityHlsConfig({
-          capLevelToPlayerSize: false,
-          startLevel: 0,
-          abrEwmaDefaultEstimate: 450_000,
-          maxBufferLength: 2,
-          maxMaxBufferLength: 4
-        })
-      );
-      previewHls = pHls;
-      pHls.on(Hls.Events.MANIFEST_PARSED, (_ev, data) => {
-        if (data.levels.length > 0) {
-          const minIdx = pickLowestLevelIndex(data.levels);
-          pHls.startLevel = minIdx;
-          pHls.currentLevel = minIdx;
-        }
-      });
-      pHls.loadSource(spec.url);
-      pHls.attachMedia(pVideo);
+    if (spec.mode === 'hls') {
+      const CachedHls = getLoadedHls();
+      if (CachedHls) {
+        attachPreviewWithHls(CachedHls, pVideo, spec.url);
+      } else {
+        void loadHls()
+          .then((LoadedHls) => attachPreviewWithHls(LoadedHls, pVideo, spec.url))
+          .catch(() => {});
+      }
     } else {
       destroyPreviewHls();
       pVideo.src = spec.url;
@@ -695,6 +726,7 @@
     activeRemuxConfig = null;
     remuxSeekOffset = 0;
     remuxTotalDuration = 0;
+    remuxStreamOptions = {};
     mp4Variants = [];
     playing = false;
     currentTime = 0;
@@ -727,9 +759,10 @@
 
     if (!resolved) {
       destroyHls();
+      activeBlobRevoke?.();
+      activeBlobRevoke = null;
       playbackMode = 'hls';
-      video.removeAttribute('src');
-      video.load();
+      releaseVideoElementBuffers(video);
       return;
     }
 
@@ -765,10 +798,15 @@
       }
       return () => {
         window.clearTimeout(hideTimer);
+        hideTimer = undefined;
         resetPreviewScrubber();
+        if (pendingRestoreSeek) {
+          video.removeEventListener('loadedmetadata', pendingRestoreSeek);
+          pendingRestoreSeek = null;
+        }
         video.removeEventListener('loadedmetadata', handleNativeLoaded);
         video.removeEventListener('error', handleNativeError);
-        video.pause();
+        releaseVideoElementBuffers(video);
       };
     }
 
@@ -786,7 +824,8 @@
       buffering = true;
 
       let cancelled = false;
-      const onRemuxCanPlay = () => {
+      let ffPoll: number | undefined;
+      const onRemuxReady = () => {
         buffering = false;
         ffmpegNotice = '';
       };
@@ -796,23 +835,57 @@
         errorText = 'Playback error: FFmpeg remux failed for torrent stream';
         onerror?.(errorText);
       };
-      video.addEventListener('canplay', onRemuxCanPlay);
+      video.addEventListener('loadeddata', onRemuxReady);
+      video.addEventListener('canplay', onRemuxReady);
+      video.addEventListener('canplaythrough', onRemuxReady);
       video.addEventListener('error', onRemuxErr);
 
-      const ffPoll = window.setInterval(() => {
-        void getFFmpegStatus().then((st) => {
-          if (cancelled) return;
-          if (st.downloading) {
-            ffmpegNotice = `Preparing FFmpeg (${st.progressPct}%)…`;
-          } else {
-            ffmpegNotice = '';
-          }
-        });
-      }, 600);
+      const shouldTranscodeVideo = (codec?: string, pixFmt?: string): boolean => {
+        const c = (codec || '').toLowerCase();
+        const pf = (pixFmt || '').toLowerCase();
+        if (pf.includes('10') && c === 'h264') {
+          return true;
+        }
+        if (c === 'hevc' || c === 'h265') {
+          return !video.canPlayType('video/mp4; codecs="hvc1.1.6.L150.90"');
+        }
+        if (c === 'mpeg4' || c === 'msmpeg4v3' || c === 'vc1' || c === 'wmv3') {
+          return true;
+        }
+        return false;
+      };
 
-      void probeTorrentFile(remuxCfg.hash, remuxCfg.fileIndex)
-        .then((probe) => {
-          if (cancelled) return;
+      const startRemux = async (torrentMod: Awaited<ReturnType<typeof torrentLoader.load>>) => {
+        if (cancelled) return;
+        ffPoll = window.setInterval(() => {
+          void torrentMod.getFFmpegStatus().then((st) => {
+            if (cancelled) return;
+            if (st.downloading) {
+              ffmpegNotice = `Preparing FFmpeg (${st.progressPct}%)…`;
+            } else {
+              ffmpegNotice = '';
+            }
+          });
+        }, 600);
+
+        await torrentMod.ensureTorrentMediaBaseUrl();
+        if (cancelled) return;
+
+        let probeTimer: number | undefined;
+        const probePromise = torrentMod
+          .probeTorrentFile(remuxCfg.hash, remuxCfg.fileIndex)
+          .catch(() => null);
+        const probeTimeout = new Promise<null>((resolve) => {
+          probeTimer = window.setTimeout(() => resolve(null), 5000);
+        });
+        const probe = await Promise.race([probePromise, probeTimeout]);
+        if (probeTimer !== undefined) {
+          window.clearTimeout(probeTimer);
+        }
+        if (cancelled) return;
+
+        let initAudio = 0;
+        if (probe) {
           if (probe.duration > 0) {
             remuxTotalDuration = probe.duration;
             duration = probe.duration;
@@ -830,141 +903,196 @@
             const preferredRus = probe.audioTracks.find((t) =>
               /rus|ru/i.test(t.language || '') || /бан|dub|libria|cast|рус/i.test(t.title || '')
             );
-            const initAudio = preferredRus ? preferredRus.ordinal : probe.audioTracks[0].ordinal;
+            initAudio = preferredRus ? preferredRus.ordinal : probe.audioTracks[0].ordinal;
             activeAudioTrack = initAudio;
-            if (initAudio !== 0) {
-              const cur = streamTimeNow();
-              remuxSeekOffset = cur;
-              video.src = buildTorrentMediaUrl(remuxCfg.hash, remuxCfg.fileIndex, true, initAudio, cur);
-              video.load();
-              if (shouldAutoplay) void video.play().catch(() => {});
-            }
           }
           if (probe.subtitles.length > 0) {
             subtitleTracks = probe.subtitles.map((s) => ({
               index: s.ordinal,
               label: s.label,
               lang: s.language,
-              src: buildTorrentSubtitleUrl(remuxCfg.hash, remuxCfg.fileIndex, s.ordinal)
+              src: torrentMod.buildTorrentSubtitleUrl(remuxCfg.hash, remuxCfg.fileIndex, s.ordinal)
             }));
           }
-        })
-        .catch(() => {});
+          remuxStreamOptions = {
+            videoCodec: probe.videoCodec,
+            transcode: shouldTranscodeVideo(probe.videoCodec, probe.pixFmt)
+          };
+        } else {
+          remuxStreamOptions = {};
+        }
 
-      video.src = buildTorrentMediaUrl(remuxCfg.hash, remuxCfg.fileIndex, true, 0, startPos);
-      video.load();
-      if (shouldAutoplay) {
-        void video.play().catch(() => {});
+        video.src = torrentMod.buildTorrentMediaUrl(
+          remuxCfg.hash,
+          remuxCfg.fileIndex,
+          true,
+          initAudio,
+          startPos,
+          remuxStreamOptions
+        );
+        video.load();
+        if (shouldAutoplay) {
+          void video.play().catch(() => {});
+        }
+      };
+
+      const cachedTorrent = torrentLoader.getLoaded();
+      if (cachedTorrent) {
+        void startRemux(cachedTorrent);
+      } else {
+        void torrentLoader
+          .load()
+          .then((mod) => startRemux(mod))
+          .catch(() => {
+            if (!cancelled) onRemuxErr();
+          });
       }
 
       return () => {
         cancelled = true;
-        window.clearInterval(ffPoll);
+        if (ffPoll !== undefined) {
+          window.clearInterval(ffPoll);
+          ffPoll = undefined;
+        }
         window.clearTimeout(hideTimer);
-        video.removeEventListener('canplay', onRemuxCanPlay);
+        hideTimer = undefined;
+        video.removeEventListener('loadeddata', onRemuxReady);
+        video.removeEventListener('canplay', onRemuxReady);
+        video.removeEventListener('canplaythrough', onRemuxReady);
         video.removeEventListener('error', onRemuxErr);
-        video.pause();
+        releaseVideoElementBuffers(video);
       };
     }
 
     playbackMode = 'hls';
     previewMediaSpec = { mode: 'hls', url: resolved.url };
-    if (Hls.isSupported()) {
-      destroyHls();
-      const instance = new Hls(createMaxQualityHlsConfig());
-      hls = instance;
-      buffering = true;
+    activeBlobRevoke = resolved.revoke ?? null;
+    let hlsCancelled = false;
 
-      instance.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
-        const mapped: QualityLevelOption[] = data.levels.map((lvl, idx) => ({
-          index: idx,
-          height: lvl.height || 0,
-          bitrate: lvl.bitrate || 0,
-          label: formatQualityLabel(lvl.height || 0, lvl.bitrate)
-        }));
+    const setupHlsPlayback = (HlsCtor: typeof HlsType) => {
+      if (hlsCancelled) return;
+      if (HlsCtor.isSupported()) {
+        destroyHls();
+        const instance = new HlsCtor(createMaxQualityHlsConfig());
+        hls = instance;
+        buffering = true;
 
-        // Sort highest resolution first for the quality selector UI.
-        mapped.sort((a, b) => b.height - a.height || b.bitrate - a.bitrate);
-        levels = mapped;
+        instance.on(HlsCtor.Events.MANIFEST_PARSED, (_event, data) => {
+          const mapped: QualityLevelOption[] = data.levels.map((lvl, idx) => ({
+            index: idx,
+            height: lvl.height || 0,
+            bitrate: lvl.bitrate || 0,
+            label: formatQualityLabel(lvl.height || 0, lvl.bitrate)
+          }));
 
-        if (data.levels.length > 0) {
-          const maxIdx = pickHighestLevelIndex(data.levels);
-          instance.startLevel = maxIdx;
-          if (lockMax) {
-            // Lock onto highest quality (e.g. 1080p) so playback never degrades unless switched.
-            instance.currentLevel = maxIdx;
-            selectedLevel = maxIdx;
-          } else {
-            instance.currentLevel = -1;
-            selectedLevel = -1;
+          // Sort highest resolution first for the quality selector UI.
+          mapped.sort((a, b) => b.height - a.height || b.bitrate - a.bitrate);
+          levels = mapped;
+
+          if (data.levels.length > 0) {
+            const maxIdx = pickHighestLevelIndex(data.levels);
+            instance.startLevel = maxIdx;
+            if (lockMax) {
+              // Lock onto highest quality (e.g. 1080p) so playback never degrades unless switched.
+              instance.currentLevel = maxIdx;
+              selectedLevel = maxIdx;
+            } else {
+              instance.currentLevel = -1;
+              selectedLevel = -1;
+            }
+            activeLevelIndex = maxIdx;
           }
-          activeLevelIndex = maxIdx;
-        }
 
-        applyInitialResume();
+          applyInitialResume();
 
+          if (shouldAutoplay) {
+            void video.play().catch(() => {});
+          }
+        });
+
+        instance.on(HlsCtor.Events.AUDIO_TRACKS_UPDATED, (_event, data) => {
+          audioTracks = (data.audioTracks ?? []).map((t, i) => ({
+            index: t.id ?? i,
+            label: t.name || t.lang || `Audio ${i + 1}`,
+            lang: t.lang
+          }));
+          activeAudioTrack = instance.audioTrack;
+        });
+
+        instance.on(HlsCtor.Events.AUDIO_TRACK_SWITCHED, (_event, data) => {
+          activeAudioTrack = data.id;
+        });
+
+        instance.on(HlsCtor.Events.LEVEL_SWITCHED, (_event, data) => {
+          activeLevelIndex = data.level;
+        });
+
+        instance.on(HlsCtor.Events.ERROR, (_event, data: ErrorData) => {
+          if (!data.fatal) return;
+          if (data.type === HlsCtor.ErrorTypes.NETWORK_ERROR && networkRetries < 3) {
+            networkRetries += 1;
+            instance.startLoad();
+            return;
+          }
+          if (data.type === HlsCtor.ErrorTypes.MEDIA_ERROR) {
+            instance.recoverMediaError();
+            return;
+          }
+          const status = (data.response as { code?: number } | undefined)?.code;
+          errorText = status
+            ? `Playback error: CDN returned HTTP ${status}`
+            : 'Playback error: failed to load HLS stream';
+          buffering = false;
+          onerror?.(errorText);
+        });
+
+        instance.loadSource(resolved.url);
+        instance.attachMedia(video);
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        destroyHls();
+        video.src = resolved.url;
+        video.addEventListener('loadedmetadata', handleNativeLoaded, { once: true });
+        video.addEventListener('error', handleNativeError, { once: true });
         if (shouldAutoplay) {
           void video.play().catch(() => {});
         }
-      });
-
-      instance.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_event, data) => {
-        audioTracks = (data.audioTracks ?? []).map((t, i) => ({
-          index: t.id ?? i,
-          label: t.name || t.lang || `Audio ${i + 1}`,
-          lang: t.lang
-        }));
-        activeAudioTrack = instance.audioTrack;
-      });
-
-      instance.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_event, data) => {
-        activeAudioTrack = data.id;
-      });
-
-      instance.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
-        activeLevelIndex = data.level;
-      });
-
-      instance.on(Hls.Events.ERROR, (_event, data: ErrorData) => {
-        if (!data.fatal) return;
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < 3) {
-          networkRetries += 1;
-          instance.startLoad();
-          return;
-        }
-        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          instance.recoverMediaError();
-          return;
-        }
-        const status = (data.response as { code?: number } | undefined)?.code;
-        errorText = status
-          ? `Playback error: CDN returned HTTP ${status}`
-          : 'Playback error: failed to load HLS stream';
-        buffering = false;
+      } else {
+        errorText = 'HLS playback is not supported in this environment';
         onerror?.(errorText);
-      });
-
-      instance.loadSource(resolved.url);
-      instance.attachMedia(video);
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      destroyHls();
-      video.src = resolved.url;
-      video.addEventListener('loadedmetadata', handleNativeLoaded, { once: true });
-      video.addEventListener('error', handleNativeError, { once: true });
-      if (shouldAutoplay) {
-        void video.play().catch(() => {});
       }
+    };
+
+    const cachedHls = getLoadedHls();
+    if (cachedHls) {
+      setupHlsPlayback(cachedHls);
     } else {
-      errorText = 'HLS playback is not supported in this environment';
-      onerror?.(errorText);
+      buffering = true;
+      void loadHls()
+        .then(setupHlsPlayback)
+        .catch(() => {
+          if (hlsCancelled) return;
+          buffering = false;
+          errorText = 'Playback error: failed to load HLS engine';
+          onerror?.(errorText);
+        });
     }
 
     return () => {
+      hlsCancelled = true;
       window.clearTimeout(hideTimer);
+      hideTimer = undefined;
       resetPreviewScrubber();
+      if (pendingRestoreSeek) {
+        video.removeEventListener('loadedmetadata', pendingRestoreSeek);
+        pendingRestoreSeek = null;
+      }
       video.removeEventListener('loadedmetadata', handleNativeLoaded);
       video.removeEventListener('error', handleNativeError);
       destroyHls();
+      releaseVideoElementBuffers(video);
+      if (activeBlobRevoke === resolved.revoke) {
+        activeBlobRevoke = null;
+      }
       resolved.revoke?.();
     };
   });
@@ -1068,42 +1196,69 @@
         : undefined;
     const dubUrl = resolvedDub.mode === 'hls' ? resolvedDub.url : rawMp4Url;
 
-    if (resolvedDub.mode === 'hls' && dubUrl && Hls.isSupported()) {
-      destroyDubHls();
-      const dHls = new Hls(
-        createMaxQualityHlsConfig({
-          capLevelToPlayerSize: false,
-          startLevel: 0,
-          abrEwmaDefaultEstimate: 500_000,
-          maxBufferLength: 25,
-          maxMaxBufferLength: 60
-        })
-      );
-      dubHls = dHls;
-      dHls.on(Hls.Events.MANIFEST_PARSED, (_ev, data) => {
-        if (data.levels.length > 0) {
-          const minIdx = pickLowestLevelIndex(data.levels);
-          dHls.startLevel = minIdx;
-          dHls.currentLevel = minIdx;
+    let dubCancelled = false;
+
+    const setupDubHls = (HlsCtor: typeof HlsType) => {
+      if (dubCancelled || !dubUrl) return;
+      if (HlsCtor.isSupported()) {
+        destroyDubHls();
+        const dHls = new HlsCtor(
+          createMaxQualityHlsConfig({
+            capLevelToPlayerSize: false,
+            startLevel: 0,
+            abrEwmaDefaultEstimate: 500_000,
+            maxBufferLength: 25,
+            maxMaxBufferLength: 60
+          })
+        );
+        dubHls = dHls;
+        dHls.on(HlsCtor.Events.MANIFEST_PARSED, (_ev, data) => {
+          if (data.levels.length > 0) {
+            const minIdx = pickLowestLevelIndex(data.levels);
+            dHls.startLevel = minIdx;
+            dHls.currentLevel = minIdx;
+          }
+          markDubReadyAndSync(true);
+        });
+        dHls.on(HlsCtor.Events.ERROR, (_ev, data: ErrorData) => {
+          if (!data.fatal) return;
+          if (data.type === HlsCtor.ErrorTypes.NETWORK_ERROR && hlsNetRetries < 4) {
+            hlsNetRetries += 1;
+            dHls.startLoad();
+            return;
+          }
+          if (data.type === HlsCtor.ErrorTypes.MEDIA_ERROR) {
+            dHls.recoverMediaError();
+            return;
+          }
+          dubReady = false;
+          video.muted = muted;
+        });
+        dHls.loadSource(dubUrl);
+        dHls.attachMedia(dubEl);
+      } else {
+        destroyDubHls();
+        dubEl.src = dubUrl;
+        dubEl.load();
+        if (!video.paused) {
+          void dubEl.play().catch(() => {});
         }
-        markDubReadyAndSync(true);
-      });
-      dHls.on(Hls.Events.ERROR, (_ev, data: ErrorData) => {
-        if (!data.fatal) return;
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && hlsNetRetries < 4) {
-          hlsNetRetries += 1;
-          dHls.startLoad();
-          return;
-        }
-        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          dHls.recoverMediaError();
-          return;
-        }
-        dubReady = false;
-        video.muted = muted;
-      });
-      dHls.loadSource(dubUrl);
-      dHls.attachMedia(dubEl);
+      }
+    };
+
+    if (resolvedDub.mode === 'hls' && dubUrl) {
+      const cachedHls = getLoadedHls();
+      if (cachedHls) {
+        setupDubHls(cachedHls);
+      } else {
+        void loadHls()
+          .then(setupDubHls)
+          .catch(() => {
+            if (dubCancelled) return;
+            dubReady = false;
+            video.muted = muted;
+          });
+      }
     } else if (dubUrl) {
       destroyDubHls();
       dubEl.src = dubUrl;
@@ -1129,13 +1284,14 @@
     }, 350);
 
     return () => {
+      dubCancelled = true;
       window.clearInterval(driftTimer);
       dubEl.removeEventListener('loadedmetadata', onDubMeta);
       dubEl.removeEventListener('canplay', onDubCanPlay);
       dubEl.removeEventListener('playing', onDubPlaying);
       dubEl.removeEventListener('error', onDubError);
       destroyDubHls();
-      dubEl.pause();
+      releaseVideoElementBuffers(dubEl);
       if (resolvedDub.mode === 'hls') {
         resolvedDub.revoke?.();
       }
@@ -1210,6 +1366,49 @@
     scheduleHideControls();
   }
 
+  function applyRemuxStreamSource(
+    video: HTMLVideoElement,
+    cfg: TorrentRemuxConfig,
+    audioIdx: number,
+    posSec: number,
+    shouldPlay: boolean
+  ) {
+    const torrentMod = torrentLoader.getLoaded();
+    if (torrentMod) {
+      video.src = torrentMod.buildTorrentMediaUrl(
+        cfg.hash,
+        cfg.fileIndex,
+        true,
+        audioIdx,
+        posSec,
+        remuxStreamOptions
+      );
+      video.load();
+      if (shouldPlay) {
+        void video.play().catch(() => {});
+      }
+      return;
+    }
+    void torrentLoader.load().then((mod) => {
+      if (videoEl !== video || activeRemuxConfig !== cfg || playbackMode !== 'remux') return;
+      void mod.ensureTorrentMediaBaseUrl().then(() => {
+        if (videoEl !== video || activeRemuxConfig !== cfg || playbackMode !== 'remux') return;
+        video.src = mod.buildTorrentMediaUrl(
+          cfg.hash,
+          cfg.fileIndex,
+          true,
+          audioIdx,
+          posSec,
+          remuxStreamOptions
+        );
+        video.load();
+        if (shouldPlay) {
+          void video.play().catch(() => {});
+        }
+      });
+    });
+  }
+
   function seekTo(seconds: number) {
     if (!videoEl || !Number.isFinite(duration) || duration <= 0) return;
     const clamped = Math.max(0, Math.min(duration, seconds));
@@ -1218,17 +1417,7 @@
       remuxSeekOffset = clamped;
       currentTime = clamped;
       buffering = true;
-      videoEl.src = buildTorrentMediaUrl(
-        activeRemuxConfig.hash,
-        activeRemuxConfig.fileIndex,
-        true,
-        Math.max(0, activeAudioTrack),
-        clamped
-      );
-      videoEl.load();
-      if (wasPlaying) {
-        void videoEl.play().catch(() => {});
-      }
+      applyRemuxStreamSource(videoEl, activeRemuxConfig, Math.max(0, activeAudioTrack), clamped, wasPlaying);
       syncDubTime(true);
       scheduleHideControls();
       return;
@@ -1253,7 +1442,11 @@
         const wasPlaying = !videoEl.paused;
         activeLevelIndex = levelIdx;
         buffering = true;
+        if (pendingRestoreSeek) {
+          videoEl.removeEventListener('loadedmetadata', pendingRestoreSeek);
+        }
         const restoreSeek = () => {
+          pendingRestoreSeek = null;
           if (!videoEl) return;
           if (savedTime > 0.25 && Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
             videoEl.currentTime = Math.min(savedTime, Math.max(0, videoEl.duration - 0.5));
@@ -1263,6 +1456,7 @@
             void videoEl.play().catch(() => {});
           }
         };
+        pendingRestoreSeek = restoreSeek;
         videoEl.addEventListener('loadedmetadata', restoreSeek, { once: true });
         videoEl.src = target.url;
         videoEl.load();
@@ -1286,9 +1480,7 @@
     if (!spaceHoldBoostActive) {
       applyPlaybackRate(rate);
     }
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(SPEED_KEY, String(rate));
-    }
+    safeStorageSet(SPEED_KEY, String(rate));
     if (withOsd) {
       showOsd(`${rate}x`, 'speed');
     }
@@ -1309,17 +1501,7 @@
       activeAudioTrack = trackIdx;
       remuxSeekOffset = curPos;
       buffering = true;
-      videoEl.src = buildTorrentMediaUrl(
-        activeRemuxConfig.hash,
-        activeRemuxConfig.fileIndex,
-        true,
-        Math.max(0, trackIdx),
-        curPos
-      );
-      videoEl.load();
-      if (wasPlaying) {
-        void videoEl.play().catch(() => {});
-      }
+      applyRemuxStreamSource(videoEl, activeRemuxConfig, Math.max(0, trackIdx), curPos, wasPlaying);
       activeMenu = 'none';
       scheduleHideControls();
       return;
@@ -1367,10 +1549,8 @@
       dubAudioEl.volume = clamped;
       dubAudioEl.muted = muted;
     }
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(VOLUME_KEY, String(clamped));
-      localStorage.setItem(MUTED_KEY, muted ? '1' : '0');
-    }
+    safeStorageSet(VOLUME_KEY, String(clamped));
+    safeStorageSet(MUTED_KEY, muted ? '1' : '0');
   }
 
   function toggleMute() {
@@ -1386,9 +1566,7 @@
       dubAudioEl.muted = muted;
       dubAudioEl.volume = volume;
     }
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(MUTED_KEY, muted ? '1' : '0');
-    }
+    safeStorageSet(MUTED_KEY, muted ? '1' : '0');
     scheduleHideControls();
   }
 
@@ -1425,7 +1603,9 @@
 
   export function notifyPipDragged(): void {
     suppressNextVideoClick = true;
-    window.setTimeout(() => {
+    window.clearTimeout(pipClickTimer);
+    pipClickTimer = window.setTimeout(() => {
+      pipClickTimer = undefined;
       suppressNextVideoClick = false;
     }, 80);
   }
@@ -1659,6 +1839,42 @@
     const ss = String(s).padStart(2, '0');
     return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
   }
+
+  onDestroy(() => {
+    if (videoEl) {
+      const pos = streamTimeNow();
+      const tot = remuxTotalDuration > 0 ? remuxTotalDuration : videoEl.duration || duration || 0;
+      if (pos > 0 && tot > 0) {
+        ontimeprogress?.(pos, tot, true);
+      }
+      if (pendingRestoreSeek) {
+        videoEl.removeEventListener('loadedmetadata', pendingRestoreSeek);
+        pendingRestoreSeek = null;
+      }
+    }
+    window.clearTimeout(osdTimer);
+    osdTimer = undefined;
+    window.clearTimeout(hideTimer);
+    hideTimer = undefined;
+    window.clearTimeout(previewSeekTimer);
+    previewSeekTimer = undefined;
+    window.clearTimeout(spaceHoldTimer);
+    spaceHoldTimer = undefined;
+    window.clearTimeout(pipClickTimer);
+    pipClickTimer = undefined;
+    spaceIsDown = false;
+    spaceHoldBoostActive = false;
+    destroyHls();
+    destroyDubHls();
+    resetPreviewScrubber();
+    releaseVideoElementBuffers(videoEl);
+    releaseVideoElementBuffers(dubAudioEl);
+    activeBlobRevoke?.();
+    activeBlobRevoke = null;
+    if (nativeFsActive) {
+      void setNativeWindowFullscreen(false);
+    }
+  });
 </script>
 
 <svelte:window
@@ -1745,7 +1961,13 @@
       buffering = true;
       dubAudioEl?.pause();
     }}
+    onloadeddata={() => {
+      if (playbackMode === 'remux' || (videoEl && videoEl.readyState >= 2)) {
+        buffering = false;
+      }
+    }}
     oncanplay={() => (buffering = false)}
+    oncanplaythrough={() => (buffering = false)}
     onplaying={() => {
       buffering = false;
       if (dubAudio && dubAudioEl) {
@@ -1758,6 +1980,9 @@
     }}
     ontimeupdate={() => {
       if (!draggingSeek && videoEl) {
+        if (buffering && videoEl.readyState >= 3) {
+          buffering = false;
+        }
         const now = streamTimeNow();
         currentTime = now;
         const tot = remuxTotalDuration > 0 ? remuxTotalDuration : videoEl.duration || duration || 0;
@@ -1790,7 +2015,7 @@
         kind="subtitles"
         label={sub.label}
         srclang={sub.lang || 'ru'}
-        src={sub.src}
+        src={activeSubtitleTrack === sub.index ? sub.src : undefined}
         default={activeSubtitleTrack === sub.index}
       />
     {/each}

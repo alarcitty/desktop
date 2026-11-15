@@ -2,7 +2,8 @@
   import { onMount, untrack } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
-  import Hls from 'hls.js';
+  import type HlsType from 'hls.js';
+  import { getLoadedHls, loadHls } from '../../../app/hlsLoader';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import ChevronLeft from '@lucide/svelte/icons/chevron-left';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
@@ -18,10 +19,15 @@
     getCachedHomeFeeds,
     loadHomeFeeds,
     resolveHeroOpeningPreview,
+    warmHeroOpeningPreview,
     type HeroOpeningOption,
     type HeroOpeningPreview,
     type HomeSpotlightItem
   } from '../../../api/anime';
+  import {
+    computeAdjacentHeroIndices,
+    hasEnoughHeroPreviewBuffer
+  } from './heroBuffer';
   import { openWatch, player } from '../../../app/player.svelte';
   import { router } from '../../../app/router.svelte';
   import { search } from '../../../app/search.svelte';
@@ -46,7 +52,9 @@
   const AUDIO_FADE_IN_SEC = 0.4;
   const AUDIO_FADE_OUT_SEC = 1.2;
   const UNMUTE_FADE_MS = 400;
-  const SWITCH_FADE_OUT_MS = 220;
+  const SWITCH_FADE_OUT_MS = 380;
+  const SLIDE_FADE_OVERLAP_MS = 280;
+  const BUFFER_REVEAL_FALLBACK_MS = 2200;
   const VOLUME_STORAGE_KEY = 'mila.hero.previewVolume';
   const OPENINGS_STORAGE_KEY = 'mila.hero.selectedOpenings';
 
@@ -84,8 +92,11 @@
     }
   }
 
-  let previewHls: Hls | null = null;
+  let previewHls: HlsType | null = null;
   let previewReqToken = 0;
+  let streamBufferedReady = false;
+  let pendingDetachTimer: number | undefined;
+  let warmNeighborsTimer: number | undefined;
   let audioFadeRaf: number | undefined;
   let unmuteFadeStartMs = 0;
   let switchFadeStartMs = 0;
@@ -259,8 +270,17 @@
     audioFadeRaf = window.requestAnimationFrame(tick);
   }
 
+  function clearDetachTimer() {
+    if (pendingDetachTimer !== undefined) {
+      window.clearTimeout(pendingDetachTimer);
+      pendingDetachTimer = undefined;
+    }
+  }
+
   function destroyPreviewStream() {
+    clearDetachTimer();
     stopAudioFadeLoop();
+    streamBufferedReady = false;
     if (previewHls) {
       previewHls.destroy();
       previewHls = null;
@@ -272,6 +292,66 @@
       previewVideoEl.load();
     }
     videoReady = false;
+  }
+
+  function softHideOutgoingPreview() {
+    clearDetachTimer();
+    stopAudioFadeLoop();
+    streamBufferedReady = false;
+    videoReady = false;
+    if (previewVideoEl) {
+      previewVideoEl.pause();
+      previewVideoEl.volume = 0;
+    }
+    pendingDetachTimer = window.setTimeout(() => {
+      pendingDetachTimer = undefined;
+      destroyPreviewStream();
+      previewClip = null;
+    }, 560);
+  }
+
+  function pickInitialOpeningForHero(hero: HomeSpotlightItem): HeroOpeningOption | null {
+    const openings = hero.openings ?? [];
+    if (openings.length === 0) return null;
+    const savedNum = selectedOpenings[hero.shikiId];
+    const targetNum = savedNum ?? hero.defaultOpeningNumber ?? openings[0]?.number;
+    return openings.find((op) => op.number === targetNum) ?? openings[0] ?? null;
+  }
+
+  function warmHeroSlideTarget(hero: HomeSpotlightItem, option: HeroOpeningOption | null) {
+    warmHeroOpeningPreview(
+      {
+        title: hero.title,
+        releaseAlias: hero.releaseAlias,
+        openingAlias: option ? option.alias : hero.openingAlias,
+        openingEpisode: option ? option.episode : hero.openingEpisode,
+        openingStartOffsetSec: option ? option.startOffsetSec : hero.openingStartOffsetSec,
+        customPreviewUrl: hero.customPreviewUrl,
+        customPreviewAspect: hero.customPreviewAspect,
+        shikiId: hero.shikiId,
+        searchQueries: hero.searchQueries
+      },
+      { quality: 'hero', maxSeconds: 26 }
+    );
+  }
+
+  function warmSpotlightNeighbors(currentIdx: number, hero: HomeSpotlightItem, currentOp: HeroOpeningOption | null) {
+    window.clearTimeout(warmNeighborsTimer);
+    const items = spotlight;
+    warmNeighborsTimer = window.setTimeout(() => {
+      // Warm alternate OPs of the active anime first so switching OP1/OP2 feels instant.
+      for (const op of hero.openings ?? []) {
+        if (!currentOp || op.number !== currentOp.number) {
+          warmHeroSlideTarget(hero, op);
+        }
+      }
+      const order = computeAdjacentHeroIndices(currentIdx, items.length);
+      for (const idx of order.slice(0, 3)) {
+        const neighbor = items[idx];
+        if (!neighbor) continue;
+        warmHeroSlideTarget(neighbor, pickInitialOpeningForHero(neighbor));
+      }
+    }, 220);
   }
 
   function applySpotlightIndex(index: number)
@@ -381,7 +461,7 @@
 
     switchFadeStartMs = 0;
     if (clip) {
-      previewClip = clip;
+      previewClip = { ...clip };
     } else {
       isSwitchingOpening = false;
     }
@@ -416,36 +496,89 @@
     };
   });
 
+  function handlePreviewPlaying() {
+    if (!previewClip || !previewVideoEl || !streamBufferedReady) return;
+    if (previewVideoEl.currentTime >= previewClip.startSec - 0.25) {
+      if (!videoReady) {
+        unmuteFadeStartMs = performance.now();
+        isSwitchingOpening = false;
+        switchFadeStartMs = 0;
+      }
+      videoReady = true;
+      markHeroMediaReady();
+      applyPreviewAudioEnvelope();
+    }
+  }
+
+  function handlePreviewTimeUpdate() {
+    if (!previewClip || !previewVideoEl) return;
+    const t = previewVideoEl.currentTime;
+    if (!previewVideoEl.seeking && t < previewClip.startSec - 0.15) {
+      previewVideoEl.volume = 0;
+      previewVideoEl.currentTime = previewClip.startSec;
+      return;
+    }
+    if (streamBufferedReady && !videoReady && t >= previewClip.startSec - 0.25) {
+      videoReady = true;
+      markHeroMediaReady();
+      isSwitchingOpening = false;
+      switchFadeStartMs = 0;
+      unmuteFadeStartMs = performance.now();
+    }
+    const endSec = getPreviewEndSec(previewVideoEl, previewClip);
+    if (t >= endSec - 0.15) {
+      previewVideoEl.volume = 0;
+      previewVideoEl.currentTime = previewClip.startSec;
+      return;
+    }
+    applyPreviewAudioEnvelope();
+  }
+
   $effect(() => {
     const hero = activeHero;
+    const curIdx = activeIndex;
     const token = ++previewReqToken;
-    previewClip = null;
     bgSlideIndex = 0;
     isSwitchingOpening = false;
     switchFadeStartMs = 0;
     opMenuOpen = false;
-    untrack(() => destroyPreviewStream());
+    const hadVisibleVideo = untrack(() => videoReady || Boolean(previewClip));
+    untrack(() => softHideOutgoingPreview());
 
-    if (!hero) return;
+    if (!hero) {
+      untrack(() => {
+        destroyPreviewStream();
+        previewClip = null;
+      });
+      return;
+    }
 
-    const initialOp = untrack(() => {
-      const openings = hero.openings ?? [];
-      if (openings.length === 0) return null;
-      const savedNum = selectedOpenings[hero.shikiId];
-      const targetNum = savedNum ?? hero.defaultOpeningNumber ?? openings[0]?.number;
-      return openings.find((op) => op.number === targetNum) ?? openings[0] ?? null;
-    });
+    const initialOp = untrack(() => pickInitialOpeningForHero(hero));
+    untrack(() => warmSpotlightNeighbors(curIdx, hero, initialOp));
 
-    resolveOpeningForHero(hero, initialOp)
-      .then((clip) => {
+    Promise.all([
+      resolveOpeningForHero(hero, initialOp).catch(() => null),
+      hadVisibleVideo
+        ? new Promise<void>((resolve) => window.setTimeout(resolve, SLIDE_FADE_OVERLAP_MS))
+        : Promise.resolve()
+    ])
+      .then(([clip]) => {
         if (token !== previewReqToken) return;
+        clearDetachTimer();
         if (!clip) {
+          destroyPreviewStream();
+          previewClip = null;
           markHeroMediaReady();
           return;
         }
-        previewClip = clip;
+        previewClip = { ...clip };
       })
       .catch(() => {
+        if (token === previewReqToken) {
+          clearDetachTimer();
+          destroyPreviewStream();
+          previewClip = null;
+        }
         markHeroMediaReady();
       });
   });
@@ -457,52 +590,169 @@
     if (!clip || !video) return;
 
     let cancelled = false;
+    let revealed = false;
+    let canPlayThrough = false;
+    let seekRequested = false;
+    let revealFallbackTimer: number | undefined;
+
     video.muted = untrack(() => videoMuted);
     video.volume = 0;
+    video.pause();
     unmuteFadeStartMs = performance.now();
 
-    const trySeekAndPlay = () => {
-      if (cancelled || !video) return;
+    const clearReadinessTimers = () => {
+      if (revealFallbackTimer !== undefined) {
+        window.clearTimeout(revealFallbackTimer);
+        revealFallbackTimer = undefined;
+      }
+    };
+
+    const detachReadinessListeners = () => {
+      video.removeEventListener('loadedmetadata', onReadinessChange);
+      video.removeEventListener('loadeddata', onReadinessChange);
+      video.removeEventListener('seeked', onReadinessChange);
+      video.removeEventListener('progress', onReadinessChange);
+      video.removeEventListener('canplay', onReadinessChange);
+      video.removeEventListener('canplaythrough', onCanPlayThrough);
+    };
+
+    const revealPreview = () => {
+      if (cancelled || revealed) return;
+      revealed = true;
+      streamBufferedReady = true;
+      clearReadinessTimers();
+      detachReadinessListeners();
+
       const endSec = getPreviewEndSec(video, clip);
       if (video.currentTime < clip.startSec - 0.15 || video.currentTime >= endSec) {
         video.currentTime = clip.startSec;
       }
+      videoReady = true;
+      isSwitchingOpening = false;
+      switchFadeStartMs = 0;
+      unmuteFadeStartMs = performance.now();
+      markHeroMediaReady();
+
       if (untrack(() => shouldPlayPreview)) {
         video.play().catch(() => {});
+        if (!videoMuted) {
+          startAudioFadeLoop();
+        }
+      }
+      applyPreviewAudioEnvelope();
+    };
+
+    const evaluateReadiness = () => {
+      if (cancelled || revealed) return;
+      if (video.readyState < 1) return;
+
+      const endSec = getPreviewEndSec(video, clip);
+      if (!seekRequested) {
+        seekRequested = true;
+        if (video.currentTime < clip.startSec - 0.15 || video.currentTime >= endSec) {
+          try {
+            video.currentTime = clip.startSec;
+          } catch {}
+        }
+      }
+
+      if (
+        hasEnoughHeroPreviewBuffer({
+          currentTime: video.currentTime,
+          targetStartSec: clip.startSec,
+          targetEndSec: endSec,
+          readyState: video.readyState,
+          buffered: video.buffered,
+          canPlayThrough
+        })
+      ) {
+        revealPreview();
+        return;
+      }
+
+      if (revealFallbackTimer === undefined && video.readyState >= 2) {
+        revealFallbackTimer = window.setTimeout(() => {
+          if (!cancelled && !revealed && video.readyState >= 2) {
+            revealPreview();
+          }
+        }, BUFFER_REVEAL_FALLBACK_MS);
+      }
+    };
+
+    function onReadinessChange() {
+      evaluateReadiness();
+    }
+
+    function onCanPlayThrough() {
+      canPlayThrough = true;
+      evaluateReadiness();
+    }
+
+    video.addEventListener('loadedmetadata', onReadinessChange);
+    video.addEventListener('loadeddata', onReadinessChange);
+    video.addEventListener('seeked', onReadinessChange);
+    video.addEventListener('progress', onReadinessChange);
+    video.addEventListener('canplay', onReadinessChange);
+    video.addEventListener('canplaythrough', onCanPlayThrough);
+
+    const attachHeroHls = (HlsCtor: typeof HlsType) => {
+      if (cancelled) return;
+      if (HlsCtor.isSupported()) {
+        const hls = new HlsCtor({
+          enableWorker: true,
+          lowLatencyMode: false,
+          startPosition: clip.startSec,
+          startFragPrefetch: true,
+          maxBufferLength: 32,
+          maxMaxBufferLength: 60,
+          backBufferLength: 60,
+          fragLoadingMaxRetry: 4,
+          abrEwmaDefaultEstimate: 2_500_000
+        });
+        previewHls = hls;
+        hls.loadSource(clip.streamUrl);
+        hls.attachMedia(video);
+        hls.on(HlsCtor.Events.MANIFEST_PARSED, evaluateReadiness);
+        hls.on(HlsCtor.Events.FRAG_BUFFERED, evaluateReadiness);
+        hls.on(HlsCtor.Events.BUFFER_APPENDED, evaluateReadiness);
+        hls.on(HlsCtor.Events.ERROR, (_ev, data) => {
+          if (data.fatal) {
+            clearReadinessTimers();
+            detachReadinessListeners();
+            markHeroMediaReady();
+            destroyPreviewStream();
+          }
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = clip.streamUrl;
+        video.load();
+        evaluateReadiness();
+      } else {
+        markHeroMediaReady();
       }
     };
 
     if (clip.isDirectVideo) {
       video.src = clip.streamUrl;
       video.load();
-      trySeekAndPlay();
-      video.addEventListener('loadedmetadata', trySeekAndPlay, { once: true });
-    } else if (Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: false,
-        startPosition: clip.startSec,
-        maxBufferLength: 14,
-        maxMaxBufferLength: 28,
-        backBufferLength: 8
-      });
-      previewHls = hls;
-      hls.loadSource(clip.streamUrl);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, trySeekAndPlay);
-      hls.on(Hls.Events.ERROR, (_ev, data) => {
-        if (data.fatal) {
-          markHeroMediaReady();
-          destroyPreviewStream();
-        }
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = clip.streamUrl;
-      video.addEventListener('loadedmetadata', trySeekAndPlay, { once: true });
+      evaluateReadiness();
+    } else {
+      const CachedHls = getLoadedHls();
+      if (CachedHls) {
+        attachHeroHls(CachedHls);
+      } else {
+        void loadHls()
+          .then(attachHeroHls)
+          .catch(() => {
+            if (!cancelled) markHeroMediaReady();
+          });
+      }
     }
 
     return () => {
       cancelled = true;
+      clearReadinessTimers();
+      detachReadinessListeners();
       destroyPreviewStream();
     };
   });
@@ -513,6 +763,13 @@
     const play = shouldPlayPreview;
     if (!video || !clip) return;
     untrack(() => {
+      if (!streamBufferedReady) {
+        if (!play) {
+          stopAudioFadeLoop();
+          video.pause();
+        }
+        return;
+      }
       if (play) {
         const endSec = getPreviewEndSec(video, clip);
         if (video.currentTime < clip.startSec - 0.15 || video.currentTime >= endSec) {
@@ -548,7 +805,7 @@
           unmuteFadeStartMs = performance.now();
         }
         applyPreviewAudioEnvelope();
-        if (shouldPlayPreview) {
+        if (shouldPlayPreview && streamBufferedReady) {
           if (video.paused) {
             video.play().catch(() => {});
           }
@@ -576,6 +833,7 @@
   $effect(() => () =>
   {
     window.clearTimeout(planTimer);
+    window.clearTimeout(warmNeighborsTimer);
     window.clearInterval(cycleTimer);
     destroyPreviewStream();
   });
@@ -673,41 +931,8 @@
       muted={videoMuted}
       playsinline
       preload="auto"
-      onplaying={() => {
-        if (previewClip && previewVideoEl && previewVideoEl.currentTime >= previewClip.startSec - 0.2) {
-          if (!videoReady) {
-            unmuteFadeStartMs = performance.now();
-            isSwitchingOpening = false;
-            switchFadeStartMs = 0;
-          }
-          videoReady = true;
-          markHeroMediaReady();
-          applyPreviewAudioEnvelope();
-        }
-      }}
-      ontimeupdate={() => {
-        if (!previewClip || !previewVideoEl) return;
-        const t = previewVideoEl.currentTime;
-        if (!previewVideoEl.seeking && t < previewClip.startSec - 0.15) {
-          previewVideoEl.volume = 0;
-          previewVideoEl.currentTime = previewClip.startSec;
-          return;
-        }
-        if (!videoReady && t >= previewClip.startSec - 0.2) {
-          videoReady = true;
-          markHeroMediaReady();
-          isSwitchingOpening = false;
-          switchFadeStartMs = 0;
-          unmuteFadeStartMs = performance.now();
-        }
-        const endSec = getPreviewEndSec(previewVideoEl, previewClip);
-        if (t >= endSec - 0.15) {
-          previewVideoEl.volume = 0;
-          previewVideoEl.currentTime = previewClip.startSec;
-          return;
-        }
-        applyPreviewAudioEnvelope();
-      }}
+      onplaying={handlePreviewPlaying}
+      ontimeupdate={handlePreviewTimeUpdate}
     ></video>
   </div>
 

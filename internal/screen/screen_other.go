@@ -36,3 +36,8 @@ func SetWindowPip(className, title string, pip bool) bool {
 func StartWindowDrag(className, title string) bool {
 	return true
 }
+
+// CurrentWindowGeometry reads native HWND placement (unsupported on non-windows builds).
+func CurrentWindowGeometry(className, title string) (WindowGeometry, bool) {
+	return WindowGeometry{}, false
+}

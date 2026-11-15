@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,22 +16,75 @@ import (
 	"mila/internal/logger"
 )
 
+type serverOptions struct {
+	imageProxyConfig *ImageProxyConfig
+}
+
+// Option customizes Server initialization.
+type Option func(*serverOptions)
+
+// WithImageProxyConfig overrides the default persistent disk image proxy configuration.
+func WithImageProxyConfig(cfg ImageProxyConfig) Option {
+	return func(o *serverOptions) {
+		copyCfg := cfg
+		o.imageProxyConfig = &copyCfg
+	}
+}
+
 // Server exposes the anime backend over HTTP JSON endpoints.
 type Server struct {
-	anime *anime.Service
-	log   *logger.Logger
-	mux   *http.ServeMux
+	anime  *anime.Service
+	images *ImageProxy
+	log    *logger.Logger
+	mux    *http.ServeMux
 }
 
 // New builds an HTTP handler for the anime backend API.
-func New(animeSvc *anime.Service) *Server {
+func New(animeSvc *anime.Service, opts ...Option) *Server {
+	var options serverOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&options)
+		}
+	}
+
+	log := logger.Make("http")
+	imgCfg := ImageProxyConfig{
+		QuotaBytes: DefaultImageCacheQuotaBytes,
+	}
+	if options.imageProxyConfig != nil {
+		imgCfg = *options.imageProxyConfig
+		if imgCfg.QuotaBytes <= 0 {
+			imgCfg.QuotaBytes = DefaultImageCacheQuotaBytes
+		}
+	}
+
+	imgProxy, err := NewImageProxy(imgCfg)
+	if err != nil {
+		fallbackCfg := imgCfg
+		fallbackCfg.CacheDir = filepath.Join(os.TempDir(), "mila-image-cache")
+		if log != nil {
+			log.Warn("image proxy init failed in %s (%v); falling back to %s", imgCfg.CacheDir, err, fallbackCfg.CacheDir)
+		}
+		imgProxy, err = NewImageProxy(fallbackCfg)
+		if err != nil && log != nil {
+			log.Warn("image proxy disabled: %v", err)
+		}
+	}
+
 	s := &Server{
-		anime: animeSvc,
-		log:   logger.Make("http"),
-		mux:   http.NewServeMux(),
+		anime:  animeSvc,
+		images: imgProxy,
+		log:    log,
+		mux:    http.NewServeMux(),
 	}
 	s.routes()
 	return s
+}
+
+// ImageProxy returns the backing disk-cached image proxy, or nil if initialization failed.
+func (s *Server) ImageProxy() *ImageProxy {
+	return s.images
 }
 
 // Handler returns the root HTTP handler wrapped with recovery, CORS, and logging middleware.
@@ -39,6 +94,12 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health", s.handleHealth)
+
+	s.mux.HandleFunc("GET /api/v1/image", s.handleImageProxy)
+	s.mux.HandleFunc("HEAD /api/v1/image", s.handleImageProxy)
+
+	s.mux.HandleFunc("POST /api/v1/diagnostics/logs", s.handleDiagnosticsExport)
+	s.mux.HandleFunc("GET /api/v1/diagnostics/logs.zip", s.handleDiagnosticsZipDownload)
 
 	s.mux.HandleFunc("GET /api/v1/anime/latest", s.handleLatest)
 	s.mux.HandleFunc("GET /api/v1/anime/catalog", s.handleCatalog)
@@ -54,10 +115,47 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/shikimori/anime/{id}", s.handleShikimoriByID)
 }
 
+func (s *Server) handleImageProxy(w http.ResponseWriter, r *http.Request) {
+	if s.images == nil {
+		writeError(w, http.StatusServiceUnavailable, "image proxy is unavailable")
+		return
+	}
+	s.images.ServeHTTP(w, r)
+}
+
+func (s *Server) handleDiagnosticsExport(w http.ResponseWriter, r *http.Request) {
+	_ = logger.FlushDefaultSink()
+	dest := strings.TrimSpace(r.URL.Query().Get("dir"))
+	report, err := logger.ExportDiagnosticsZip(dest)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to export diagnostic logs")
+		return
+	}
+	writeData(w, http.StatusOK, report)
+}
+
+func (s *Server) handleDiagnosticsZipDownload(w http.ResponseWriter, r *http.Request) {
+	_ = logger.FlushDefaultSink()
+	payload, _, err := logger.ExportDiagnosticsBytes()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to build diagnostic archive")
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="mila-diagnostics.zip"`)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(payload)
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status": "ok",
-		"time":   time.Now().UTC().Format(time.RFC3339),
+		"status":       "ok",
+		"time":         time.Now().UTC().Format(time.RFC3339),
+		"mode":         "http",
+		"apiBase":      "/api/v1",
+		"extBase":      "/ext",
+		"capabilities": []string{"anime", "shikimori", "image", "diagnostics"},
 	})
 }
 
@@ -279,8 +377,8 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, If-None-Match")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

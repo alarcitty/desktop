@@ -59,8 +59,10 @@
 
   let activeTab = $state(0);
   let hasSwitchedTab = $state(false);
-  let transitionKind = $state<'tab' | 'view'>('tab');
+  let transitionKind = $state<'tab' | 'view' | 'sort'>('tab');
   let tabDirection = $state<1 | -1>(1);
+  let sortDirection = $state<1 | -1>(1);
+  let sortAxis = $state<'x' | 'y'>('x');
   let tabsReady = $state(false);
   let tabWidths = $state<Array<{ active: number; inactive: number }>>([]);
   let tabBaselineY = $state(38);
@@ -71,6 +73,7 @@
 
   let viewMode = $state<'list' | 'grid'>('list');
   let hasToggledView = $state(false);
+  let hasChangedSort = $state(false);
   let loadingId = $state<string | null>(null);
   let searchQuery = $state('');
   let sortBy = $state<LibrarySortKey>('date');
@@ -78,10 +81,19 @@
 
   function toggleSort(key: LibrarySortKey)
   {
+    transitionKind = 'sort';
+    hasChangedSort = true;
     if (sortBy === key) {
-      sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+      const nextDir = sortDir === 'desc' ? 'asc' : 'desc';
+      sortAxis = 'y';
+      sortDirection = nextDir === 'asc' ? -1 : 1;
+      sortDir = nextDir;
       return;
     }
+    const prevIdx = sortOptions.findIndex((o) => o.key === sortBy);
+    const nextIdx = sortOptions.findIndex((o) => o.key === key);
+    sortAxis = 'x';
+    sortDirection = nextIdx >= prevIdx ? 1 : -1;
     sortBy = key;
     sortDir = key === 'title' ? 'asc' : 'desc';
   }
@@ -263,12 +275,18 @@
 
   function contentEnter(_node: Element)
   {
-    if (!hasSwitchedTab && !hasToggledView) {
+    if (!hasSwitchedTab && !hasToggledView && !hasChangedSort) {
       return { duration: 0 };
     }
-    const isTab = transitionKind === 'tab';
-    const xOffset = isTab ? tabDirection * 20 : 0;
-    const yOffset = isTab ? 0 : 10;
+    let xOffset = 0;
+    let yOffset = 10;
+    if (transitionKind === 'tab') {
+      xOffset = tabDirection * 20;
+      yOffset = 0;
+    } else if (transitionKind === 'sort') {
+      xOffset = sortAxis === 'x' ? sortDirection * 20 : 0;
+      yOffset = sortAxis === 'y' ? sortDirection * 10 : 0;
+    }
     return {
       delay: 75,
       duration: 240,
@@ -280,12 +298,18 @@
 
   function contentLeave(_node: Element)
   {
-    if (!hasSwitchedTab && !hasToggledView) {
+    if (!hasSwitchedTab && !hasToggledView && !hasChangedSort) {
       return { duration: 0 };
     }
-    const isTab = transitionKind === 'tab';
-    const xOffset = isTab ? -tabDirection * 14 : 0;
-    const yOffset = isTab ? 0 : -8;
+    let xOffset = 0;
+    let yOffset = -8;
+    if (transitionKind === 'tab') {
+      xOffset = -tabDirection * 14;
+      yOffset = 0;
+    } else if (transitionKind === 'sort') {
+      xOffset = sortAxis === 'x' ? -sortDirection * 14 : 0;
+      yOffset = sortAxis === 'y' ? -sortDirection * 8 : 0;
+    }
     return {
       duration: 130,
       easing: cubicIn,
@@ -445,7 +469,7 @@
   </div>
 
   <div class="library-views">
-    {#key `${activeTab}:${viewMode}`}
+    {#key `${activeTab}:${viewMode}:${sortBy}:${sortDir}`}
       <div class="library-stage" in:contentEnter out:contentLeave>
         {#if displayedItems.length === 0}
           <div class="library-empty">
