@@ -127,7 +127,11 @@ func SearchTorrents(ctx context.Context, query string, aniLibriaID int) ([]Torre
 func rankSearchResult(item TorrentSearchResult) int {
 	score := item.Seeders
 	lower := strings.ToLower(item.Title + " " + item.Quality)
-	if strings.Contains(lower, "1080") {
+	if strings.Contains(lower, "2160") || strings.Contains(lower, "4k") || strings.Contains(lower, "uhd") {
+		score += 420
+	} else if strings.Contains(lower, "1440") || strings.Contains(lower, "2k") {
+		score += 410
+	} else if strings.Contains(lower, "1080") {
 		score += 400
 	}
 	if strings.Contains(lower, "bdrip") || strings.Contains(lower, "blu-ray") || strings.Contains(lower, "bluray") {
@@ -272,8 +276,10 @@ func fetchAniLibriaTorrents(ctx context.Context, apiBase string, releaseID int) 
 func inferQualityTag(title string) string {
 	lower := strings.ToLower(title)
 	switch {
-	case strings.Contains(lower, "2160"):
+	case strings.Contains(lower, "2160") || strings.Contains(lower, "4k") || strings.Contains(lower, "uhd"):
 		return "2160p"
+	case strings.Contains(lower, "1440") || strings.Contains(lower, "2k"):
+		return "1440p"
 	case strings.Contains(lower, "1080"):
 		return "1080p"
 	case strings.Contains(lower, "720"):

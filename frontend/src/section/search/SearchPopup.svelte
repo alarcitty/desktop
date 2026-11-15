@@ -24,6 +24,7 @@
     getSearchAnchorRect
   } from '../../app/search.svelte';
   import { openWatch } from '../../app/player.svelte';
+  import { parseMilaShareLink } from '../../app/router.svelte';
   import {
     ensureShikimoriArtwork,
     getCachedArtwork,
@@ -454,10 +455,24 @@
     return true;
   }
 
+  const parsedShareLink = $derived(parseMilaShareLink(search.query));
+
+  $effect(() => {
+    const share = parsedShareLink;
+    if (share?.shikiId && !getCachedArtwork(share.shikiId)) {
+      ensureShikimoriArtwork([share.shikiId])
+        .then(() => {
+          shikiTick += 1;
+        })
+        .catch(() => {});
+    }
+  });
+
   $effect(() => {
     const isOpen = search.open;
     const isActive = search.active;
     const rawQ = search.query.trim();
+    const share = parsedShareLink;
     const normQ = rawQ.toLowerCase();
     const filter = activeFilter;
     const fYearFrom = hasYearFilter ? yearFrom : undefined;
@@ -482,7 +497,7 @@
       fGenres.join(',')
     ].join('|');
 
-    if (!isActive || filter === 'library') {
+    if (!isActive || filter === 'library' || share) {
       searchSeq += 1;
       remoteResults = [];
       remoteKey = '';
@@ -553,6 +568,40 @@
 
   const results = $derived.by(() => {
     shikiTick;
+    const share = parsedShareLink;
+    if (share) {
+      const shiki = share.shikiId ? getCachedArtwork(share.shikiId) : undefined;
+      const title =
+        shiki?.english ||
+        shiki?.name ||
+        (share.alias ? share.alias.replace(/-/g, ' ') : undefined) ||
+        (share.shikiId ? `Anime #${share.shikiId}` : 'Shared Anime');
+      const epTag = share.episodeOrdinal ? `Open Episode ${share.episodeOrdinal}` : 'Open shared link';
+      const item: UnifiedSearchItem = {
+        id: `share:${share.raw}`,
+        title,
+        subTitle: shiki?.russian || undefined,
+        poster: shiki?.posterMain || shiki?.posterOriginal || '',
+        score: shiki?.score && shiki.score > 0 ? Number(shiki.score.toFixed(1)) : undefined,
+        year: shiki?.year,
+        episodesTotal: shiki?.episodes ?? shiki?.episodesAired,
+        genres: shiki?.genres,
+        shikiId: share.shikiId,
+        releaseAlias: share.alias,
+        searchQueries: [shiki?.english ?? '', shiki?.name ?? '', shiki?.russian ?? ''].filter(Boolean),
+        seasonCount: 1,
+        progressSub: epTag,
+        historyResume: share.episodeOrdinal
+          ? {
+              episodeOrdinal: share.episodeOrdinal,
+              episodeIndex: Math.max(0, share.episodeOrdinal - 1),
+              resumeTime: 0
+            }
+          : undefined
+      };
+      return [item];
+    }
+
     const q = search.query.trim().toLowerCase();
     const filter = activeFilter;
 
@@ -1612,12 +1661,13 @@
   .combo-filter-bar {
     position: relative;
     z-index: 30;
-    height: 32px;
+    min-height: 32px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    flex-wrap: wrap;
     opacity: 0;
     transform: translateY(-6px);
     pointer-events: none;
@@ -1636,20 +1686,20 @@
   .combo-filter-group {
     display: flex;
     align-items: center;
-    gap: 6px;
-    flex-wrap: nowrap;
+    gap: 5px;
+    flex-wrap: wrap;
   }
 
   .combo-pill {
     height: 30px;
-    padding: 0 11px;
+    padding: 0 10px;
     border: none;
     outline: none;
     border-radius: 9px;
     background: rgba(255, 255, 255, 0.07);
     color: rgba(255, 255, 255, 0.78);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 500;
     white-space: nowrap;
     display: inline-flex;
@@ -1713,7 +1763,8 @@
   .search-results {
     position: relative;
     z-index: 2;
-    flex-shrink: 0;
+    flex: 0 1 auto;
+    min-height: 0;
     margin-right: -13px;
     border-radius: 14px;
     opacity: 0;

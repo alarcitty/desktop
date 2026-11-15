@@ -217,9 +217,9 @@
     border-radius: 8px;
     background: transparent;
     color: rgba(255, 255, 255, 0.88);
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 600;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 400;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -286,13 +286,18 @@
 
   .marla-combo-section-label {
     flex-shrink: 0;
-    padding: 4px 10px 2px;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.38);
+    margin-top: 2px;
+    padding: 2px 11px 1px;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 11.5px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    color: rgba(255, 255, 255, 0.44);
     user-select: none;
+  }
+
+  .marla-combo-section-label:first-child {
+    margin-top: 0;
   }
 
   .marla-combo-item {
@@ -305,9 +310,10 @@
     outline: none;
     border-radius: 8px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.78);
+    color: rgba(255, 255, 255, 0.72);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
+    font-weight: 400;
     white-space: nowrap;
     display: flex;
     align-items: center;
@@ -340,8 +346,9 @@
   }
 
   .marla-combo-item.active {
+    background: rgba(255, 255, 255, 0.06);
     color: #ffffff;
-    font-weight: 600;
+    font-weight: 400;
   }
 
   .marla-combo-meta {

@@ -5,6 +5,13 @@
   import { getCachedHomeFeeds, loadHomeFeeds, type HomeRecommendationItem } from '../../../api/anime';
   import { openWatch } from '../../../app/player.svelte';
 
+  interface Props {
+    creditsOpen?: boolean;
+    onToggleCredits?: () => void;
+  }
+
+  let { creditsOpen = false, onToggleCredits }: Props = $props();
+
   let items = $state<HomeRecommendationItem[]>(getCachedHomeFeeds()?.recommendations ?? []);
   let fallbackUsed = $state<Record<string, boolean>>({});
   let brokenImages = $state<Record<string, boolean>>({});
@@ -75,9 +82,16 @@
   </div>
 
   <!-- Bottom tab notch with chevron -->
-  <div class="bottom-tab-notch">
+  <button
+    type="button"
+    class="bottom-tab-notch"
+    class:is-open={creditsOpen}
+    aria-expanded={creditsOpen}
+    aria-label={creditsOpen ? 'Collapse credits' : 'Expand credits'}
+    onclick={() => onToggleCredits?.()}
+  >
     <ChevronDown size={18} strokeWidth={2} class="tab-arrow-icon" />
-  </div>
+  </button>
 </section>
 
 <style>
@@ -93,19 +107,22 @@
     z-index: 1;
   }
 
-  /* Section Title: PP Monument Extended Black 48px, #D4D4D4 */
+  /* Section Title: PP Monument Extended Black, #D4D4D4 */
   .section-title {
     position: absolute;
-    top: 44px;
+    top: clamp(28px, 3.5vw, 44px);
     left: 50%;
     transform: translateX(-50%);
     margin: 0;
     padding: 0;
+    max-width: calc(100% - var(--page-pad-x) * 2);
     font-family: 'PP Monument Extended', sans-serif;
-    font-size: 48px;
+    font-size: clamp(26px, 3.2vw, 48px);
     font-weight: 900;
     color: #D4D4D4;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     line-height: 1;
     z-index: 5;
     text-shadow: none;
@@ -220,6 +237,9 @@
     transform: translateX(-50%);
     width: 47px;
     height: 29px;
+    padding: 0;
+    border: none;
+    outline: none;
     background: #0c0c0c;
     border-top-left-radius: 15px;
     border-top-right-radius: 15px;
@@ -237,6 +257,55 @@
 
   :global(.tab-arrow-icon) {
     color: #D0D0D0;
+    transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1), color 0.16s ease;
+  }
+
+  .bottom-tab-notch:hover :global(.tab-arrow-icon) {
+    color: #ffffff;
+  }
+
+  .bottom-tab-notch.is-open :global(.tab-arrow-icon) {
+    transform: rotate(180deg);
+  }
+
+  @media (max-width: 1120px) {
+    .recommendations-section {
+      height: 616px;
+    }
+
+    .recommendations-underlay-blur {
+      top: 64px;
+      height: 540px;
+    }
+
+    .recommendations-strip {
+      top: 100px;
+      height: 516px;
+    }
+
+    .rec-card {
+      height: 516px;
+    }
+  }
+
+  @media (max-width: 960px) {
+    .recommendations-section {
+      height: 536px;
+    }
+
+    .recommendations-underlay-blur {
+      top: 56px;
+      height: 470px;
+    }
+
+    .recommendations-strip {
+      top: 90px;
+      height: 446px;
+    }
+
+    .rec-card {
+      height: 446px;
+    }
   }
 </style>
 

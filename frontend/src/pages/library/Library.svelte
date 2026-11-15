@@ -54,8 +54,8 @@
 
   const tabs = ['Likes', 'watch later', 'favorites', 'history'];
   const listByTab: Array<LibraryListKind | null> = ['likes', 'watch_later', 'favorites', null];
-  const TAB_GAP = 22;
-  const TAB_INACTIVE_SCALE = 0.5;
+  const TAB_GAP = 16;
+  const TAB_INACTIVE_SCALE = 0.48;
 
   let activeTab = $state(0);
   let hasSwitchedTab = $state(false);
@@ -95,7 +95,7 @@
   let tabLayout = $derived.by(() =>
   {
     if (!tabsReady || tabWidths.length !== tabs.length) {
-      return tabs.map((_, i) => ({ x: 0, scale: i === activeTab ? 1 : TAB_INACTIVE_SCALE }));
+      return tabs.map((_, i) => ({ x: 0, width: 0, scale: i === activeTab ? 1 : TAB_INACTIVE_SCALE }));
     }
     let cursor = 0;
     return tabs.map((_, i) =>
@@ -107,8 +107,15 @@
         : tabWidths[i].inactive * TAB_INACTIVE_SCALE;
       const x = cursor;
       cursor += visualWidth + TAB_GAP;
-      return { x, scale };
+      return { x, width: visualWidth, scale };
     });
+  });
+
+  const tabsTrackWidth = $derived.by(() =>
+  {
+    if (!tabsReady || tabLayout.length === 0) return 0;
+    const last = tabLayout[tabLayout.length - 1];
+    return Math.ceil(last.x + last.width);
   });
 
   function measureTabs()
@@ -143,12 +150,15 @@
   $effect(() =>
   {
     measureTabs();
+    const onResize = () => measureTabs();
+    window.addEventListener('resize', onResize);
     const fonts = document.fonts;
     const onFonts = () => measureTabs();
     fonts?.ready.then(onFonts);
     fonts?.addEventListener('loadingdone', onFonts);
     return () =>
     {
+      window.removeEventListener('resize', onResize);
       fonts?.removeEventListener('loadingdone', onFonts);
     };
   });
@@ -330,6 +340,7 @@
       class="library-tabs"
       class:is-ready={tabsReady}
       class:is-animated={hasSwitchedTab}
+      style:width={tabsTrackWidth > 0 ? `${tabsTrackWidth}px` : undefined}
     >
       <span class="tab-baseline-probe" aria-hidden="true" bind:this={probeEl}>
         Ag<span class="probe-mark" bind:this={probeMarkEl}></span>
@@ -350,7 +361,7 @@
     </div>
 
     <div class="library-controls">
-      <div class="library-search">
+      <div class="library-search" class:has-query={searchQuery.length > 0}>
         <Search size={15} strokeWidth={1.8} class="library-search-icon" />
         <input
           type="text"
@@ -609,24 +620,25 @@
     position: relative;
     z-index: 3;
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-end;
     justify-content: space-between;
-    height: 48px;
-    min-height: 48px;
-    max-height: 48px;
+    row-gap: 10px;
+    column-gap: 16px;
+    min-height: 40px;
     flex-shrink: 0;
     contain: layout style;
     isolation: isolate;
     padding: 0 var(--page-pad-x);
-    box-sizing: content-box;
-    margin: 30px 0 32px 0;
+    box-sizing: border-box;
+    margin: clamp(18px, 2.2vw, 30px) 0 clamp(14px, 1.8vw, 24px) 0;
   }
 
   .library-tabs {
     position: relative;
-    height: 48px;
-    flex: 1 1 auto;
-    min-width: 0;
+    height: clamp(28px, 2.5vw, 38px);
+    flex: 0 0 auto;
+    max-width: 100%;
     opacity: 0;
   }
 
@@ -639,7 +651,7 @@
     left: 0;
     bottom: 0;
     font-family: 'PP Monument Extended', sans-serif;
-    font-size: 48px;
+    font-size: clamp(28px, 2.5vw, 38px);
     line-height: 1;
     white-space: nowrap;
     visibility: hidden;
@@ -654,7 +666,7 @@
   }
 
   /* Two stacked labels (Regular + Black) cross-fade while GPU transform glides
-     at a fixed 48px font size, eliminating reflow jitter and glyph hinting snaps. */
+     at a responsive font size, eliminating reflow jitter and glyph hinting snaps. */
   .library-tab {
     position: absolute;
     left: 0;
@@ -666,7 +678,7 @@
     border: none;
     cursor: pointer;
     font-family: 'PP Monument Extended', sans-serif;
-    font-size: 48px;
+    font-size: clamp(28px, 2.5vw, 38px);
     line-height: 1;
     white-space: nowrap;
     text-rendering: geometricPrecision;
@@ -726,7 +738,7 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    width: 196px;
+    width: 148px;
     height: 36px;
     padding: 0 11px;
     margin-bottom: 2px;
@@ -740,8 +752,9 @@
     background: rgba(255, 255, 255, 0.07);
   }
 
-  .library-search:focus-within {
-    width: 236px;
+  .library-search:focus-within,
+  .library-search.has-query {
+    width: 210px;
     background: rgba(255, 255, 255, 0.1);
   }
 
@@ -974,14 +987,14 @@
 
   .library-row {
     position: relative;
-    height: 268px;
+    height: clamp(206px, 24vw, 268px);
     overflow: hidden;
     background: #0c0c0c;
     isolation: isolate;
     display: flex;
     align-items: flex-start;
-    gap: 24px;
-    padding: 26px;
+    gap: clamp(16px, 2.2vw, 24px);
+    padding: clamp(16px, 2.2vw, 26px);
     box-sizing: border-box;
     flex-shrink: 0;
     contain: layout paint;
@@ -1028,9 +1041,9 @@
   .row-poster-wrap {
     position: relative;
     z-index: 2;
-    flex: 0 0 245px;
-    width: 245px;
-    height: 215px;
+    flex: 0 0 clamp(150px, 20vw, 245px);
+    width: clamp(150px, 20vw, 245px);
+    height: 100%;
     border-radius: var(--radius-card);
     overflow: hidden;
   }
@@ -1087,10 +1100,15 @@
     margin: 0;
     padding: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 36px;
+    font-size: clamp(22px, 2.6vw, 36px);
     font-weight: 700;
     line-height: 1.1;
     color: #ffffff;
+    display: -webkit-box;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .row-meta {
@@ -1101,13 +1119,13 @@
     margin: 10px 0 0 0;
     padding: 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 20px;
+    font-size: clamp(14.5px, 1.5vw, 20px);
     font-weight: 400;
     line-height: 1.3;
     color: var(--text-muted);
     display: -webkit-box;
-    line-clamp: 4;
-    -webkit-line-clamp: 4;
+    line-clamp: 3;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
@@ -1169,8 +1187,8 @@
     margin: 0 var(--page-pad-x) 48px var(--page-pad-x);
     padding: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 18px;
+    grid-template-columns: repeat(auto-fill, minmax(clamp(200px, 22vw, 260px), 1fr));
+    gap: clamp(14px, 1.6vw, 18px);
   }
 
   .library-tile {
@@ -1313,5 +1331,27 @@
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  @media (max-width: 1120px) {
+    .library-head {
+      margin: 16px 0 12px 0;
+      row-gap: 10px;
+    }
+
+    .library-controls {
+      flex-wrap: wrap;
+      max-width: 100%;
+      gap: 6px;
+    }
+
+    .library-search {
+      width: 122px;
+    }
+
+    .sort-chip-btn {
+      padding: 0 8px;
+      font-size: 12px;
+    }
   }
 </style>

@@ -35,7 +35,7 @@ export interface QualityLevelOption {
   bitrate: number;
 }
 
-export type VoiceProviderId = 'aniliberty' | 'dreamcast' | 'animevost' | 'animego' | string;
+export type VoiceProviderId = 'aniliberty' | 'dreamcast' | 'animevost' | 'animego' | 'kodik' | string;
 
 export interface DubAudioSource {
   id: string;

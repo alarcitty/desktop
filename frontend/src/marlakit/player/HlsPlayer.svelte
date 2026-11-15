@@ -9,18 +9,22 @@
   import Minimize from '@lucide/svelte/icons/minimize';
   import PictureInPicture2 from '@lucide/svelte/icons/picture-in-picture-2';
   import Settings from '@lucide/svelte/icons/settings';
+  import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
+  import SkipBack from '@lucide/svelte/icons/skip-back';
   import SkipForward from '@lucide/svelte/icons/skip-forward';
   import AudioLines from '@lucide/svelte/icons/audio-lines';
+  import FastForward from '@lucide/svelte/icons/fast-forward';
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
   import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left';
   import ArrowUpLeft from '@lucide/svelte/icons/arrow-up-left';
   import X from '@lucide/svelte/icons/x';
   import { untrack } from 'svelte';
-  import { fly, scale } from 'svelte/transition';
+  import { fade, fly, scale } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
 
   import ComboBox from '../combo/ComboBox.svelte';
   import type { ComboSection } from '../combo/types';
+  import Slider from '../slider/Slider.svelte';
   import {
     createMaxQualityHlsConfig,
     formatQualityLabel,
@@ -60,9 +64,12 @@
     preferMaxQuality?: boolean;
     opening?: SkipRange | null;
     ending?: SkipRange | null;
+    hasPrev?: boolean;
     hasNext?: boolean;
     hasFallback?: boolean;
     isPip?: boolean;
+    keyboardEnabled?: boolean;
+    onprev?: () => void;
     onnext?: () => void;
     onended?: () => void;
     ontimeprogress?: (currentTime: number, duration: number, force?: boolean) => void;
@@ -95,9 +102,12 @@
     preferMaxQuality = true,
     opening = null,
     ending = null,
+    hasPrev = false,
     hasNext = false,
     hasFallback = false,
     isPip = false,
+    keyboardEnabled = true,
+    onprev,
     onnext,
     onended,
     ontimeprogress,
@@ -114,33 +124,56 @@
     class: className = ''
   }: Props = $props();
 
+  type VideoFilterPreset = 'none' | 'vivid' | 'cinema' | 'warm';
+
+  interface VideoPrefs {
+    brightness: number;
+    filter: VideoFilterPreset;
+  }
+
   const VOLUME_KEY = 'mila.player.volume';
   const MUTED_KEY = 'mila.player.muted';
+  const SPEED_KEY = 'mila.player.speed';
+  const VIDEO_PREFS_KEY = 'mila.player.videoPrefs';
   const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+  const DEFAULT_VIDEO_PREFS: VideoPrefs = {
+    brightness: 1,
+    filter: 'none'
+  };
 
   let rootEl = $state<HTMLDivElement | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
-  let dubAudioEl = $state<HTMLAudioElement | null>(null);
+  let dubAudioEl = $state<HTMLVideoElement | null>(null);
+  let previewVideoEl = $state<HTMLVideoElement | null>(null);
+  let previewCanvasEl = $state<HTMLCanvasElement | null>(null);
   let seekEl = $state<HTMLDivElement | null>(null);
-  let volumeEl = $state<HTMLDivElement | null>(null);
 
   let hls: Hls | null = null;
   let dubHls: Hls | null = null;
+  let previewHls: Hls | null = null;
   let playing = $state(false);
   let buffering = $state(false);
-  let dubBuffering = $state(false);
+  let dubReady = $state(false);
   let currentTime = $state(0);
   let duration = $state(0);
   let bufferedEnd = $state(0);
 
   let volume = $state(readSavedVolume());
   let muted = $state(readSavedMuted());
-  let playbackRate = $state(1);
+  let playbackRate = $state(readSavedSpeed());
+  let videoPrefs = $state<VideoPrefs>(readSavedVideoPrefs());
+  let spaceHoldBoostActive = $state(false);
 
   let isFullscreen = $state(false);
   let controlsVisible = $state(true);
-  let activeMenu = $state<'none' | 'voice' | 'quality' | 'speed'>('none');
+  let activeMenu = $state<'none' | 'voice' | 'quality' | 'speed' | 'appearance'>('none');
   let errorText = $state('');
+
+  let osdText = $state('');
+  let osdKind = $state<'volume' | 'mute' | 'seek' | 'speed' | 'play' | 'info'>('info');
+  let osdVisible = $state(false);
+  let osdTimer: number | undefined;
 
   let levels = $state<QualityLevelOption[]>([]);
   let selectedLevel = $state(-1); // -1 = Auto ABR, >=0 = pinned level index
@@ -159,9 +192,15 @@
 
   let hoverTime = $state<number | null>(null);
   let hoverPct = $state(0);
+  let previewHasFrame = $state(false);
+  let previewMediaSpec = $state<{ mode: 'hls' | 'mp4' | 'none'; url: string }>({ mode: 'none', url: '' });
+  let previewAttachedUrl = '';
+  let previewSeekTimer: number | undefined;
+  let previewLastRequestedSec = -1;
   let draggingSeek = $state(false);
-  let draggingVolume = $state(false);
   let hideTimer: number | undefined;
+  let spaceHoldTimer: number | undefined;
+  let spaceIsDown = false;
   let networkRetries = 0;
   let reparentingGuard = false;
   let suppressNextVideoClick = false;
@@ -194,9 +233,43 @@
     return localStorage.getItem(MUTED_KEY) === '1';
   }
 
+  function readSavedSpeed(): number {
+    if (typeof localStorage === 'undefined') return 1;
+    const raw = Number(localStorage.getItem(SPEED_KEY));
+    return SPEED_OPTIONS.includes(raw) ? raw : 1;
+  }
+
+  function readSavedVideoPrefs(): VideoPrefs {
+    if (typeof localStorage === 'undefined') return { ...DEFAULT_VIDEO_PREFS };
+    try {
+      const parsed = JSON.parse(localStorage.getItem(VIDEO_PREFS_KEY) || '{}') as Partial<VideoPrefs>;
+      const brightness =
+        typeof parsed.brightness === 'number' && Number.isFinite(parsed.brightness)
+          ? Math.max(0.6, Math.min(1.4, parsed.brightness))
+          : DEFAULT_VIDEO_PREFS.brightness;
+      const filter: VideoFilterPreset =
+        parsed.filter === 'vivid' || parsed.filter === 'cinema' || parsed.filter === 'warm'
+          ? parsed.filter
+          : 'none';
+      return { brightness, filter };
+    } catch {
+      return { ...DEFAULT_VIDEO_PREFS };
+    }
+  }
+
+  function saveVideoPrefs(next: VideoPrefs) {
+    videoPrefs = next;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(VIDEO_PREFS_KEY, JSON.stringify(next));
+      } catch {
+        // Ignore storage quota errors
+      }
+    }
+  }
+
   const progressPct = $derived(duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0);
   const bufferedPct = $derived(duration > 0 ? Math.min(100, (bufferedEnd / duration) * 100) : 0);
-  const volumePct = $derived((muted ? 0 : volume) * 100);
 
   const activeVoiceLabel = $derived.by(() => {
     const activeVoice = voices.find((v) => v.id === selectedVoiceId) ?? voices[0];
@@ -237,7 +310,7 @@
       });
     }
     if (onselectdubvoice && voices.length > 1) {
-      const dubCandidates = voices.filter((v) => !v.isSub && v.id !== activeId);
+      const dubCandidates = voices.filter((v) => !v.isSub && v.id !== activeId && v.provider !== 'torrent');
       if (dubCandidates.length > 0 || dubAudio) {
         const dubOptions = [
           ...(dubAudio
@@ -327,6 +400,58 @@
     return null;
   });
 
+  const hoverSegmentLabel = $derived.by(() => {
+    if (hoverTime === null) return '';
+    if (opening?.start != null && opening?.stop != null && hoverTime >= opening.start && hoverTime <= opening.stop) {
+      return 'Opening';
+    }
+    if (ending?.start != null && ending?.stop != null && hoverTime >= ending.start && hoverTime <= ending.stop) {
+      return 'Ending';
+    }
+    return '';
+  });
+
+  const openingMarkerPct = $derived.by(() => {
+    if (duration <= 0 || opening?.start == null || opening?.stop == null || opening.stop <= opening.start) {
+      return null;
+    }
+    const left = Math.max(0, Math.min(100, (opening.start / duration) * 100));
+    const right = Math.max(left, Math.min(100, (opening.stop / duration) * 100));
+    return { left, width: right - left };
+  });
+
+  const endingMarkerPct = $derived.by(() => {
+    if (duration <= 0 || ending?.start == null || ending?.stop == null || ending.stop <= ending.start) {
+      return null;
+    }
+    const left = Math.max(0, Math.min(100, (ending.start / duration) * 100));
+    const right = Math.max(left, Math.min(100, (ending.stop / duration) * 100));
+    return { left, width: right - left };
+  });
+
+  const videoFilterCss = $derived.by(() => {
+    const parts = [`brightness(${videoPrefs.brightness.toFixed(2)})`];
+    if (videoPrefs.filter === 'vivid') {
+      parts.push('contrast(1.08)', 'saturate(1.18)');
+    } else if (videoPrefs.filter === 'cinema') {
+      parts.push('contrast(1.12)', 'saturate(0.92)');
+    } else if (videoPrefs.filter === 'warm') {
+      parts.push('sepia(0.14)', 'saturate(1.08)');
+    }
+    return parts.join(' ');
+  });
+
+  function showOsd(text: string, kind: 'volume' | 'mute' | 'seek' | 'speed' | 'play' | 'info' = 'info') {
+    if (isPip && !isFullscreen) return;
+    osdText = text;
+    osdKind = kind;
+    osdVisible = true;
+    window.clearTimeout(osdTimer);
+    osdTimer = window.setTimeout(() => {
+      osdVisible = false;
+    }, 1050);
+  }
+
   function scheduleHideControls() {
     window.clearTimeout(hideTimer);
     controlsVisible = true;
@@ -350,6 +475,126 @@
     }
   }
 
+  function destroyPreviewHls() {
+    if (previewHls) {
+      previewHls.destroy();
+      previewHls = null;
+    }
+  }
+
+  function resetPreviewScrubber() {
+    window.clearTimeout(previewSeekTimer);
+    previewAttachedUrl = '';
+    previewLastRequestedSec = -1;
+    previewHasFrame = false;
+    destroyPreviewHls();
+    if (previewVideoEl) {
+      previewVideoEl.pause();
+      previewVideoEl.removeAttribute('src');
+      previewVideoEl.load();
+    }
+  }
+
+  function ensurePreviewAttached() {
+    const pVideo = previewVideoEl;
+    const spec = previewMediaSpec;
+    if (!pVideo || spec.mode === 'none' || !spec.url || isPip) return;
+    if (previewAttachedUrl === spec.url) return;
+
+    previewAttachedUrl = spec.url;
+    previewHasFrame = false;
+    previewLastRequestedSec = -1;
+
+    if (spec.mode === 'hls' && Hls.isSupported()) {
+      destroyPreviewHls();
+      const pHls = new Hls(
+        createMaxQualityHlsConfig({
+          capLevelToPlayerSize: false,
+          startLevel: 0,
+          abrEwmaDefaultEstimate: 450_000,
+          maxBufferLength: 2,
+          maxMaxBufferLength: 4
+        })
+      );
+      previewHls = pHls;
+      pHls.on(Hls.Events.MANIFEST_PARSED, (_ev, data) => {
+        if (data.levels.length > 0) {
+          const minIdx = pickLowestLevelIndex(data.levels);
+          pHls.startLevel = minIdx;
+          pHls.currentLevel = minIdx;
+        }
+      });
+      pHls.loadSource(spec.url);
+      pHls.attachMedia(pVideo);
+    } else {
+      destroyPreviewHls();
+      pVideo.src = spec.url;
+      pVideo.load();
+    }
+  }
+
+  function requestPreviewSeek(targetSec: number) {
+    if (previewMediaSpec.mode === 'none' || !previewMediaSpec.url || isPip) return;
+    ensurePreviewAttached();
+    const pVideo = previewVideoEl;
+    if (!pVideo) return;
+
+    const quantized = Math.max(0, Math.round(targetSec * 2) / 2);
+    if (Math.abs(quantized - previewLastRequestedSec) < 0.45 && previewHasFrame) {
+      return;
+    }
+
+    window.clearTimeout(previewSeekTimer);
+    const delayMs = !previewHasFrame && previewVideoEl && previewVideoEl.readyState >= 1 ? 0 : 45;
+    previewSeekTimer = window.setTimeout(() => {
+      if (!previewVideoEl || previewVideoEl.readyState < 1 || previewVideoEl.seeking) return;
+      previewLastRequestedSec = quantized;
+      const maxDur =
+        Number.isFinite(previewVideoEl.duration) && previewVideoEl.duration > 0
+          ? previewVideoEl.duration
+          : duration;
+      const clamped = Math.max(0, Math.min(quantized, maxDur > 0.5 ? maxDur - 0.25 : quantized));
+      try {
+        previewVideoEl.currentTime = clamped;
+      } catch {
+        // Ignore seek before metadata
+      }
+    }, delayMs);
+  }
+
+  function handlePreviewSeeked() {
+    const pVideo = previewVideoEl;
+    const canvas = previewCanvasEl;
+    if (!pVideo || !canvas || pVideo.videoWidth <= 0 || pVideo.videoHeight <= 0) return;
+    const targetW = 160;
+    const targetH = Math.max(72, Math.min(110, Math.round((pVideo.videoHeight / pVideo.videoWidth) * targetW)));
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    try {
+      ctx.drawImage(pVideo, 0, 0, canvas.width, canvas.height);
+      previewHasFrame = true;
+    } catch {
+      // Ignore cross-origin draw failures gracefully
+    }
+  }
+
+  function applySubtitleTrackModes() {
+    if (!videoEl) return;
+    const tracks = videoEl.textTracks;
+    const targetPos = activeSubtitleTrack >= 0 ? subtitleTracks.findIndex((s) => s.index === activeSubtitleTrack) : -1;
+    for (let i = 0; i < tracks.length; i++) {
+      tracks[i].mode = i === targetPos ? 'showing' : 'disabled';
+    }
+  }
+
+  function effectivePlaybackRate(): number {
+    return spaceHoldBoostActive ? 2 : playbackRate;
+  }
+
   function streamTimeNow(): number {
     if (!videoEl) return currentTime;
     return playbackMode === 'remux'
@@ -358,20 +603,53 @@
   }
 
   function syncDubTime(force = false) {
-    if (!dubAudio || !dubAudioEl || !videoEl) return;
+    if (!dubAudio || !dubAudioEl || !videoEl || dubAudioEl.readyState < 1) return;
+    const targetRate = effectivePlaybackRate();
     const rawTarget = streamTimeNow() + dubOffsetSec;
     const maxDur =
       Number.isFinite(dubAudioEl.duration) && dubAudioEl.duration > 0
         ? dubAudioEl.duration
         : Infinity;
     const clamped = Math.max(0, Math.min(rawTarget, maxDur));
-    if (force || Math.abs((dubAudioEl.currentTime || 0) - clamped) > 0.16) {
+    const currentDub = dubAudioEl.currentTime || 0;
+    const delta = clamped - currentDub;
+    const absDrift = Math.abs(delta);
+
+    // Avoid micro-seeks that flush decoder buffers and leave the dub channel silent.
+    const hardSeekThreshold = force ? 0.14 : 0.45;
+    if (absDrift > hardSeekThreshold) {
       try {
         dubAudioEl.currentTime = clamped;
       } catch {
         // Metadata not ready yet
       }
+      if (Math.abs(dubAudioEl.playbackRate - targetRate) > 0.001) {
+        dubAudioEl.playbackRate = targetRate;
+      }
+      return;
     }
+
+    if (!videoEl.paused && absDrift > 0.09) {
+      dubAudioEl.playbackRate = delta > 0 ? targetRate * 1.04 : Math.max(0.25, targetRate * 0.96);
+    } else if (Math.abs(dubAudioEl.playbackRate - targetRate) > 0.001) {
+      dubAudioEl.playbackRate = targetRate;
+    }
+  }
+
+  function pickLowestLevelIndex(rawLevels: Array<{ height: number; bitrate: number }>): number {
+    let bestIdx = 0;
+    let bestHeight = Infinity;
+    let bestBitrate = Infinity;
+    for (let i = 0; i < rawLevels.length; i++) {
+      const h = rawLevels[i].height || 99999;
+      const b = rawLevels[i].bitrate || 999_999_999;
+      if (h < bestHeight || (h === bestHeight && b < bestBitrate)) {
+        bestHeight = h;
+        bestBitrate = b;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
   }
 
   function pickHighestLevelIndex(rawLevels: Array<{ height: number; bitrate: number }>): number {
@@ -412,6 +690,8 @@
     activeAudioTrack = -1;
     subtitleTracks = [];
     activeSubtitleTrack = -1;
+    previewMediaSpec = { mode: 'none', url: '' };
+    resetPreviewScrubber();
     activeRemuxConfig = null;
     remuxSeekOffset = 0;
     remuxTotalDuration = 0;
@@ -455,7 +735,7 @@
 
     untrack(() => {
       video.volume = volume;
-      video.muted = Boolean(dubAudio) || muted;
+      video.muted = (Boolean(dubAudio) && dubReady) || muted;
       video.playbackRate = playbackRate;
     });
 
@@ -474,6 +754,7 @@
       }));
       selectedLevel = 0;
       activeLevelIndex = 0;
+      previewMediaSpec = { mode: 'mp4', url: variants[variants.length - 1]?.url || variants[0].url };
       buffering = true;
       video.addEventListener('loadedmetadata', handleNativeLoaded);
       video.addEventListener('error', handleNativeError);
@@ -484,6 +765,7 @@
       }
       return () => {
         window.clearTimeout(hideTimer);
+        resetPreviewScrubber();
         video.removeEventListener('loadedmetadata', handleNativeLoaded);
         video.removeEventListener('error', handleNativeError);
         video.pause();
@@ -586,6 +868,7 @@
     }
 
     playbackMode = 'hls';
+    previewMediaSpec = { mode: 'hls', url: resolved.url };
     if (Hls.isSupported()) {
       destroyHls();
       const instance = new Hls(createMaxQualityHlsConfig());
@@ -678,6 +961,7 @@
 
     return () => {
       window.clearTimeout(hideTimer);
+      resetPreviewScrubber();
       video.removeEventListener('loadedmetadata', handleNativeLoaded);
       video.removeEventListener('error', handleNativeError);
       destroyHls();
@@ -685,20 +969,20 @@
     };
   });
 
-  // Attach and synchronize the second Russian voiceover audio stream in Dual-Stream mode.
+  // Attach and synchronize the second Russian voiceover stream in Dual-Stream mode.
   $effect(() => {
-    const audioEl = dubAudioEl;
+    const dubEl = dubAudioEl;
     const video = videoEl;
     const activeDub = dubAudio;
 
-    if (!audioEl || !video) return;
+    if (!dubEl || !video) return;
 
     if (!activeDub) {
       destroyDubHls();
-      dubBuffering = false;
-      audioEl.pause();
-      audioEl.removeAttribute('src');
-      audioEl.load();
+      dubReady = false;
+      dubEl.pause();
+      dubEl.removeAttribute('src');
+      dubEl.load();
       untrack(() => {
         video.muted = muted;
         video.volume = volume;
@@ -708,78 +992,150 @@
 
     const resolvedDub = resolvePlaybackSource(undefined, activeDub.sources);
     if (!resolvedDub) {
+      dubReady = false;
+      video.muted = muted;
       return;
     }
 
-    video.muted = true;
+    dubReady = false;
+    let didInitialSeek = false;
+    let mp4TriedProxy = false;
+    let hlsNetRetries = 0;
+
     untrack(() => {
-      audioEl.volume = volume;
-      audioEl.muted = muted;
-      audioEl.playbackRate = playbackRate;
+      dubEl.volume = volume;
+      dubEl.muted = muted;
+      dubEl.playbackRate = playbackRate;
     });
 
-    const onDubMeta = () => {
-      dubBuffering = false;
-      syncDubTime(true);
-      if (!video.paused) {
-        void audioEl.play().catch(() => {});
+    const markDubReadyAndSync = (forceSeek = false) => {
+      dubReady = true;
+      video.muted = true;
+      if (!didInitialSeek) {
+        didInitialSeek = true;
+        const startTarget = streamTimeNow() + dubOffsetSec;
+        if (startTarget > 0.25 && dubEl.readyState >= 1) {
+          try {
+            dubEl.currentTime = startTarget;
+          } catch {
+            // Ignore seek before metadata
+          }
+        }
+      } else if (forceSeek) {
+        syncDubTime(true);
+      }
+      if (!video.paused && dubEl.paused) {
+        void dubEl.play().catch(() => {});
       }
     };
-    const onDubWaiting = () => {
-      dubBuffering = true;
+
+    const onDubMeta = () => {
+      markDubReadyAndSync(false);
     };
     const onDubCanPlay = () => {
-      dubBuffering = false;
-      if (!video.paused && audioEl.paused) {
-        syncDubTime(false);
-        void audioEl.play().catch(() => {});
+      markDubReadyAndSync(false);
+    };
+    const onDubPlaying = () => {
+      dubReady = true;
+      video.muted = true;
+      syncDubTime(false);
+    };
+    const onDubError = () => {
+      if (resolvedDub.mode === 'mp4' && !mp4TriedProxy && rawMp4Url) {
+        mp4TriedProxy = true;
+        const proxied = `/ext/stream?url=${encodeURIComponent(rawMp4Url)}`;
+        dubEl.src = proxied;
+        dubEl.load();
+        if (!video.paused) {
+          void dubEl.play().catch(() => {});
+        }
+        return;
       }
+      dubReady = false;
+      video.muted = muted;
     };
 
-    audioEl.addEventListener('loadedmetadata', onDubMeta);
-    audioEl.addEventListener('waiting', onDubWaiting);
-    audioEl.addEventListener('canplay', onDubCanPlay);
+    dubEl.addEventListener('loadedmetadata', onDubMeta);
+    dubEl.addEventListener('canplay', onDubCanPlay);
+    dubEl.addEventListener('playing', onDubPlaying);
+    dubEl.addEventListener('error', onDubError);
 
-    const dubUrl =
-      resolvedDub.mode === 'hls'
-        ? resolvedDub.url
-        : resolvedDub.mode === 'mp4'
-          ? resolvedDub.variants[0]?.url
-          : undefined;
+    // Pick lowest MP4/HLS bitrate variant since video pixels of the dub channel are hidden;
+    // audio bitrate is the same while buffering is ~4-8x faster and never starves main 1080p video.
+    const rawMp4Url =
+      resolvedDub.mode === 'mp4'
+        ? resolvedDub.variants[resolvedDub.variants.length - 1]?.url
+        : undefined;
+    const dubUrl = resolvedDub.mode === 'hls' ? resolvedDub.url : rawMp4Url;
+
     if (resolvedDub.mode === 'hls' && dubUrl && Hls.isSupported()) {
       destroyDubHls();
-      const dHls = new Hls(createMaxQualityHlsConfig({ capLevelToPlayerSize: false }));
+      const dHls = new Hls(
+        createMaxQualityHlsConfig({
+          capLevelToPlayerSize: false,
+          startLevel: 0,
+          abrEwmaDefaultEstimate: 500_000,
+          maxBufferLength: 25,
+          maxMaxBufferLength: 60
+        })
+      );
       dubHls = dHls;
-      dHls.on(Hls.Events.MANIFEST_PARSED, () => {
-        syncDubTime(true);
-        if (!video.paused) {
-          void audioEl.play().catch(() => {});
+      dHls.on(Hls.Events.MANIFEST_PARSED, (_ev, data) => {
+        if (data.levels.length > 0) {
+          const minIdx = pickLowestLevelIndex(data.levels);
+          dHls.startLevel = minIdx;
+          dHls.currentLevel = minIdx;
         }
+        markDubReadyAndSync(true);
+      });
+      dHls.on(Hls.Events.ERROR, (_ev, data: ErrorData) => {
+        if (!data.fatal) return;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && hlsNetRetries < 4) {
+          hlsNetRetries += 1;
+          dHls.startLoad();
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          dHls.recoverMediaError();
+          return;
+        }
+        dubReady = false;
+        video.muted = muted;
       });
       dHls.loadSource(dubUrl);
-      dHls.attachMedia(audioEl);
+      dHls.attachMedia(dubEl);
     } else if (dubUrl) {
       destroyDubHls();
-      audioEl.src = dubUrl;
-      audioEl.load();
+      dubEl.src = dubUrl;
+      dubEl.load();
+      if (!video.paused) {
+        void dubEl.play().catch(() => {});
+      }
     }
 
     const driftTimer = window.setInterval(() => {
-      if (!video.paused) {
-        syncDubTime(false);
-        if (audioEl.paused && !dubBuffering) {
-          void audioEl.play().catch(() => {});
+      if (dubEl.readyState >= 2) {
+        if (!dubReady) {
+          dubReady = true;
+          video.muted = true;
+        }
+        if (!video.paused) {
+          syncDubTime(false);
+          if (dubEl.paused) {
+            void dubEl.play().catch(() => {});
+          }
         }
       }
     }, 350);
 
     return () => {
       window.clearInterval(driftTimer);
-      audioEl.removeEventListener('loadedmetadata', onDubMeta);
-      audioEl.removeEventListener('waiting', onDubWaiting);
-      audioEl.removeEventListener('canplay', onDubCanPlay);
+      dubEl.removeEventListener('loadedmetadata', onDubMeta);
+      dubEl.removeEventListener('canplay', onDubCanPlay);
+      dubEl.removeEventListener('playing', onDubPlaying);
+      dubEl.removeEventListener('error', onDubError);
       destroyDubHls();
-      audioEl.pause();
+      dubEl.pause();
       if (resolvedDub.mode === 'hls') {
         resolvedDub.revoke?.();
       }
@@ -916,13 +1272,25 @@
     scheduleHideControls();
   }
 
-  function setSpeed(rate: number) {
-    playbackRate = rate;
+  function applyPlaybackRate(rate: number) {
     if (videoEl) {
       videoEl.playbackRate = rate;
     }
     if (dubAudioEl) {
       dubAudioEl.playbackRate = rate;
+    }
+  }
+
+  function setSpeed(rate: number, withOsd = false) {
+    playbackRate = rate;
+    if (!spaceHoldBoostActive) {
+      applyPlaybackRate(rate);
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(SPEED_KEY, String(rate));
+    }
+    if (withOsd) {
+      showOsd(`${rate}x`, 'speed');
     }
     activeMenu = 'none';
     scheduleHideControls();
@@ -964,17 +1332,28 @@
     scheduleHideControls();
   }
 
-  function setSubtitleTrack(trackIdx: number) {
+  function setSubtitleTrack(trackIdx: number, withOsd = false) {
     activeSubtitleTrack = trackIdx;
-    if (videoEl) {
-      const tracks = videoEl.textTracks;
-      for (let i = 0; i < tracks.length; i++) {
-        tracks[i].mode = i === trackIdx ? 'showing' : 'disabled';
-      }
+    applySubtitleTrackModes();
+    if (withOsd) {
+      const label =
+        trackIdx < 0
+          ? 'Subtitles: Off'
+          : `Subtitles: ${subtitleTracks.find((s) => s.index === trackIdx)?.label || 'On'}`;
+      showOsd(label, 'info');
     }
     activeMenu = 'none';
     scheduleHideControls();
   }
+
+  $effect(() => {
+    void subtitleTracks;
+    void activeSubtitleTrack;
+    if (!videoEl) return;
+    queueMicrotask(() => {
+      applySubtitleTrackModes();
+    });
+  });
 
   function setVolume(val: number) {
     const clamped = Math.max(0, Math.min(1, val));
@@ -982,7 +1361,7 @@
     muted = clamped === 0;
     if (videoEl) {
       videoEl.volume = clamped;
-      videoEl.muted = Boolean(dubAudio) || muted;
+      videoEl.muted = (Boolean(dubAudio) && dubReady) || muted;
     }
     if (dubAudioEl) {
       dubAudioEl.volume = clamped;
@@ -1000,7 +1379,7 @@
       volume = 0.5;
     }
     if (videoEl) {
-      videoEl.muted = Boolean(dubAudio) || muted;
+      videoEl.muted = (Boolean(dubAudio) && dubReady) || muted;
       videoEl.volume = volume;
     }
     if (dubAudioEl) {
@@ -1057,6 +1436,7 @@
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     hoverPct = ratio * 100;
     hoverTime = ratio * duration;
+    requestPreviewSeek(hoverTime);
     if (draggingSeek) {
       seekTo(hoverTime);
     }
@@ -1076,93 +1456,189 @@
     seekEl.releasePointerCapture(e.pointerId);
   }
 
-  function volumeFromPointer(clientX: number) {
-    if (!volumeEl) return;
-    const rect = volumeEl.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    setVolume(ratio);
-  }
-
-  function handleVolumePointerDown(e: PointerEvent) {
-    if (!volumeEl) return;
-    draggingVolume = true;
-    volumeEl.setPointerCapture(e.pointerId);
-    volumeFromPointer(e.clientX);
-  }
-
-  function handleVolumePointerUp(e: PointerEvent) {
-    if (!draggingVolume || !volumeEl) return;
-    volumeFromPointer(e.clientX);
-    draggingVolume = false;
-    volumeEl.releasePointerCapture(e.pointerId);
-  }
-
-  function handleVolumeKeydown(e: KeyboardEvent) {
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      e.stopPropagation();
-      setVolume((muted ? 0 : volume) - 0.05);
-    } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      e.stopPropagation();
-      setVolume((muted ? 0 : volume) + 0.05);
+  function releaseSpaceHoldBoost() {
+    window.clearTimeout(spaceHoldTimer);
+    spaceHoldTimer = undefined;
+    if (spaceHoldBoostActive) {
+      spaceHoldBoostActive = false;
+      applyPlaybackRate(playbackRate);
     }
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    switch (e.key) {
-      case ' ':
-      case 'k':
-      case 'K':
+  function isHotkeyBlocked(e: KeyboardEvent): boolean {
+    if (!keyboardEnabled && !isFullscreen) return true;
+    if (e.ctrlKey || e.metaKey || e.altKey) return true;
+    const target = e.target as HTMLElement | null;
+    if (
+      target?.closest(
+        'input, textarea, select, [contenteditable="true"], [role="dialog"][aria-modal="true"], .lightbox, .combo-menu'
+      )
+    ) {
+      return true;
+    }
+    const interactive = target?.closest('a, button, [role="button"]');
+    if (interactive && rootEl && !rootEl.contains(interactive) && (e.code === 'Space' || e.key === ' ')) {
+      return true;
+    }
+    if (document.querySelector('[role="dialog"][aria-modal="true"], .lightbox')) {
+      return true;
+    }
+    return false;
+  }
+
+  function stepSeekHotkey(deltaSec: number) {
+    const base = streamTimeNow();
+    const next = Math.max(0, Math.min(duration || 0, base + deltaSec));
+    seekTo(next);
+    showOsd(`${deltaSec > 0 ? `+${deltaSec}` : deltaSec}s · ${formatTime(next)}`, 'seek');
+  }
+
+  function stepVolumeHotkey(delta: number) {
+    const base = muted ? 0 : volume;
+    const next = Math.max(0, Math.min(1, Math.round((base + delta) * 20) / 20));
+    setVolume(next);
+    scheduleHideControls();
+    showOsd(next === 0 ? 'Muted' : `Volume ${Math.round(next * 100)}%`, next === 0 ? 'mute' : 'volume');
+  }
+
+  function handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      if (activeMenu !== 'none') {
         e.preventDefault();
-        togglePlay();
+        activeMenu = 'none';
+        return;
+      }
+      if (isFullscreen) {
+        e.preventDefault();
+        void exitFullscreen();
+      }
+      return;
+    }
+
+    if (isHotkeyBlocked(e)) return;
+
+    if (e.code === 'Space' || e.key === ' ') {
+      e.preventDefault();
+      if (e.repeat || spaceIsDown) return;
+      spaceIsDown = true;
+      window.clearTimeout(spaceHoldTimer);
+      spaceHoldTimer = window.setTimeout(() => {
+        if (!spaceIsDown || !videoEl || videoEl.ended) return;
+        spaceHoldBoostActive = true;
+        applyPlaybackRate(2);
+        if (videoEl.paused) {
+          void videoEl.play().catch(() => {});
+        }
+      }, 240);
+      return;
+    }
+
+    const digitMatch = /^Digit([0-9])$/.exec(e.code) || /^Numpad([0-9])$/.exec(e.code);
+    if (digitMatch) {
+      if (duration > 0) {
+        e.preventDefault();
+        const pct = Number(digitMatch[1]) * 10;
+        const target = (duration * pct) / 100;
+        seekTo(target);
+        showOsd(`${pct}% · ${formatTime(target)}`, 'seek');
+      }
+      return;
+    }
+
+    switch (e.code) {
+      case 'KeyK':
+        e.preventDefault();
+        if (videoEl) {
+          const willPlay = videoEl.paused;
+          togglePlay();
+          showOsd(willPlay ? 'Play' : 'Pause', 'play');
+        }
         break;
       case 'ArrowLeft':
         e.preventDefault();
-        seekTo(currentTime - 5);
+        stepSeekHotkey(-5);
         break;
       case 'ArrowRight':
         e.preventDefault();
-        seekTo(currentTime + 5);
+        stepSeekHotkey(5);
         break;
-      case 'j':
-      case 'J':
+      case 'KeyJ':
         e.preventDefault();
-        seekTo(currentTime - 10);
+        stepSeekHotkey(-10);
         break;
-      case 'l':
-      case 'L':
+      case 'KeyL':
         e.preventDefault();
-        seekTo(currentTime + 10);
+        stepSeekHotkey(10);
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setVolume(volume + 0.05);
+        stepVolumeHotkey(0.05);
         break;
       case 'ArrowDown':
         e.preventDefault();
-        setVolume(volume - 0.05);
+        stepVolumeHotkey(-0.05);
         break;
-      case 'm':
-      case 'M':
+      case 'KeyM':
         e.preventDefault();
         toggleMute();
+        showOsd(muted ? 'Muted' : `Volume ${Math.round(volume * 100)}%`, muted ? 'mute' : 'volume');
         break;
-      case 'f':
-      case 'F':
+      case 'KeyF':
         e.preventDefault();
         void toggleFullscreen();
         break;
-      case 'Escape':
-        if (activeMenu !== 'none') {
-          activeMenu = 'none';
-        } else if (isFullscreen) {
+      case 'KeyN':
+        if (hasNext && onnext) {
           e.preventDefault();
-          void exitFullscreen();
+          showOsd('Next Episode', 'info');
+          onnext();
+        }
+        break;
+      case 'KeyP':
+        if (hasPrev && onprev) {
+          e.preventDefault();
+          showOsd('Previous Episode', 'info');
+          onprev();
+        }
+        break;
+      case 'KeyS':
+        if (skipTarget) {
+          e.preventDefault();
+          const label = skipTarget.label;
+          seekTo(skipTarget.to);
+          showOsd(label, 'seek');
+        }
+        break;
+      case 'KeyC':
+        if (subtitleTracks.length > 0) {
+          e.preventDefault();
+          if (activeSubtitleTrack >= 0) {
+            setSubtitleTrack(-1, true);
+          } else {
+            setSubtitleTrack(subtitleTracks[0].index, true);
+          }
         }
         break;
     }
+  }
+
+  function handleGlobalKeyup(e: KeyboardEvent) {
+    if (e.code !== 'Space' && e.key !== ' ') return;
+    if (!spaceIsDown) return;
+    e.preventDefault();
+    spaceIsDown = false;
+    const wasHoldBoost = spaceHoldBoostActive;
+    releaseSpaceHoldBoost();
+    if (!wasHoldBoost && !isHotkeyBlocked(e) && videoEl) {
+      const willPlay = videoEl.paused;
+      togglePlay();
+      showOsd(willPlay ? 'Play' : 'Pause', 'play');
+    }
+  }
+
+  function handleWindowBlur() {
+    spaceIsDown = false;
+    releaseSpaceHoldBoost();
   }
 
   function updateBuffered() {
@@ -1185,6 +1661,17 @@
   }
 </script>
 
+<svelte:window
+  onkeydown={handleGlobalKeydown}
+  onkeyup={handleGlobalKeyup}
+  onblur={handleWindowBlur}
+  onclick={(e) => {
+    if (activeMenu === 'appearance' && !(e.target as HTMLElement | null)?.closest('.appearance-wrap')) {
+      activeMenu = 'none';
+    }
+  }}
+/>
+
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
@@ -1200,12 +1687,12 @@
   onmouseleave={() => {
     if (playing && activeMenu === 'none') controlsVisible = false;
   }}
-  onkeydown={handleKeydown}
 >
   <!-- svelte-ignore a11y_media_has_caption -->
   <video
     bind:this={videoEl}
     class="hls-video"
+    style:filter={videoFilterCss}
     {poster}
     playsinline
     preload="metadata"
@@ -1233,8 +1720,10 @@
       buffering = false;
       onplaychange?.(true);
       if (dubAudio && dubAudioEl) {
-        syncDubTime(true);
-        void dubAudioEl.play().catch(() => {});
+        syncDubTime(false);
+        if (dubAudioEl.readyState >= 2) {
+          void dubAudioEl.play().catch(() => {});
+        }
       }
       scheduleHideControls();
     }}
@@ -1307,7 +1796,37 @@
     {/each}
   </video>
 
-  <audio bind:this={dubAudioEl} preload="auto" aria-hidden="true" style="display: none;"></audio>
+  <!-- svelte-ignore a11y_media_has_caption -->
+  <video bind:this={dubAudioEl} class="dub-media-sink" playsinline preload="auto" aria-hidden="true"></video>
+
+  <!-- svelte-ignore a11y_media_has_caption -->
+  <video
+    bind:this={previewVideoEl}
+    class="preview-media-sink"
+    muted
+    playsinline
+    preload="metadata"
+    onseeked={handlePreviewSeeked}
+    aria-hidden="true"
+  ></video>
+
+  {#if spaceHoldBoostActive}
+    <div class="speed-boost-pill" transition:scale={{ start: 0.9, duration: 140, easing: cubicOut }}>
+      <span>2x</span>
+      <FastForward size={14} fill="currentColor" strokeWidth={0} />
+    </div>
+  {:else if osdVisible && osdText}
+    <div class="player-osd-pill" transition:scale={{ start: 0.92, duration: 140, easing: cubicOut }}>
+      {#if osdKind === 'mute'}
+        <VolumeX size={15} strokeWidth={2} />
+      {:else if osdKind === 'volume'}
+        <Volume2 size={15} strokeWidth={2} />
+      {:else if osdKind === 'speed'}
+        <FastForward size={15} strokeWidth={2} />
+      {/if}
+      <span>{osdText}</span>
+    </div>
+  {/if}
 
   {#if buffering}
     <div class="center-overlay" aria-hidden="true">
@@ -1439,12 +1958,45 @@
       }}
     >
       {#if hoverTime !== null}
-        <div class="seek-tooltip" style:left="{hoverPct}%">
-          {formatTime(hoverTime)}
+        {@const canPreviewFrame = previewMediaSpec.mode !== 'none' && !isPip}
+        <div
+          class="seek-tooltip"
+          class:has-frame={canPreviewFrame}
+          in:fly={{ y: 6, duration: 150, easing: cubicOut }}
+          out:fade={{ duration: 100 }}
+          style:left={canPreviewFrame
+            ? `clamp(88px, ${hoverPct}%, calc(100% - 88px))`
+            : `clamp(34px, ${hoverPct}%, calc(100% - 34px))`}
+        >
+          {#if canPreviewFrame}
+            <div class="seek-preview-frame" class:is-ready={previewHasFrame}>
+              <canvas bind:this={previewCanvasEl} class="seek-preview-canvas" width="160" height="90"></canvas>
+            </div>
+          {/if}
+          <div class="seek-tooltip-meta">
+            {#if hoverSegmentLabel}
+              <span class="seek-segment-tag">{hoverSegmentLabel}</span>
+            {/if}
+            <span class="seek-time-text">{formatTime(hoverTime)}</span>
+          </div>
         </div>
       {/if}
       <div class="seek-rail">
         <div class="seek-buffered" style:width="{bufferedPct}%"></div>
+        {#if openingMarkerPct}
+          <div
+            class="seek-marker"
+            style:left="{openingMarkerPct.left}%"
+            style:width="{openingMarkerPct.width}%"
+          ></div>
+        {/if}
+        {#if endingMarkerPct}
+          <div
+            class="seek-marker"
+            style:left="{endingMarkerPct.left}%"
+            style:width="{endingMarkerPct.width}%"
+          ></div>
+        {/if}
         <div class="seek-fill" style:width="{progressPct}%"></div>
       </div>
       <div class="seek-thumb" style:left="{progressPct}%"></div>
@@ -1465,11 +2017,24 @@
           {/if}
         </button>
 
+        {#if hasPrev && (!isPip || isFullscreen)}
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label="Previous episode"
+            title="Previous episode (P)"
+            onclick={() => onprev?.()}
+          >
+            <SkipBack size={17} strokeWidth={1.8} />
+          </button>
+        {/if}
+
         {#if hasNext}
           <button
             type="button"
             class="icon-btn"
             aria-label="Next episode"
+            title="Next episode (N)"
             onclick={() => onnext?.()}
           >
             <SkipForward size={18} strokeWidth={1.8} />
@@ -1478,7 +2043,6 @@
 
         <div
           class="volume-group"
-          class:is-dragging={draggingVolume}
           onwheel={(e) => {
             e.preventDefault();
             setVolume((muted ? 0 : volume) + (e.deltaY < 0 ? 0.05 : -0.05));
@@ -1498,27 +2062,15 @@
               <Volume2 size={18} strokeWidth={1.8} />
             {/if}
           </button>
-          <div
-            bind:this={volumeEl}
-            class="volume-track"
-            role="slider"
-            tabindex="0"
-            aria-label="Volume"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(volumePct)}
-            onpointerdown={handleVolumePointerDown}
-            onpointermove={(e) => {
-              if (draggingVolume) volumeFromPointer(e.clientX);
-            }}
-            onpointerup={handleVolumePointerUp}
-            onkeydown={handleVolumeKeydown}
-          >
-            <div class="volume-rail">
-              <div class="volume-fill" style:width="{volumePct}%"></div>
-            </div>
-            <div class="volume-thumb" style:left="{volumePct}%"></div>
-          </div>
+          <Slider
+            class="volume-slider"
+            value={muted ? 0 : volume}
+            min={0}
+            max={1}
+            step={0.01}
+            ariaLabel="Volume"
+            onchange={(v) => setVolume(v)}
+          />
         </div>
 
         <span class="time-readout">
@@ -1557,9 +2109,7 @@
                     const found = voices.find((v) => v.id === dubId);
                     if (found) onselectdubvoice?.(found);
                   }
-                  if (!dubAudio) {
-                    activeMenu = 'none';
-                  }
+                  activeMenu = 'none';
                   scheduleHideControls();
                 } else if (raw.startsWith('audio:')) {
                   const idx = Number(raw.slice('audio:'.length));
@@ -1573,53 +2123,10 @@
               {#snippet icon()}
                 <AudioLines size={14} strokeWidth={1.9} />
               {/snippet}
-              {#snippet footer()}
-                {#if dubAudio && onduboffsetchange}
-                  <div class="dub-sync-box" role="group" aria-label="Audio synchronization" onpointerdown={(e) => e.stopPropagation()}>
-                    <div class="dub-sync-head">
-                      <span class="dub-sync-label">Audio Sync</span>
-                      <button
-                        type="button"
-                        class="dub-sync-reset"
-                        title="Reset offset to 0.0s"
-                        onclick={() => onduboffsetchange(0)}
-                      >
-                        {dubOffsetSec > 0 ? `+${dubOffsetSec.toFixed(1)}s` : `${dubOffsetSec.toFixed(1)}s`}
-                      </button>
-                    </div>
-                    <div class="dub-sync-controls">
-                      <button
-                        type="button"
-                        class="dub-sync-step"
-                        onclick={() => onduboffsetchange(dubOffsetSec - 0.1)}
-                      >
-                        -0.1
-                      </button>
-                      <input
-                        type="range"
-                        class="dub-sync-range"
-                        min="-5"
-                        max="5"
-                        step="0.1"
-                        aria-label="Audio sync offset in seconds"
-                        value={dubOffsetSec}
-                        oninput={(e) => onduboffsetchange(Number((e.currentTarget as HTMLInputElement).value))}
-                      />
-                      <button
-                        type="button"
-                        class="dub-sync-step"
-                        onclick={() => onduboffsetchange(dubOffsetSec + 0.1)}
-                      >
-                        +0.1
-                      </button>
-                    </div>
-                  </div>
-                {/if}
-              {/snippet}
             </ComboBox>
           {/if}
 
-          <!-- Playback speed -->
+          <!-- Speed & Quality -->
           <ComboBox
             open={activeMenu === 'speed'}
             value={playbackRate}
@@ -1632,7 +2139,7 @@
               activeMenu = isOpen ? 'speed' : 'none';
               scheduleHideControls();
             }}
-            onselect={(opt) => setSpeed(Number(opt.value))}
+            onselect={(opt) => setSpeed(Number(opt.value), true)}
           />
 
           <!-- Quality selector (defaults to highest fixed resolution) -->
@@ -1656,6 +2163,81 @@
               {/snippet}
             </ComboBox>
           {/if}
+
+          <!-- Display settings -->
+          <div class="appearance-wrap">
+            <button
+              type="button"
+              class="icon-btn"
+              class:is-active={activeMenu === 'appearance'}
+              aria-label="Video display settings"
+              aria-expanded={activeMenu === 'appearance'}
+              title="Display"
+              onclick={() => {
+                activeMenu = activeMenu === 'appearance' ? 'none' : 'appearance';
+                scheduleHideControls();
+              }}
+            >
+              <SlidersHorizontal size={16} strokeWidth={1.9} />
+            </button>
+
+            {#if activeMenu === 'appearance'}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div
+                class="appearance-popover"
+                onclick={(e) => e.stopPropagation()}
+                transition:fly={{ y: 6, duration: 170, easing: cubicOut }}
+              >
+                <div class="ap-head">
+                  <span class="ap-title">Display</span>
+                  <button
+                    type="button"
+                    class="ap-reset"
+                    onclick={() => saveVideoPrefs({ ...DEFAULT_VIDEO_PREFS })}
+                  >
+                    Reset
+                  </button>
+                </div>
+
+                <div class="ap-group">
+                  <span class="ap-label">Filter</span>
+                  <div class="ap-seg ap-seg-4">
+                    {#each [
+                      { id: 'none', label: 'Normal' },
+                      { id: 'vivid', label: 'Vivid' },
+                      { id: 'cinema', label: 'Cinema' },
+                      { id: 'warm', label: 'Warm' }
+                    ] as const as opt (opt.id)}
+                      <button
+                        type="button"
+                        class="ap-seg-btn"
+                        class:is-active={videoPrefs.filter === opt.id}
+                        onclick={() => saveVideoPrefs({ ...videoPrefs, filter: opt.id })}
+                      >
+                        {opt.label}
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+
+                <div class="ap-group ap-slider-group">
+                  <div class="ap-label-row">
+                    <span class="ap-label">Brightness</span>
+                    <span class="ap-value">{Math.round(videoPrefs.brightness * 100)}%</span>
+                  </div>
+                  <Slider
+                    value={videoPrefs.brightness}
+                    min={0.6}
+                    max={1.4}
+                    step={0.05}
+                    ariaLabel="Video brightness"
+                    onchange={(val) => saveVideoPrefs({ ...videoPrefs, brightness: val })}
+                  />
+                </div>
+              </div>
+            {/if}
+          </div>
         {/if}
 
         <button
@@ -1781,7 +2363,7 @@
     bottom: 52px;
   }
 
-  .hls-player.is-pip .volume-track {
+  .hls-player.is-pip :global(.volume-slider) {
     width: 44px;
   }
 
@@ -2079,6 +2661,14 @@
     background: rgba(255, 255, 255, 0.3);
   }
 
+  .seek-marker {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(255, 200, 110, 0.55);
+    pointer-events: none;
+  }
+
   .seek-fill {
     position: absolute;
     inset: 0 auto 0 0;
@@ -2103,15 +2693,80 @@
 
   .seek-tooltip {
     position: absolute;
-    bottom: 22px;
+    bottom: 20px;
     transform: translateX(-50%);
-    padding: 4px 8px;
-    border-radius: 6px;
-    background: rgba(16, 16, 16, 0.9);
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: rgba(14, 14, 17, 0.94);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.58);
     color: #ffffff;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 12px;
+    line-height: 1;
     pointer-events: none;
     white-space: nowrap;
+    z-index: 6;
+  }
+
+  .seek-tooltip.has-frame {
+    gap: 7px;
+    padding: 6px 6px 7px;
+    border-radius: 12px;
+  }
+
+  .seek-preview-frame {
+    display: block;
+    width: 164px;
+    aspect-ratio: 16 / 9;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #101014;
+  }
+
+  .seek-preview-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.16s ease-out;
+  }
+
+  .seek-preview-frame.is-ready .seek-preview-canvas {
+    opacity: 1;
+  }
+
+  .seek-tooltip-meta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0;
+    line-height: 1;
+  }
+
+  .seek-time-text {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.94);
+  }
+
+  .seek-segment-tag {
+    padding: 0;
+    background: transparent;
+    color: #ffc86e;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    line-height: 1;
   }
 
   .controls-row {
@@ -2155,58 +2810,10 @@
     gap: 4px;
   }
 
-  .volume-track {
-    position: relative;
+  .volume-group :global(.volume-slider) {
     width: 60px;
     height: 24px;
     margin-right: 4px;
-    display: flex;
-    align-items: center;
-    cursor: pointer;
-    touch-action: none;
-    outline: none;
-  }
-
-  .volume-rail {
-    position: relative;
-    width: 100%;
-    height: 3px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.22);
-    overflow: hidden;
-    transition: height 0.16s ease, background-color 0.16s ease;
-  }
-
-  .volume-track:hover .volume-rail,
-  .volume-group.is-dragging .volume-rail {
-    height: 4px;
-    background: rgba(255, 255, 255, 0.3);
-  }
-
-  .volume-fill {
-    position: absolute;
-    inset: 0 auto 0 0;
-    border-radius: 999px;
-    background: #ffffff;
-  }
-
-  .volume-thumb {
-    position: absolute;
-    top: 50%;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: #ffffff;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
-    transform: translate(-50%, -50%) scale(0);
-    transition: transform 0.16s var(--ease-out, ease);
-    pointer-events: none;
-  }
-
-  .volume-track:hover .volume-thumb,
-  .volume-track:focus-visible .volume-thumb,
-  .volume-group.is-dragging .volume-thumb {
-    transform: translate(-50%, -50%) scale(1);
   }
 
   .time-readout {
@@ -2220,67 +2827,179 @@
     color: rgba(255, 255, 255, 0.45);
   }
 
-  .dub-sync-box {
+  .dub-media-sink,
+  .preview-media-sink {
+    position: fixed;
+    left: -10px;
+    top: -10px;
+    width: 2px;
+    height: 2px;
+    opacity: 0.001;
+    pointer-events: none;
+  }
+
+  .speed-boost-pill,
+  .player-osd-pill {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 6;
+    height: 32px;
+    padding: 0 13px;
+    border-radius: 999px;
+    background: rgba(14, 14, 17, 0.78);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    color: #ffffff;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  .appearance-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .appearance-popover {
+    position: absolute;
+    right: 0;
+    bottom: 36px;
+    width: 272px;
+    padding: 14px;
+    border-radius: 14px;
+    background: rgba(14, 14, 17, 0.96);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: none;
+    box-shadow: 0 22px 52px rgba(0, 0, 0, 0.78);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transform-origin: bottom right;
+    z-index: 40;
+    color: #ffffff;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+  }
+
+  .ap-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .ap-title {
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.01em;
+  }
+
+  .ap-reset {
+    height: 24px;
+    padding: 0 10px;
+    border: none;
+    outline: none;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.56);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 11.5px;
+    font-weight: 400;
+    line-height: 1;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .ap-reset:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  .ap-group {
     display: flex;
     flex-direction: column;
     gap: 6px;
   }
 
-  .dub-sync-head {
+  .ap-slider-group {
+    gap: 4px;
+  }
+
+  .ap-label-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 8px;
   }
 
-  .dub-sync-label {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.48);
-  }
-
-  .dub-sync-reset {
-    border: none;
-    background: rgba(255, 255, 255, 0.08);
-    color: #ffffff;
-    font-family: inherit;
+  .ap-label {
     font-size: 11.5px;
-    font-weight: 600;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    color: rgba(255, 255, 255, 0.44);
+    user-select: none;
+  }
+
+  .ap-value {
+    font-size: 11.5px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.78);
     font-variant-numeric: tabular-nums;
-    padding: 2px 7px;
-    border-radius: 6px;
-    cursor: pointer;
+    user-select: none;
   }
 
-  .dub-sync-controls {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+  .ap-seg {
+    display: grid;
+    gap: 3px;
+    padding: 3px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.05);
   }
 
-  .dub-sync-step {
+  .ap-seg-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ap-seg-btn {
+    height: 28px;
+    padding: 0 6px;
     border: none;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.85);
-    font-family: inherit;
-    font-size: 11px;
-    font-weight: 600;
-    padding: 3px 6px;
-    border-radius: 6px;
+    outline: none;
+    border-radius: 7px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.62);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    white-space: nowrap;
     cursor: pointer;
+    transition: background-color 0.15s var(--ease-out, ease), color 0.15s ease, transform 0.1s ease;
   }
 
-  .dub-sync-step:hover,
-  .dub-sync-reset:hover {
-    background: rgba(255, 255, 255, 0.16);
+  .ap-seg-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.92);
   }
 
-  .dub-sync-range {
-    flex: 1;
-    min-width: 84px;
-    accent-color: #ffffff;
-    cursor: pointer;
+  .ap-seg-btn:active {
+    transform: scale(0.96);
+  }
+
+  .ap-seg-btn.is-active {
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   }
 
   .ffmpeg-status {
@@ -2290,6 +3009,6 @@
     background: rgba(14, 14, 17, 0.88);
     color: rgba(255, 255, 255, 0.88);
     font-size: 12.5px;
-    font-weight: 500;
+    font-weight: 400;
   }
 </style>

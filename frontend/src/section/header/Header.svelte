@@ -181,6 +181,7 @@
     display: flex;
     align-items: center;
     gap: 16px;
+    min-width: 0;
   }
 
   .search-anchor {
@@ -283,5 +284,52 @@
     width: 17px;
     height: 17px;
     flex-shrink: 0;
+  }
+
+  @media (max-width: 1140px) {
+    .search-anchor :global(.marlakit-input-wrap) {
+      width: clamp(200px, 24vw, 290px);
+    }
+
+    .header-left {
+      gap: 12px;
+    }
+
+    .header-right {
+      gap: 16px;
+    }
+  }
+
+  @media (max-width: 980px) {
+    .logo-img {
+      height: 44px;
+    }
+
+    .search-anchor :global(.marlakit-input-wrap) {
+      width: clamp(170px, 21vw, 230px);
+      height: 36px;
+    }
+
+    .header-right {
+      gap: 12px;
+    }
+
+    .nav-tabs {
+      gap: 2px;
+    }
+
+    .tab-btn {
+      padding: 7px 9px;
+      gap: 5px;
+      font-size: 13px;
+    }
+
+    .header-right > :global(:last-child) {
+      height: 36px;
+      padding: 0 12px;
+      font-size: 13px;
+      gap: 8px;
+      white-space: nowrap;
+    }
   }
 </style>

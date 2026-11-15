@@ -5,6 +5,8 @@ export { default as MainButton, default as MainBtn } from './button/MainButton.s
 export { default as SecondButton, default as SecondBtn } from './button/SecondButton.svelte';
 export { default as SocialButton, default as SocialBtn } from './button/SocialButton.svelte';
 export { default as Input } from './input/Input.svelte';
+export { default as Slider } from './slider/Slider.svelte';
+export { default as Toggle } from './toggle/Toggle.svelte';
 export { default as ScrollArea } from './scroll/ScrollArea.svelte';
 export { default as LayerBlur } from './blur/LayerBlur.svelte';
 export { default as MorphPopup } from './popup/MorphPopup.svelte';

@@ -305,3 +305,83 @@ export function getLastHistoryNavTimestamp(): number {
 // Backward-compatible aliases
 export const goBack = back;
 export const goForward = forward;
+
+export interface ParsedShareLink {
+  shikiId?: number;
+  alias?: string;
+  episodeOrdinal?: number;
+  title?: string;
+  raw: string;
+}
+
+export function encodeMilaShareLink(params: {
+  shikiId?: number;
+  alias?: string;
+  episodeOrdinal?: number;
+}): string {
+  const ep =
+    params.episodeOrdinal && Number.isFinite(params.episodeOrdinal) && params.episodeOrdinal > 0
+      ? `?ep=${Math.floor(params.episodeOrdinal)}`
+      : '';
+  if (params.shikiId && Number.isFinite(params.shikiId) && params.shikiId > 0) {
+    return `mila://anime/${Math.floor(params.shikiId)}${ep}`;
+  }
+  const cleanAlias = params.alias?.trim();
+  if (cleanAlias) {
+    return `mila://anime/alias/${encodeURIComponent(cleanAlias)}${ep}`;
+  }
+  return `mila://anime${ep}`;
+}
+
+export function parseMilaShareLink(input: string): ParsedShareLink | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // 1. Canonical share link: mila://anime/52991?ep=3 or mila://anime/alias/frieren?ep=3
+  const milaMatch = trimmed.match(/^mila:\/\/anime\/(?:(alias)\/([^?#\s]+)|(\d+))(?:\?([^#\s]*))?/i);
+  if (milaMatch) {
+    const query = new URLSearchParams(milaMatch[4] ?? '');
+    const epRaw = Number(query.get('ep'));
+    const ep = Number.isFinite(epRaw) && epRaw > 0 ? Math.floor(epRaw) : undefined;
+    if (milaMatch[1] && milaMatch[2]) {
+      return {
+        alias: decodeURIComponent(milaMatch[2]),
+        episodeOrdinal: ep,
+        raw: trimmed
+      };
+    }
+    const id = Number(milaMatch[3]);
+    if (Number.isFinite(id) && id > 0) {
+      return {
+        shikiId: id,
+        episodeOrdinal: ep,
+        raw: trimmed
+      };
+    }
+  }
+
+  // 2. Compact code: anime:52991 or anime:52991#3 or shiki:52991
+  const codeMatch = trimmed.match(/^(?:anime|shiki)[:#](\d+)(?:[#:](\d+))?$/i);
+  if (codeMatch) {
+    const id = Number(codeMatch[1]);
+    const ep = codeMatch[2] ? Number(codeMatch[2]) : undefined;
+    if (Number.isFinite(id) && id > 0) {
+      return {
+        shikiId: id,
+        episodeOrdinal: ep && ep > 0 ? ep : undefined,
+        raw: trimmed
+      };
+    }
+  }
+
+  // 3. Shikimori URL: https://shikimori.io/animes/52991-sousou-no-frieren
+  const shikiUrlMatch = trimmed.match(/^https?:\/\/(?:shikimori\.(?:one|io)|shiki\.one)\/animes\/[a-z]?(\d+)/i);
+  if (shikiUrlMatch) {
+    const id = Number(shikiUrlMatch[1]);
+    if (Number.isFinite(id) && id > 0) {
+      return { shikiId: id, raw: trimmed };
+    }
+  }
+
+  return null;
+}

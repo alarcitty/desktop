@@ -2,6 +2,9 @@
   import Hero from './hero/Hero.svelte';
   import Releases from './releases/Releases.svelte';
   import Recommendations from './recommendations/Recommendations.svelte';
+  import Credits from './credits/Credits.svelte';
+
+  let creditsOpen = $state(false);
 </script>
 
 <main class="main-wrapper">
@@ -11,7 +14,15 @@
   <Releases />
 
   <!-- You might also like section -->
-  <Recommendations />
+  <Recommendations
+    {creditsOpen}
+    onToggleCredits={() => {
+      creditsOpen = !creditsOpen;
+    }}
+  />
+
+  <!-- Smoothly expanding bottom credits section -->
+  <Credits open={creditsOpen} />
 </main>
 
 <style>

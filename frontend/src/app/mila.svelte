@@ -155,6 +155,12 @@
     background-color: #0c0c0c;
   }
 
+  .content-layer > :global(.marlakit-scroll-area) > :global(.marlakit-scroll-track) {
+    top: 14px;
+    right: 7px;
+    bottom: 14px;
+  }
+
   .app-boot-screen {
     position: absolute;
     inset: 0;

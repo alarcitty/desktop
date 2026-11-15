@@ -2,12 +2,20 @@
   import { onDestroy } from 'svelte';
   import Hls from 'hls.js';
   import Play from '@lucide/svelte/icons/play';
+  import Check from '@lucide/svelte/icons/check';
   import type { PlayableEpisode } from '../../api/anime';
 
   interface Props {
     episode: PlayableEpisode;
     index: number;
+    variant?: 'grid' | 'list';
     isCurrent?: boolean;
+    isWatched?: boolean;
+    progressRatio?: number;
+    cornerTL?: boolean;
+    cornerTR?: boolean;
+    cornerBL?: boolean;
+    cornerBR?: boolean;
     fallbackImages?: string[];
     onchoose?: () => void;
   }
@@ -15,7 +23,14 @@
   let {
     episode,
     index,
+    variant = 'grid',
     isCurrent = false,
+    isWatched = false,
+    progressRatio = 0,
+    cornerTL = false,
+    cornerTR = false,
+    cornerBL = false,
+    cornerBR = false,
     fallbackImages = [],
     onchoose
   }: Props = $props();
@@ -34,6 +49,29 @@
     const mins = Math.round(sec / 60);
     return mins > 0 ? `${mins}m` : `${sec}s`;
   }
+
+  function formatDurationFull(sec: number): string {
+    if (!sec || sec <= 0) return '';
+    const mins = Math.round(sec / 60);
+    return mins > 0 ? `${mins} min` : `${sec} sec`;
+  }
+
+  function formatClock(sec: number): string {
+    const s = Math.max(0, Math.round(sec));
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return `${m}:${String(rem).padStart(2, '0')}`;
+  }
+
+  const remainingLabel = $derived.by(() => {
+    if (isWatched) return 'Completed';
+    if (progressRatio > 0.02 && episode.duration > 0) {
+      const remSec = Math.max(0, Math.round(episode.duration * (1 - progressRatio)));
+      const remMin = Math.max(1, Math.round(remSec / 60));
+      return `${Math.round(progressRatio * 100)}% · ${remMin}m left`;
+    }
+    return isCurrent ? 'Now playing' : 'Unwatched';
+  });
 
   const coverUrl = $derived.by(() => {
     const candidates: string[] = [];
@@ -235,56 +273,171 @@
 <button
   type="button"
   class="ep-card"
+  class:is-grid={variant === 'grid'}
+  class:is-list={variant === 'list'}
   class:is-active={isCurrent}
   class:is-previewing={hoverActive && videoReady}
+  class:corner-tl={cornerTL}
+  class:corner-tr={cornerTR}
+  class:corner-bl={cornerBL}
+  class:corner-br={cornerBR}
   onmouseenter={handleMouseEnter}
   onmouseleave={handleMouseLeave}
   onclick={() => onchoose?.()}
 >
-  <div class="ep-thumb-wrap">
+  {#if variant === 'list'}
     {#if coverUrl}
-      <img
-        src={coverUrl}
-        alt="Episode {episode.ordinal}"
-        class="ep-thumb"
-        loading="lazy"
-        decoding="async"
-        onerror={() => {
-          failedUrls = { ...failedUrls, [coverUrl]: true };
-        }}
-      />
-    {:else}
-      <div class="ep-thumb-fallback" aria-hidden="true">
-        <Play size={20} fill="currentColor" strokeWidth={0} />
+      <div class="ep-list-bg" aria-hidden="true">
+        <img src={coverUrl} alt="" class="ep-list-bg-img" loading="lazy" decoding="async" />
+        <div class="ep-list-bg-scrim"></div>
       </div>
     {/if}
 
-    <!-- svelte-ignore a11y_media_has_caption -->
-    <video
-      bind:this={videoEl}
-      class="ep-preview-video"
-      class:is-visible={hoverActive && videoReady}
-      muted
-      playsinline
-      preload="none"
-      aria-hidden="true"
-    ></video>
+    <div class="ep-list-thumb-box">
+      {#if coverUrl}
+        <img
+          src={coverUrl}
+          alt="Episode {episode.ordinal}"
+          class="ep-thumb"
+          loading="lazy"
+          decoding="async"
+          onerror={() => {
+            failedUrls = { ...failedUrls, [coverUrl]: true };
+          }}
+        />
+      {:else}
+        <div class="ep-thumb-fallback" aria-hidden="true">
+          <Play size={18} fill="currentColor" strokeWidth={0} />
+        </div>
+      {/if}
 
-    <div class="ep-thumb-fade" aria-hidden="true"></div>
-    <div class="ep-overlay-bottom">
-      <div class="ep-title-row">
-        {#if episode.name}
-          <span class="ep-num">EP {episode.ordinal}</span>
-          <span class="ep-name">{episode.name}</span>
-        {:else}
-          <span class="ep-num">Episode {episode.ordinal}</span>
-        {/if}
-      </div>
-      {#if episode.duration > 0}
-        <span class="ep-duration">{formatDuration(episode.duration)}</span>
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        bind:this={videoEl}
+        class="ep-preview-video"
+        class:is-visible={hoverActive && videoReady}
+        muted
+        playsinline
+        preload="none"
+        aria-hidden="true"
+      ></video>
+
+      {#if progressRatio > 0.02}
+        <div class="ep-progress-track" aria-hidden="true">
+          <div class="ep-progress-fill" style:width={`${Math.min(100, Math.round(progressRatio * 100))}%`}></div>
+        </div>
       {/if}
     </div>
-  </div>
+
+    <div class="ep-list-info">
+      <div class="ep-list-title-line">
+        <span class="ep-num">Episode {episode.ordinal}</span>
+        {#if episode.name}
+          <span class="ep-list-name">{episode.name}</span>
+        {/if}
+        {#if isCurrent}
+          <span class="ep-list-tag is-current">Playing</span>
+        {/if}
+        {#if isWatched}
+          <span class="ep-list-tag is-watched">
+            <Check size={11} strokeWidth={2.5} />
+            <span>Watched</span>
+          </span>
+        {/if}
+      </div>
+      <div class="ep-list-meta">
+        {#if episode.duration > 0}
+          <span>{formatDurationFull(episode.duration)}</span>
+        {/if}
+        {#if episode.opening}
+          <span>OP skip</span>
+        {/if}
+        {#if episode.ending}
+          <span>ED skip</span>
+        {/if}
+      </div>
+    </div>
+
+    <div class="ep-list-aside" aria-hidden="true">
+      <div class="ep-aside-row">
+        {#if episode.opening?.start != null}
+          <span>OP {formatClock(episode.opening.start)}</span>
+        {/if}
+        {#if episode.ending?.start != null}
+          <span>ED {formatClock(episode.ending.start)}</span>
+        {/if}
+        {#if episode.duration > 0}
+          <span>{formatClock(episode.duration)}</span>
+        {/if}
+      </div>
+      <div class="ep-aside-row is-sub">
+        <span>EP {String(episode.ordinal).padStart(2, '0')}</span>
+        <span>{remainingLabel}</span>
+      </div>
+    </div>
+  {:else}
+    <div class="ep-thumb-wrap">
+      {#if coverUrl}
+        <img
+          src={coverUrl}
+          alt="Episode {episode.ordinal}"
+          class="ep-thumb"
+          loading="lazy"
+          decoding="async"
+          onerror={() => {
+            failedUrls = { ...failedUrls, [coverUrl]: true };
+          }}
+        />
+      {:else}
+        <div class="ep-thumb-fallback" aria-hidden="true">
+          <Play size={20} fill="currentColor" strokeWidth={0} />
+        </div>
+      {/if}
+
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        bind:this={videoEl}
+        class="ep-preview-video"
+        class:is-visible={hoverActive && videoReady}
+        muted
+        playsinline
+        preload="none"
+        aria-hidden="true"
+      ></video>
+
+      <div class="ep-thumb-fade" aria-hidden="true"></div>
+      {#if isWatched || isCurrent}
+        <div class="ep-status-row" aria-hidden="true">
+          {#if isCurrent}
+            <span class="ep-badge-now">Playing</span>
+          {/if}
+          {#if isWatched}
+            <span class="ep-badge-watched" title="Watched">
+              <Check size={12} strokeWidth={2.6} />
+            </span>
+          {/if}
+        </div>
+      {/if}
+      <div class="ep-overlay-bottom">
+        <div class="ep-title-row">
+          {#if episode.name}
+            <span class="ep-num">EP {episode.ordinal}</span>
+            <span class="ep-name">{episode.name}</span>
+          {:else}
+            <span class="ep-num">Episode {episode.ordinal}</span>
+          {/if}
+        </div>
+        {#if episode.duration > 0}
+          <span class="ep-duration">{formatDuration(episode.duration)}</span>
+        {/if}
+      </div>
+      {#if progressRatio > 0.02}
+        <div class="ep-progress-track" aria-hidden="true">
+          <div class="ep-progress-fill" style:width={`${Math.min(100, Math.round(progressRatio * 100))}%`}></div>
+        </div>
+      {/if}
+    </div>
+  {/if}
 </button>
 
 <style>
@@ -294,7 +447,7 @@
     padding: 0;
     border: none;
     outline: none;
-    border-radius: var(--radius-card);
+    border-radius: 0;
     overflow: hidden;
     background: #0c0c0c;
     isolation: isolate;
@@ -302,22 +455,187 @@
     transform: translate3d(0, 0, 0);
     cursor: pointer;
     text-align: left;
-    transition: transform 0.24s var(--ease-out);
+    transition: background-color 0.24s var(--ease-out);
   }
 
-  .ep-card::after {
-    content: '';
+  .ep-card.corner-tl {
+    border-top-left-radius: var(--radius-card);
+  }
+
+  .ep-card.corner-tr {
+    border-top-right-radius: var(--radius-card);
+  }
+
+  .ep-card.corner-bl {
+    border-bottom-left-radius: var(--radius-card);
+  }
+
+  .ep-card.corner-br {
+    border-bottom-right-radius: var(--radius-card);
+  }
+
+  /* List variant: zero inner thumbnail padding, left-only rounding, blurred screenshot full-row background */
+  .ep-card.is-list {
+    width: 100%;
+    height: 92px;
+    padding: 0 16px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-radius: var(--radius-card) 0 0 var(--radius-card);
+    background: #0e0e11;
+    overflow: hidden;
+  }
+
+  .ep-card.is-list.corner-tl,
+  .ep-card.is-list.corner-bl {
+    border-top-left-radius: var(--radius-card);
+    border-bottom-left-radius: var(--radius-card);
+  }
+
+  .ep-list-bg {
     position: absolute;
-    inset: -3px;
-    border-radius: calc(var(--radius-card) + 3px);
-    border: 4px solid #0c0c0c;
-    transform: translateZ(0);
+    inset: 0;
+    z-index: 0;
     pointer-events: none;
-    z-index: 6;
+    overflow: hidden;
   }
 
-  .ep-card:hover {
-    transform: translate3d(0, -2px, 0);
+  .ep-list-bg-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(30px) saturate(1.22) brightness(0.42);
+    transform: scale(1.22);
+    opacity: 0.72;
+    transition: opacity 0.3s var(--ease-out), filter 0.3s var(--ease-out);
+  }
+
+  .ep-card.is-list:hover .ep-list-bg-img {
+    opacity: 0.94;
+    filter: blur(28px) saturate(1.28) brightness(0.5);
+  }
+
+  .ep-list-bg-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      rgba(12, 12, 12, 0.25) 0%,
+      rgba(12, 12, 12, 0.72) 38%,
+      rgba(12, 12, 12, 0.88) 100%
+    );
+  }
+
+  .ep-list-thumb-box {
+    position: relative;
+    z-index: 1;
+    width: 164px;
+    height: 100%;
+    flex-shrink: 0;
+    border-radius: var(--radius-card) 0 0 var(--radius-card);
+    overflow: hidden;
+    background: #09090b;
+  }
+
+  .ep-list-info {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .ep-list-title-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .ep-list-name {
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.82);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ep-list-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 11px;
+    line-height: 1.2;
+  }
+
+  .ep-list-tag.is-current {
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #ffffff;
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .ep-list-tag.is-watched {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.86);
+  }
+
+  .ep-list-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.56);
+  }
+
+  .ep-list-aside {
+    position: relative;
+    z-index: 1;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+    padding-left: 12px;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .ep-aside-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11.5px;
+    line-height: 1.2;
+    color: rgba(255, 255, 255, 0.4);
+    transition: color 0.2s var(--ease-out);
+  }
+
+  .ep-aside-row.is-sub {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.26);
+  }
+
+  .ep-card.is-list:hover .ep-aside-row {
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  .ep-card.is-list:hover .ep-aside-row.is-sub {
+    color: rgba(255, 255, 255, 0.42);
   }
 
   .ep-thumb-wrap {
@@ -337,8 +655,8 @@
     transition: transform 0.45s var(--ease-out);
   }
 
-  .ep-card:hover .ep-thumb {
-    transform: scale(1.04);
+  .ep-card.is-grid:hover .ep-thumb {
+    transform: scale(1.05);
   }
 
   .ep-preview-video {
@@ -442,5 +760,62 @@
     font-weight: 500;
     color: rgba(255, 255, 255, 0.56);
     font-variant-numeric: tabular-nums;
+  }
+
+  .ep-status-row {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    pointer-events: none;
+  }
+
+  .ep-badge-now {
+    margin-right: auto;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #ffffff;
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.86);
+  }
+
+  .ep-badge-watched {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(12, 12, 12, 0.72);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: rgba(255, 255, 255, 0.92);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ep-progress-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    z-index: 4;
+    background: rgba(255, 255, 255, 0.14);
+    pointer-events: none;
+  }
+
+  .ep-progress-fill {
+    height: 100%;
+    background: rgba(255, 255, 255, 0.92);
+    transition: width 0.25s var(--ease-out);
   }
 </style>

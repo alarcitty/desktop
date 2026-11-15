@@ -65,6 +65,42 @@ export function buildAniboomMasterUrl(embedUrl: string, ordinal: number): string
   return `/ext/aniboom/master.m3u8?${params.toString()}`;
 }
 
+export function buildAnimeGOKodikMasterUrl(
+  animeId: number,
+  episodeId: number,
+  translationId: string,
+  embedUrl: string
+): string {
+  const params = new URLSearchParams();
+  if (episodeId > 0 && translationId) {
+    params.set('animego_id', String(animeId));
+    params.set('ep_id', String(episodeId));
+    params.set('tr', translationId);
+  }
+  if (embedUrl) {
+    params.set('embed', embedUrl);
+  }
+  params.set('ref', 'https://animego.me/');
+  return `/ext/kodik/master.m3u8?${params.toString()}`;
+}
+
+function buildAnimeGOEpisodeStream(
+  animeId: number,
+  ep: { ordinal: number; episodeId: number },
+  trId: string,
+  embedUrl: string,
+  providerSlug: string
+): Pick<PlayableEpisode, 'hls_1080' | 'hls_720'> {
+  if (providerSlug === 'kodik') {
+    return {
+      hls_720: buildAnimeGOKodikMasterUrl(animeId, ep.episodeId, trId, embedUrl)
+    };
+  }
+  return {
+    hls_1080: buildAniboomMasterUrl(embedUrl, ep.ordinal)
+  };
+}
+
 export function normalizeAnimeGODubLabel(rawTitle: string): { label: string; isSub: boolean } {
   const trimmed = rawTitle.trim() || 'AniBoom';
   const lower = trimmed.toLowerCase();
@@ -153,7 +189,8 @@ export async function fetchAnimeGOPlayer(animeId: number): Promise<RawAnimeGOPla
 export async function fetchAnimeGOEpisodes(
   animeId: number,
   translationId: string,
-  embedUrl = ''
+  embedUrl = '',
+  providerSlug = ''
 ): Promise<PlayableEpisode[]> {
   const cacheKey = `${animeId}:${translationId}`;
   const cached = episodesByKey.get(cacheKey);
@@ -162,11 +199,9 @@ export async function fetchAnimeGOEpisodes(
   const playerData = await fetchAnimeGOPlayer(animeId);
   if (!playerData) return [];
 
-  const resolvedEmbed =
-    embedUrl ||
-    embedByKey.get(cacheKey) ||
-    playerData.dubs.find((d) => d.translationId === translationId)?.embedUrl ||
-    '';
+  const matchedDub = playerData.dubs.find((d) => d.translationId === translationId);
+  const resolvedEmbed = embedUrl || embedByKey.get(cacheKey) || matchedDub?.embedUrl || '';
+  const resolvedSlug = providerSlug || matchedDub?.providerSlug || (resolvedEmbed.includes('kodik') ? 'kodik' : 'aniboom');
   if (!resolvedEmbed) return [];
   embedByKey.set(cacheKey, resolvedEmbed);
 
@@ -180,7 +215,7 @@ export async function fetchAnimeGOEpisodes(
     ordinal: ep.ordinal,
     name: `Серия ${ep.ordinal}`,
     duration: 0,
-    hls_1080: buildAniboomMasterUrl(resolvedEmbed, ep.ordinal)
+    ...buildAnimeGOEpisodeStream(animeId, ep, translationId, resolvedEmbed, resolvedSlug)
   }));
 
   if (episodes.length > 0) {
@@ -241,15 +276,24 @@ export async function findAnimeGOMatch(
     const trId = dub.translationId || String(dubs.length + 1);
     const cacheKey = `${bestItem.id}:${trId}`;
     embedByKey.set(cacheKey, dub.embedUrl);
+    const isKodik = dub.providerSlug === 'kodik';
 
     const episodes: PlayableEpisode[] = epList.map((ep) => ({
       id: `animego:${bestItem.id}:${trId}:${ep.ordinal}`,
       ordinal: ep.ordinal,
       name: `Серия ${ep.ordinal}`,
       duration: 0,
-      hls_1080: buildAniboomMasterUrl(dub.embedUrl, ep.ordinal)
+      ...buildAnimeGOEpisodeStream(bestItem.id, ep, trId, dub.embedUrl, dub.providerSlug)
     }));
     episodesByKey.set(cacheKey, episodes);
+
+    const qualityTag = isKodik
+      ? isSub
+        ? 'Kodik 720p Sub'
+        : 'Kodik 720p'
+      : isSub
+        ? '1080p Original'
+        : '1080p HLS';
 
     dubs.push({
       translationId: trId,
@@ -257,10 +301,10 @@ export async function findAnimeGOMatch(
       voice: {
         id: `animego:${bestItem.id}:${trId}`,
         label,
-        sublabel: `${episodes.length} ep · ${isSub ? '1080p Original' : '1080p HLS'}`,
+        sublabel: `${episodes.length} ep · ${qualityTag}`,
         provider: 'animego',
         providerId: bestItem.id,
-        sourceId: `${trId}|${dub.embedUrl}`,
+        sourceId: `${dub.providerSlug || 'aniboom'}|${trId}|${dub.embedUrl}`,
         kind: 'hls',
         isSub
       },

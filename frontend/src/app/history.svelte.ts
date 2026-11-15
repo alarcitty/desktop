@@ -36,8 +36,17 @@ export interface RecordHistoryInput {
   duration?: number;
 }
 
+export interface EpisodeProgressEntry {
+  currentTime: number;
+  duration: number;
+  watched: boolean;
+  updatedAt: number;
+}
+
 const STORAGE_KEY = 'mila.watch.history.v1';
+const EPISODE_PROGRESS_KEY = 'mila.watch.episodeProgress.v1';
 const MAX_HISTORY_ENTRIES = 100;
+const MAX_EPISODE_PROGRESS_KEYS = 800;
 
 function normalizeTitleKey(title: string): string {
   return title
@@ -80,6 +89,71 @@ function saveHistory(entries: WatchHistoryEntry[]): void {
 export const watchHistory = $state<{ entries: WatchHistoryEntry[] }>({
   entries: loadHistory()
 });
+
+function loadEpisodeProgressMap(): Record<string, EpisodeProgressEntry> {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(EPISODE_PROGRESS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, EpisodeProgressEntry>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+export const episodeProgressMap = $state<{ items: Record<string, EpisodeProgressEntry> }>({
+  items: loadEpisodeProgressMap()
+});
+
+let episodeProgressSaveTimer: number | undefined;
+function scheduleSaveEpisodeProgress(): void {
+  if (typeof localStorage === 'undefined' || typeof window === 'undefined') return;
+  if (episodeProgressSaveTimer !== undefined) {
+    window.clearTimeout(episodeProgressSaveTimer);
+  }
+  episodeProgressSaveTimer = window.setTimeout(() => {
+    episodeProgressSaveTimer = undefined;
+    try {
+      const entries = Object.entries(episodeProgressMap.items)
+        .sort((a, b) => (b[1]?.updatedAt ?? 0) - (a[1]?.updatedAt ?? 0))
+        .slice(0, MAX_EPISODE_PROGRESS_KEYS);
+      localStorage.setItem(EPISODE_PROGRESS_KEY, JSON.stringify(Object.fromEntries(entries)));
+    } catch {
+      // Ignore storage quota errors.
+    }
+  }, 300);
+}
+
+function episodeProgressKeys(
+  input: { shikiId?: number; releaseAlias?: string; title?: string },
+  ordinal: number
+): string[] {
+  const keys: string[] = [];
+  if (input.shikiId && input.shikiId > 0) {
+    keys.push(`s:${input.shikiId}:ep:${ordinal}`);
+  }
+  if (input.releaseAlias?.trim()) {
+    keys.push(`a:${input.releaseAlias.trim()}:ep:${ordinal}`);
+  }
+  if (keys.length === 0 && input.title?.trim()) {
+    keys.push(`t:${normalizeTitleKey(input.title) || 'anime'}:ep:${ordinal}`);
+  }
+  return keys;
+}
+
+export function getEpisodeProgress(
+  input: { shikiId?: number; releaseAlias?: string; title?: string },
+  ordinal: number
+): EpisodeProgressEntry | undefined {
+  for (const key of episodeProgressKeys(input, ordinal)) {
+    const found = episodeProgressMap.items[key];
+    if (found) return found;
+  }
+  return undefined;
+}
 
 export function formatTimeCompact(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0:00';
@@ -150,6 +224,29 @@ export function recordHistoryEntry(input: RecordHistoryInput): void {
   const next = [entry, ...remaining].slice(0, MAX_HISTORY_ENTRIES);
   watchHistory.entries = next;
   saveHistory(next);
+
+  // Sync per-episode watched & progress markers
+  if (input.episodeOrdinal > 0) {
+    const keys = episodeProgressKeys(
+      { shikiId: entry.shikiId, releaseAlias: entry.releaseAlias, title: entry.title },
+      input.episodeOrdinal
+    );
+    const existingEp = keys.map((k) => episodeProgressMap.items[k]).find(Boolean);
+    const dur = nextDuration > 0 ? nextDuration : existingEp?.duration ?? 0;
+    const isWatchedNow = dur > 0 && nextTime / dur >= 0.85;
+    const mergedEp: EpisodeProgressEntry = {
+      currentTime: nextTime,
+      duration: dur,
+      watched: Boolean(existingEp?.watched || isWatchedNow),
+      updatedAt: Date.now()
+    };
+    const nextMap = { ...episodeProgressMap.items };
+    for (const key of keys) {
+      nextMap[key] = mergedEp;
+    }
+    episodeProgressMap.items = nextMap;
+    scheduleSaveEpisodeProgress();
+  }
 }
 
 export function removeHistoryEntry(id: string): void {
@@ -158,9 +255,21 @@ export function removeHistoryEntry(id: string): void {
   saveHistory(next);
 }
 
+export function resetAllEpisodeProgress(): void {
+  episodeProgressMap.items = {};
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.removeItem(EPISODE_PROGRESS_KEY);
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+}
+
 export function clearWatchHistory(): void {
   watchHistory.entries = [];
   saveHistory([]);
+  resetAllEpisodeProgress();
 }
 
 let enrichedHistoryArtwork = false;

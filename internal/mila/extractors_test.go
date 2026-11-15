@@ -58,11 +58,14 @@ func TestAnimeGOSearchAndPlayerParsing(t *testing.T) {
 	if len(res.Episodes) != 2 || res.Episodes[0].Ordinal != 1 || res.Episodes[1].Ordinal != 2 {
 		t.Fatalf("expected sorted episodes [1, 2], got %+v", res.Episodes)
 	}
-	if len(res.Dubs) != 2 {
-		t.Fatalf("expected only 2 aniboom dubs (kodik excluded), got %+v", res.Dubs)
+	if len(res.Dubs) != 3 {
+		t.Fatalf("expected 3 dubs (2 aniboom + 1 kodik), got %+v", res.Dubs)
 	}
-	if res.Dubs[0].Title != "Студийная Банда" || !strings.HasPrefix(res.Dubs[0].EmbedURL, "https://aniboom.one/embed/") {
-		t.Fatalf("unexpected dub entry: %+v", res.Dubs[0])
+	if res.Dubs[0].ProviderSlug != "aniboom" || res.Dubs[0].Title != "Студийная Банда" || !strings.HasPrefix(res.Dubs[0].EmbedURL, "https://aniboom.one/embed/") {
+		t.Fatalf("unexpected first aniboom dub entry: %+v", res.Dubs[0])
+	}
+	if res.Dubs[2].ProviderSlug != "kodik" || res.Dubs[2].Title != "AniLibria" || !strings.HasPrefix(res.Dubs[2].EmbedURL, "https://kodikplayer.com/seria/") {
+		t.Fatalf("unexpected kodik dub entry: %+v", res.Dubs[2])
 	}
 }
 

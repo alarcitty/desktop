@@ -3,10 +3,13 @@ import {
   buildPrimaryVoiceOption,
   ensureShikimoriArtwork,
   findVoiceOptions,
+  getCachedAnimePageExtras,
   getCachedArtwork,
+  loadAnimePageExtras,
   loadFranchiseSeasons,
   resolvePlayableRelease,
   resolveVoiceTrackRelease,
+  type AnimePageExtras,
   type AnimeSeasonEntry,
   type PlayableRelease,
   type ShikiArtwork,
@@ -69,6 +72,8 @@ export const player = $state<{
   pipManual: boolean;
   pipDismissed: boolean;
   pipCorner: PipCorner;
+  extras: AnimePageExtras | null;
+  extrasLoading: boolean;
   inlineStageEl: HTMLElement | null;
 }>({
   loading: false,
@@ -91,10 +96,15 @@ export const player = $state<{
   pipManual: false,
   pipDismissed: false,
   pipCorner: readSavedPipCorner(),
+  extras: null,
+  extrasLoading: false,
   inlineStageEl: null
 });
 
 let activeRequestToken = 0;
+let dubRequestToken = 0;
+let extrasRequestToken = 0;
+let lastLoadedExtrasShikiId = 0;
 let lastHistorySyncMs = 0;
 let voiceDiscoveryPromise: Promise<VoiceTrackOption[]> | null = null;
 let pauseControlCallback: (() => void) | null = null;
@@ -155,6 +165,46 @@ function applyPreservedEpisode(
   return 0;
 }
 
+function refreshAnimeExtras(shikiId?: number): void {
+  const id = shikiId && shikiId > 0 ? shikiId : 0;
+  if (!id) {
+    lastLoadedExtrasShikiId = 0;
+    extrasRequestToken += 1;
+    player.extras = null;
+    player.extrasLoading = false;
+    return;
+  }
+  if (lastLoadedExtrasShikiId === id && player.extras?.shikiId === id) {
+    return;
+  }
+  lastLoadedExtrasShikiId = id;
+  const cached = getCachedAnimePageExtras(id);
+  if (cached) {
+    player.extras = cached;
+    player.extrasLoading = false;
+    return;
+  }
+
+  const token = ++extrasRequestToken;
+  player.extras = null;
+  player.extrasLoading = true;
+  loadAnimePageExtras(id)
+    .then((extras) => {
+      if (token !== extrasRequestToken) return;
+      player.extras = extras;
+    })
+    .catch(() => {
+      if (token === extrasRequestToken) {
+        player.extras = { shikiId: id, videos: [], related: [], characters: [], similar: [] };
+      }
+    })
+    .finally(() => {
+      if (token === extrasRequestToken) {
+        player.extrasLoading = false;
+      }
+    });
+}
+
 async function loadTargetIntoPlayer(
   token: number,
   target: WatchTarget,
@@ -165,6 +215,7 @@ async function loadTargetIntoPlayer(
   player.title = target.title;
   player.target = target;
   player.shikiArt = target.shikiId ? getCachedArtwork(target.shikiId) ?? null : null;
+  refreshAnimeExtras(target.shikiId);
   player.release = null;
   if (!opts?.keepVoices) {
     player.voices = [];
@@ -186,6 +237,7 @@ async function loadTargetIntoPlayer(
         const art = map.get(target.shikiId!);
         if (art) {
           player.shikiArt = art;
+          refreshAnimeExtras(art.id);
           if (player.release) {
             syncPlayerHistory();
           }
@@ -372,6 +424,7 @@ export async function openTorrentStream(
 }
 
 export async function selectDubVoice(voice: VoiceTrackOption | null): Promise<void> {
+  const myDubToken = ++dubRequestToken;
   if (!voice) {
     player.dubVoiceId = '';
     player.dubRelease = null;
@@ -386,12 +439,12 @@ export async function selectDubVoice(voice: VoiceTrackOption | null): Promise<vo
   const token = activeRequestToken;
   try {
     const dubRel = await resolveVoiceTrackRelease(voice, baseRelease, baseTarget);
-    if (token !== activeRequestToken) return;
+    if (token !== activeRequestToken || myDubToken !== dubRequestToken) return;
     player.dubVoiceId = voice.id;
     player.dubRelease = dubRel;
     player.dubOffsetSec = readSavedDubOffset(baseRelease?.alias ?? '', voice.id);
   } catch (err) {
-    if (token !== activeRequestToken) return;
+    if (token !== activeRequestToken || myDubToken !== dubRequestToken) return;
     player.error = err instanceof Error ? err.message : 'Failed to attach dub audio stream';
   }
 }
@@ -593,6 +646,13 @@ export function selectEpisode(index: number): void {
   lastHistorySyncMs = Date.now();
 }
 
+export function prevEpisode(): void {
+  if (!player.release) return;
+  if (player.episodeIndex > 0) {
+    selectEpisode(player.episodeIndex - 1);
+  }
+}
+
 export function nextEpisode(): void {
   if (!player.release) return;
   if (player.episodeIndex + 1 < player.release.episodes.length) {
@@ -678,9 +738,13 @@ export function closeCustomPip(): void {
 
 export function resetPlayer(): void {
   activeRequestToken += 1;
+  extrasRequestToken += 1;
+  lastLoadedExtrasShikiId = 0;
   player.loading = false;
   player.release = null;
   player.seasons = [];
+  player.extras = null;
+  player.extrasLoading = false;
   player.voices = [];
   player.selectedVoiceId = '';
   player.resumeTime = 0;

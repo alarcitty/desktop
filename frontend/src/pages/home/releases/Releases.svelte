@@ -189,16 +189,19 @@
   /* Section title: 48px, #D4D4D4, PP Monument Extended Black */
   .section-title {
     position: absolute;
-    top: 44px;
+    top: clamp(28px, 3.5vw, 44px);
     left: 50%;
     transform: translateX(-50%);
     margin: 0;
     padding: 0;
+    max-width: calc(100% - var(--page-pad-x) * 2);
     font-family: 'PP Monument Extended', sans-serif;
-    font-size: 48px;
+    font-size: clamp(28px, 3.3vw, 48px);
     font-weight: 900;
     color: #D4D4D4;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     line-height: 1;
     z-index: 5;
     text-shadow: none;
@@ -282,9 +285,9 @@
     opacity: 0.45;
   }
 
-  /* Active expanded card: wide clamp 690px - 840px */
+  /* Active expanded card: responsive width from compact desktop (440px @ 858px) up to 840px */
   .card.is-active {
-    flex: 0 0 clamp(690px, 58vw, 840px);
+    flex: 0 0 clamp(440px, 56vw, 840px);
     cursor: default;
     z-index: 4;
   }
@@ -359,9 +362,10 @@
     z-index: 3;
     display: flex;
     flex-direction: column;
-    padding: 24px;
+    padding: clamp(18px, 2vw, 24px);
     box-sizing: border-box;
-    width: clamp(690px, 58vw, 840px);
+    width: clamp(440px, 56vw, 840px);
+    max-width: 100%;
     pointer-events: none;
   }
 
@@ -378,10 +382,10 @@
 
   /* Big title: PP Monument Extended Black, #DADADA */
   .card-title {
-    margin: 0 0 16px 0;
+    margin: 0 0 14px 0;
     padding: 0;
     font-family: 'PP Monument Extended', sans-serif;
-    font-size: clamp(38px, 4.2vw, 60px);
+    font-size: clamp(26px, 3.6vw, 60px);
     font-weight: 900;
     color: #DADADA;
     line-height: 1.05;
@@ -413,18 +417,23 @@
                 transform 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.19s;
   }
 
-  /* Description: Medeo Sans Display Regular 20px, #8D8D8D, directly relative to title */
+  /* Description: Medeo Sans Display Regular, #8D8D8D, directly relative to title */
   .card-description {
     margin: 0;
     padding: 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 20px;
+    font-size: clamp(14.5px, 1.45vw, 20px);
     font-weight: 400;
     color: #8D8D8D;
     line-height: 1.35;
     word-wrap: break-word;
     text-shadow: none;
-    max-width: 480px;
+    max-width: min(480px, 92%);
+    display: -webkit-box;
+    line-clamp: 5;
+    -webkit-line-clamp: 5;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
     opacity: 0;
     transform: translateY(10px);
     transition: opacity 0.2s ease-out, transform 0.2s ease-out;
@@ -481,5 +490,56 @@
 
   :global(.arrow-icon) {
     color: #D0D0D0;
+  }
+
+  @media (max-width: 1120px) {
+    .releases-section {
+      height: 620px;
+    }
+
+    .releases-underlay-blur {
+      height: 680px;
+    }
+
+    .releases-strip {
+      top: 100px;
+      height: 460px;
+    }
+
+    .card {
+      height: 460px;
+    }
+
+    .releases-bottom-arrow {
+      top: 578px;
+    }
+  }
+
+  @media (max-width: 960px) {
+    .releases-section {
+      height: 560px;
+    }
+
+    .releases-underlay-blur {
+      height: 600px;
+    }
+
+    .releases-strip {
+      top: 90px;
+      height: 416px;
+    }
+
+    .card {
+      height: 416px;
+    }
+
+    .card-description {
+      line-clamp: 4;
+      -webkit-line-clamp: 4;
+    }
+
+    .releases-bottom-arrow {
+      top: 522px;
+    }
   }
 </style>

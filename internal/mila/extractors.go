@@ -44,7 +44,7 @@ type AnimeGOEpisodeItem struct {
 	EpisodeID int `json:"episodeId"`
 }
 
-// AnimeGODubItem represents a non-Kodik direct-stream voiceover or subtitle track.
+// AnimeGODubItem represents an extractable voiceover or subtitle track (AniBoom or Kodik).
 type AnimeGODubItem struct {
 	TranslationID string `json:"translationId"`
 	Title         string `json:"title"`
@@ -305,15 +305,15 @@ func parseAnimeGOPlayerHTML(animeID int, playerHTML string, episodesHTML string)
 	})
 
 	dubs := make([]AnimeGODubItem, 0)
-	seenDub := make(map[string]struct{})
+	byTranslation := make(map[string]AnimeGODubItem)
+	seenOther := make(map[string]struct{})
 	for _, btn := range reProviderBtn.FindAllString(playerHTML, -1) {
 		slugMatch := reAttrProviderSlug.FindStringSubmatch(btn)
 		if len(slugMatch) < 2 {
 			continue
 		}
 		slug := strings.ToLower(strings.TrimSpace(slugMatch[1]))
-		// Strictly exclude Kodik and any non-direct iframe providers.
-		if slug != "aniboom" {
+		if slug != "aniboom" && slug != "kodik" {
 			continue
 		}
 		playerMatch := reAttrPlayer.FindStringSubmatch(btn)
@@ -329,23 +329,46 @@ func parseAnimeGOPlayerHTML(animeID int, playerHTML string, episodesHTML string)
 			trID = strings.TrimSpace(m[1])
 		}
 		trTitle := "AniBoom"
+		if slug == "kodik" {
+			trTitle = "Kodik"
+		}
 		if m := reAttrTranslationT.FindStringSubmatch(btn); len(m) > 1 {
 			if cleaned := cleanHTMLText(m[1]); cleaned != "" {
 				trTitle = cleaned
 			}
 		}
-		dedupeKey := slug + ":" + trID + ":" + embedURL
-		if _, exists := seenDub[dedupeKey]; exists {
-			continue
-		}
-		seenDub[dedupeKey] = struct{}{}
-		dubs = append(dubs, AnimeGODubItem{
+		item := AnimeGODubItem{
 			TranslationID: trID,
 			Title:         trTitle,
 			ProviderSlug:  slug,
 			EmbedURL:      embedURL,
-		})
+		}
+		if trID != "" {
+			if existing, exists := byTranslation[trID]; exists {
+				// Prefer 1080p AniBoom over 720p Kodik for the same translation ID.
+				if existing.ProviderSlug == "aniboom" || slug != "aniboom" {
+					continue
+				}
+			}
+			byTranslation[trID] = item
+		} else {
+			dedupeKey := slug + ":" + embedURL
+			if _, exists := seenOther[dedupeKey]; exists {
+				continue
+			}
+			seenOther[dedupeKey] = struct{}{}
+			dubs = append(dubs, item)
+		}
 	}
+	for _, item := range byTranslation {
+		dubs = append(dubs, item)
+	}
+	sort.SliceStable(dubs, func(i, j int) bool {
+		if dubs[i].ProviderSlug != dubs[j].ProviderSlug {
+			return dubs[i].ProviderSlug == "aniboom"
+		}
+		return dubs[i].Title < dubs[j].Title
+	})
 
 	return &AnimeGOPlayerResult{
 		AnimeID:  animeID,

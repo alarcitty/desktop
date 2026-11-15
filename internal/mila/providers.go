@@ -17,6 +17,7 @@ const (
 	dreamCastBaseURL      = "https://dreamerscast.com"
 	dreamCastMediaBaseURL = "https://play.dreamerscast.com"
 	aniLibriaAPIBaseURL   = "https://anilibria.top/api/v1"
+	yaniAPIBaseURL        = "https://api.yani.tv"
 	maxProxyBodyBytes     = 1 << 20
 	maxPlaylistBytes      = 4 << 20
 )
@@ -26,7 +27,12 @@ var (
 		Timeout: 10 * time.Second,
 	}
 	mediaProxyHTTPClient = &http.Client{
-		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ResponseHeaderTimeout: 20 * time.Second,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+		},
 	}
 )
 
@@ -42,6 +48,7 @@ func defaultProviderRoutes() []providerRoute {
 		{prefix: "/ext/dreamerscast", upstream: dreamCastBaseURL},
 		{prefix: "/ext/play-dc", upstream: dreamCastMediaBaseURL, rewriteM3U8: true},
 		{prefix: "/ext/anilibria", upstream: aniLibriaAPIBaseURL},
+		{prefix: "/ext/yani", upstream: yaniAPIBaseURL},
 	}
 }
 
@@ -105,6 +112,12 @@ func newProviderProxyHandler(routes []providerRoute) http.Handler {
 			return
 		case "/ext/aniboom/resolve":
 			serveAniboomResolveJSON(w, r)
+			return
+		case "/ext/kodik/master.m3u8":
+			serveKodikMasterPlaylist(w, r)
+			return
+		case "/ext/kodik/resolve":
+			serveKodikResolveJSON(w, r)
 			return
 		case "/ext/animego/search":
 			serveAnimeGOSearch(w, r)
@@ -209,6 +222,67 @@ func serveAniboomMasterPlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fetchAndServePlaylist(w, r, masterURL, aniboomRefererURL)
+}
+
+func resolveKodikFromHTTPRequest(r *http.Request) (*KodikResolved, string, error) {
+	q := r.URL.Query()
+	embed := strings.TrimSpace(q.Get("embed"))
+	ref := strings.TrimSpace(q.Get("ref"))
+	animegoID, _ := strconv.Atoi(strings.TrimSpace(q.Get("animego_id")))
+	epID, _ := strconv.Atoi(strings.TrimSpace(q.Get("ep_id")))
+	trID := strings.TrimSpace(q.Get("tr"))
+
+	if epID > 0 && trID != "" {
+		return resolveAnimeGOKodikMaster(r.Context(), animegoID, epID, trID, embed)
+	}
+	resolved, err := resolveKodikEpisode(r.Context(), embed, ref)
+	if err != nil {
+		return nil, "", err
+	}
+	streamRef := "https://kodikplayer.com/"
+	if parsed, parseErr := url.Parse(normalizeEmbedURL(embed)); parseErr == nil && parsed.Host != "" {
+		streamRef = "https://" + parsed.Host + "/"
+	}
+	return resolved, streamRef, nil
+}
+
+func serveKodikResolveJSON(w http.ResponseWriter, r *http.Request) {
+	setProxyCORSHeaders(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	resolved, _, err := resolveKodikFromHTTPRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(resolved)
+}
+
+func serveKodikMasterPlaylist(w http.ResponseWriter, r *http.Request) {
+	setProxyCORSHeaders(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	resolved, streamRef, err := resolveKodikFromHTTPRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	playlist := buildKodikMasterPlaylist(resolved.Sources, streamRef)
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(playlist)))
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = io.WriteString(w, playlist)
+	}
 }
 
 func serveStreamProxy(w http.ResponseWriter, r *http.Request, allowPrivate bool) {

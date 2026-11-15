@@ -12,6 +12,12 @@ import {
 } from './providers/animevost';
 import { fetchDreamCastEpisodes, findDreamCastMatch, searchDreamCast } from './providers/dreamcast';
 import {
+  fetchKodikEpisodes,
+  findKodikMatch,
+  normalizeCanonicalStudioKey,
+  type KodikDubOption
+} from './providers/kodik';
+import {
   dedupeSearchQueries,
   fetchJsonWithTimeout,
   normalizeTitleText,
@@ -49,6 +55,17 @@ async function fetchLibJson<T>(
   throw lastError instanceof Error ? lastError : new Error(`AniLibria API request failed: ${cleanPath}`);
 }
 
+export interface ShikiVideoItem {
+  id: string;
+  url: string;
+  imageUrl: string;
+  playerUrl: string;
+  embedUrl: string;
+  name: string;
+  kind: string;
+  kindLabel: string;
+}
+
 export interface ShikiArtwork {
   id: number;
   name: string;
@@ -64,6 +81,7 @@ export interface ShikiArtwork {
   posterOriginal: string;
   posterMain: string;
   screenshots: string[];
+  videos?: ShikiVideoItem[];
 }
 
 export interface PlayableEpisode {
@@ -90,7 +108,7 @@ export interface PlayableRelease {
   titleEnglish?: string;
   year?: number;
   typeLabel?: string;
-  provider?: 'aniliberty' | 'dreamcast' | 'animevost' | 'animego' | string;
+  provider?: 'aniliberty' | 'dreamcast' | 'animevost' | 'animego' | 'kodik' | string;
   voiceLabel?: string;
   voiceActors?: string[];
   poster?: string;
@@ -326,6 +344,84 @@ interface ShikiGqlNode {
     mainUrl?: string;
   };
   screenshots?: Array<{ originalUrl?: string }>;
+  videos?: Array<{
+    id?: string | null;
+    url?: string | null;
+    imageUrl?: string | null;
+    playerUrl?: string | null;
+    name?: string | null;
+    kind?: string | null;
+  }> | null;
+}
+
+function extractYoutubeId(rawUrl?: string | null): string {
+  if (!rawUrl) return '';
+  const m = rawUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|shorts\/|watch\?(?:.*&)?v=))([A-Za-z0-9_-]{11})/i);
+  return m?.[1] ?? '';
+}
+
+function formatVideoKindLabel(kind?: string | null): string {
+  switch ((kind ?? '').toLowerCase()) {
+    case 'pv':
+    case 'promo':
+      return 'Trailer';
+    case 'op':
+      return 'Opening';
+    case 'ed':
+      return 'Ending';
+    case 'cm':
+      return 'Teaser';
+    case 'character_trailer':
+      return 'Character PV';
+    case 'episode_preview':
+      return 'Preview';
+    case 'op_ed_compilation':
+      return 'OP / ED';
+    default:
+      return 'Video';
+  }
+}
+
+function mapShikiVideos(
+  rawVideos?: ShikiGqlNode['videos']
+): ShikiVideoItem[] {
+  const seen = new Set<string>();
+  const items: Array<ShikiVideoItem & { rank: number }> = [];
+  for (const v of rawVideos ?? []) {
+    const rawUrl = resolveShikiUrl(v.url);
+    const rawPlayer = resolveShikiUrl(v.playerUrl);
+    const ytId = extractYoutubeId(rawPlayer) || extractYoutubeId(rawUrl);
+    const embedUrl = ytId
+      ? `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0`
+      : rawPlayer || rawUrl;
+    if (!embedUrl) continue;
+    const dedupeKey = ytId || embedUrl;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const rawImg = resolveShikiUrl(v.imageUrl);
+    const imageUrl = rawImg || (ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : '');
+    const kind = (v.kind ?? '').toLowerCase();
+    let rank = 4;
+    if (kind === 'pv' || kind === 'promo') rank = 0;
+    else if (kind === 'character_trailer' || kind === 'cm') rank = 1;
+    else if (kind === 'op' || kind === 'ed' || kind === 'op_ed_compilation') rank = 2;
+    else if (kind === 'episode_preview') rank = 5;
+
+    items.push({
+      id: String(v.id ?? dedupeKey),
+      url: rawUrl || embedUrl,
+      imageUrl,
+      playerUrl: rawPlayer || embedUrl,
+      embedUrl,
+      name: (v.name ?? '').trim() || formatVideoKindLabel(kind),
+      kind,
+      kindLabel: formatVideoKindLabel(kind),
+      rank
+    });
+  }
+  items.sort((a, b) => a.rank - b.rank);
+  return items.map(({ rank: _rank, ...rest }) => rest);
 }
 
 function mapShikiNode(item: ShikiGqlNode): ShikiArtwork | null {
@@ -349,7 +445,8 @@ function mapShikiNode(item: ShikiGqlNode): ShikiArtwork | null {
     posterMain: resolveShikiUrl(item.poster?.main2xUrl || item.poster?.mainUrl || item.poster?.originalUrl),
     screenshots: (item.screenshots ?? [])
       .map((s) => resolveShikiUrl(s.originalUrl))
-      .filter(Boolean)
+      .filter(Boolean),
+    videos: mapShikiVideos(item.videos)
   };
 }
 
@@ -383,6 +480,7 @@ export async function ensureShikimoriArtwork(ids: readonly number[]): Promise<Ma
             genres { name }
             poster { originalUrl main2xUrl mainUrl }
             screenshots { originalUrl }
+            videos { id url imageUrl playerUrl name kind }
           }
         }`;
         const unique = Array.from(new Set(missing));
@@ -869,6 +967,35 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
       banner: shikiArt?.screenshots?.[0] || avMatch.poster,
       episodes: avMatch.episodes
     };
+  }
+
+  const kodikMatch = await findKodikMatch(providerTitles, shikiArt?.year ?? null, target.shikiId).catch(
+    () => null
+  );
+  if (kodikMatch && kodikMatch.dubs.length > 0) {
+    const preferredOrder = ['anidub', 'студийная банда', 'anilibria', 'dream cast', 'shiza'];
+    const pickBestKodik = (): KodikDubOption => {
+      for (const kw of preferredOrder) {
+        const found = kodikMatch.dubs.find((d) => !d.voice.isSub && d.voice.label.toLowerCase().includes(kw));
+        if (found) return found;
+      }
+      return kodikMatch.dubs.find((d) => !d.voice.isSub) ?? kodikMatch.dubs[0];
+    };
+    const chosen = pickBestKodik();
+    if (chosen.episodes.length > 0) {
+      return {
+        id: kodikMatch.animeId,
+        alias: chosen.voice.id,
+        title: shikiArt?.english || shikiArt?.name || kodikMatch.title || target.title,
+        titleEnglish: shikiArt?.english || shikiArt?.name,
+        year: shikiArt?.year ?? kodikMatch.year,
+        provider: 'kodik',
+        voiceLabel: chosen.voice.label,
+        poster: shikiArt?.posterOriginal || shikiArt?.posterMain || kodikMatch.poster,
+        banner: shikiArt?.screenshots?.[0] || kodikMatch.poster,
+        episodes: chosen.episodes
+      };
+    }
   }
 
   throw new Error(`«${target.title}» сейчас недоступно для воспроизведения ни на одном из источников`);
@@ -2117,10 +2244,19 @@ export async function resolveVoiceTrackRelease(
   if (voice.provider === 'animego') {
     const animeId = Number(voice.providerId);
     const rawSource = typeof voice.sourceId === 'string' ? voice.sourceId : '';
-    const sepIdx = rawSource.indexOf('|');
-    const trId = sepIdx >= 0 ? rawSource.slice(0, sepIdx) : rawSource;
-    const embedUrl = sepIdx >= 0 ? rawSource.slice(sepIdx + 1) : '';
-    const episodes = await fetchAnimeGOEpisodes(animeId, trId, embedUrl);
+    const parts = rawSource.split('|');
+    let providerSlug = '';
+    let trId = rawSource;
+    let embedUrl = '';
+    if (parts.length >= 3 && (parts[0] === 'aniboom' || parts[0] === 'kodik')) {
+      providerSlug = parts[0];
+      trId = parts[1];
+      embedUrl = parts.slice(2).join('|');
+    } else if (parts.length >= 2) {
+      trId = parts[0];
+      embedUrl = parts.slice(1).join('|');
+    }
+    const episodes = await fetchAnimeGOEpisodes(animeId, trId, embedUrl, providerSlug);
     if (episodes.length === 0) {
       throw new Error(`AnimeGO: нет доступных серий для ${target.title}`);
     }
@@ -2136,6 +2272,31 @@ export async function resolveVoiceTrackRelease(
       id: animeId,
       alias: voice.id,
       provider: 'animego',
+      voiceLabel: voice.label,
+      voiceActors: undefined,
+      episodes: mergeBaseEpisodeMetadata(episodes, baseRelease?.episodes)
+    };
+  }
+
+  if (voice.provider === 'kodik') {
+    const yaniId = Number(voice.providerId);
+    const studioKey = typeof voice.sourceId === 'string' ? voice.sourceId : '';
+    const episodes = await fetchKodikEpisodes(yaniId, studioKey);
+    if (episodes.length === 0) {
+      throw new Error(`Kodik: нет доступных серий для ${target.title}`);
+    }
+    return {
+      ...(baseRelease ?? {
+        id: yaniId,
+        title: shikiArt?.english || shikiArt?.name || target.title,
+        titleEnglish: shikiArt?.english || shikiArt?.name,
+        year: shikiArt?.year,
+        poster: shikiArt?.posterOriginal || shikiArt?.posterMain,
+        banner: shikiArt?.screenshots?.[0]
+      }),
+      id: yaniId,
+      alias: voice.id,
+      provider: 'kodik',
       voiceLabel: voice.label,
       voiceActors: undefined,
       episodes: mergeBaseEpisodeMetadata(episodes, baseRelease?.episodes)
@@ -2223,12 +2384,14 @@ export async function findVoiceOptions(
       : Promise.resolve(null);
 
   const agoPromise = findAnimeGOMatch(searchTitles, shikiArt?.year ?? primary.year ?? null);
+  const kodikPromise = findKodikMatch(searchTitles, shikiArt?.year ?? primary.year ?? null, shikiId);
 
-  const [libSettled, dcSettled, avSettled, agoSettled] = await Promise.allSettled([
+  const [libSettled, dcSettled, avSettled, agoSettled, kodikSettled] = await Promise.allSettled([
     libPromise,
     dcPromise,
     avPromise,
-    agoPromise
+    agoPromise,
+    kodikPromise
   ]);
 
   if (libSettled.status === 'fulfilled' && libSettled.value) {
@@ -2281,16 +2444,30 @@ export async function findVoiceOptions(
     options.push(avSettled.value.voice);
   }
 
+  const seenStudioKeys = new Set<string>(
+    options.map((opt) => normalizeCanonicalStudioKey(opt.label, opt.isSub)).filter(Boolean)
+  );
+
   if (agoSettled.status === 'fulfilled' && agoSettled.value) {
     for (const dub of agoSettled.value.dubs) {
       if (seenIds.has(dub.voice.id)) continue;
       // Skip duplicate voice entries when the exact studio is already present natively (e.g., direct AniLibria or Dream Cast),
       // while always keeping Original (Sub) cleanly available for 1080p Dual-Stream pairing.
-      const dupLabel =
-        !dub.voice.isSub &&
-        options.some((opt) => opt.label.toLowerCase() === dub.voice.label.toLowerCase());
-      if (dupLabel) continue;
+      const studioKey = normalizeCanonicalStudioKey(dub.voice.label, dub.voice.isSub);
+      if (!dub.voice.isSub && studioKey && seenStudioKeys.has(studioKey)) continue;
       seenIds.add(dub.voice.id);
+      if (studioKey) seenStudioKeys.add(studioKey);
+      options.push(dub.voice);
+    }
+  }
+
+  if (kodikSettled.status === 'fulfilled' && kodikSettled.value) {
+    for (const dub of kodikSettled.value.dubs) {
+      if (seenIds.has(dub.voice.id)) continue;
+      const studioKey = dub.studioKey || normalizeCanonicalStudioKey(dub.voice.label, dub.voice.isSub);
+      if (studioKey && seenStudioKeys.has(studioKey)) continue;
+      seenIds.add(dub.voice.id);
+      if (studioKey) seenStudioKeys.add(studioKey);
       options.push(dub.voice);
     }
   }
@@ -2515,5 +2692,487 @@ export async function resolveHeroOpeningPreview(
   })();
 
   heroOpeningPending.set(key, req);
+  return req;
+}
+
+// ---------- AnimePage extras: Videos / Trailers, Franchise / Related, Characters & Cast, Similar ----------
+
+export interface ShikiRelatedAnime {
+  id: number;
+  relationKind: string;
+  relationLabel: string;
+  title: string;
+  subTitle?: string;
+  kind: string;
+  year?: number;
+  airedDate?: string;
+  score?: number;
+  episodes?: number;
+  poster: string;
+  isCurrent?: boolean;
+}
+
+export interface ShikiCharacterCast {
+  id: number;
+  name: string;
+  russian: string;
+  role: string;
+  isMain: boolean;
+  gender?: 'Female' | 'Male' | '';
+  poster: string;
+  voiceActor?: {
+    id: number;
+    name: string;
+    poster?: string;
+  };
+}
+
+export interface ShikiSimilarAnime {
+  id: number;
+  title: string;
+  subTitle?: string;
+  year?: number;
+  score?: number;
+  episodes?: number;
+  kind: string;
+  poster: string;
+}
+
+export interface AnimePageExtras {
+  shikiId: number;
+  videos: ShikiVideoItem[];
+  related: ShikiRelatedAnime[];
+  characters: ShikiCharacterCast[];
+  similar: ShikiSimilarAnime[];
+}
+
+const ANILIST_GRAPHQL = 'https://graphql.anilist.co';
+const ANIME_EXTRAS_CACHE_KEY = 'mila.cache.animeExtras.v2';
+const ANIME_EXTRAS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const ANIME_EXTRAS_MAX_ITEMS = 60;
+
+const animeExtrasCache = new Map<number, AnimePageExtras>();
+const animeExtrasPending = new Map<number, Promise<AnimePageExtras>>();
+
+function hydrateAnimeExtrasCache(): void {
+  const cached = readPersistedCache<AnimePageExtras[]>(ANIME_EXTRAS_CACHE_KEY, ANIME_EXTRAS_CACHE_TTL_MS);
+  if (!cached || !Array.isArray(cached.data)) return;
+  for (const item of cached.data) {
+    if (item && typeof item.shikiId === 'number' && item.shikiId > 0) {
+      animeExtrasCache.set(item.shikiId, item);
+    }
+  }
+}
+hydrateAnimeExtrasCache();
+
+function persistAnimeExtras(extras: AnimePageExtras): void {
+  if (animeExtrasCache.has(extras.shikiId)) {
+    animeExtrasCache.delete(extras.shikiId);
+  }
+  animeExtrasCache.set(extras.shikiId, extras);
+  writePersistedCache(ANIME_EXTRAS_CACHE_KEY, Array.from(animeExtrasCache.values()).slice(-ANIME_EXTRAS_MAX_ITEMS));
+}
+
+function formatRelationKindLabel(kind?: string | null): string {
+  switch ((kind ?? '').toLowerCase()) {
+    case 'prequel':
+      return 'Prequel';
+    case 'sequel':
+      return 'Sequel';
+    case 'side_story':
+      return 'Side story';
+    case 'parent_story':
+      return 'Parent story';
+    case 'summary':
+      return 'Summary';
+    case 'full_story':
+      return 'Full story';
+    case 'alternative_setting':
+      return 'Alt. setting';
+    case 'alternative_version':
+      return 'Alt. version';
+    case 'spin_off':
+      return 'Spin-off';
+    default:
+      return 'Related';
+  }
+}
+
+function relationOrderWeight(kind?: string | null): number {
+  switch ((kind ?? '').toLowerCase()) {
+    case 'prequel':
+      return 1;
+    case 'parent_story':
+      return 2;
+    case 'current':
+      return 3;
+    case 'sequel':
+      return 4;
+    case 'side_story':
+      return 5;
+    case 'spin_off':
+      return 6;
+    case 'summary':
+      return 7;
+    case 'alternative_setting':
+    case 'alternative_version':
+      return 8;
+    default:
+      return 9;
+  }
+}
+
+function normalizeCastNameKey(raw?: string | null): string {
+  return (raw ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+interface RawShikiSimilarItem {
+  id: number;
+  name: string;
+  russian?: string | null;
+  image?: { original?: string | null; preview?: string | null } | null;
+  score?: number | string | null;
+  aired_on?: string | null;
+  episodes?: number | null;
+  kind?: string | null;
+}
+
+interface RawExtrasGqlAnime {
+  id?: string;
+  name?: string;
+  russian?: string | null;
+  english?: string | null;
+  kind?: string | null;
+  score?: number | null;
+  episodes?: number | null;
+  airedOn?: { year?: number | null; date?: string | null } | null;
+  poster?: { main2xUrl?: string | null; mainUrl?: string | null; originalUrl?: string | null } | null;
+  videos?: ShikiGqlNode['videos'];
+  related?: Array<{
+    id?: string;
+    relationKind?: string | null;
+    relationText?: string | null;
+    anime?: {
+      id?: string;
+      name?: string;
+      russian?: string | null;
+      english?: string | null;
+      kind?: string | null;
+      score?: number | null;
+      episodes?: number | null;
+      airedOn?: { year?: number | null; date?: string | null } | null;
+      poster?: { main2xUrl?: string | null; mainUrl?: string | null; originalUrl?: string | null } | null;
+    } | null;
+  }> | null;
+  characterRoles?: Array<{
+    id?: string;
+    rolesEn?: string[] | null;
+    rolesRu?: string[] | null;
+    character?: {
+      id?: string;
+      name?: string;
+      russian?: string | null;
+      poster?: { mainUrl?: string | null; originalUrl?: string | null } | null;
+    } | null;
+  }> | null;
+}
+
+interface RawAniListVoiceResponse {
+  data?: {
+    Media?: {
+      characters?: {
+        edges?: Array<{
+          node?: {
+            name?: { full?: string | null } | null;
+            gender?: string | null;
+          } | null;
+          voiceActors?: Array<{
+            id?: number;
+            name?: { full?: string | null } | null;
+            image?: { medium?: string | null; large?: string | null } | null;
+          }> | null;
+        }> | null;
+      } | null;
+    } | null;
+  } | null;
+}
+
+interface AniListCharacterEnrichment {
+  gender: 'Female' | 'Male' | '';
+  voiceActor?: { id: number; name: string; poster?: string };
+}
+
+async function fetchAniListSeiyuuMap(malId: number): Promise<Map<string, AniListCharacterEnrichment>> {
+  const map = new Map<string, AniListCharacterEnrichment>();
+  if (malId <= 0) return map;
+  const query = `query($id: Int) {
+    Media(idMal: $id, type: ANIME) {
+      characters(sort: [ROLE, FAVOURITES_DESC], perPage: 45) {
+        edges {
+          node { name { full } gender }
+          voiceActors(language: JAPANESE, sort: RELEVANCE) {
+            id
+            name { full }
+            image { medium large }
+          }
+        }
+      }
+    }
+  }`;
+  try {
+    const res = await fetchJsonWithTimeout<RawAniListVoiceResponse>(
+      ANILIST_GRAPHQL,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables: { id: malId } })
+      },
+      4500
+    );
+    for (const edge of res.data?.Media?.characters?.edges ?? []) {
+      const charName = normalizeCastNameKey(edge.node?.name?.full);
+      if (!charName) continue;
+      const rawGender = (edge.node?.gender ?? '').trim().toLowerCase();
+      const gender: 'Female' | 'Male' | '' =
+        rawGender === 'female' ? 'Female' : rawGender === 'male' ? 'Male' : '';
+      const va = edge.voiceActors?.[0];
+      const vaName = va?.name?.full?.trim();
+      const voiceActor = vaName
+        ? {
+            id: va?.id ?? 0,
+            name: vaName,
+            poster: va?.image?.medium || va?.image?.large || undefined
+          }
+        : undefined;
+      map.set(charName, { gender, voiceActor });
+    }
+  } catch {
+    // Non-critical enrichment: UI renders characters cleanly even if voice actor API is unavailable.
+  }
+  return map;
+}
+
+export function getCachedAnimePageExtras(shikiId: number): AnimePageExtras | undefined {
+  return animeExtrasCache.get(shikiId);
+}
+
+export async function loadAnimePageExtras(shikiId: number): Promise<AnimePageExtras> {
+  if (!Number.isFinite(shikiId) || shikiId <= 0) {
+    return { shikiId: 0, videos: [], related: [], characters: [], similar: [] };
+  }
+
+  const cached = animeExtrasCache.get(shikiId);
+  if (cached) {
+    return cached;
+  }
+
+  const existing = animeExtrasPending.get(shikiId);
+  if (existing) {
+    return existing;
+  }
+
+  const req = (async (): Promise<AnimePageExtras> => {
+    try {
+      const gqlQuery = `query($ids: String) {
+        animes(ids: $ids, limit: 1, censored: false) {
+          id
+          name
+          russian
+          english
+          kind
+          score
+          episodes
+          airedOn { year date }
+          poster { main2xUrl mainUrl originalUrl }
+          videos { id url imageUrl playerUrl name kind }
+          related {
+            id
+            relationKind
+            relationText
+            anime {
+              id
+              name
+              russian
+              english
+              kind
+              score
+              episodes
+              airedOn { year date }
+              poster { main2xUrl mainUrl originalUrl }
+            }
+          }
+          characterRoles {
+            id
+            rolesEn
+            rolesRu
+            character {
+              id
+              name
+              russian
+              poster { mainUrl originalUrl }
+            }
+          }
+        }
+      }`;
+
+      const [gqlRes, similarRes, seiyuuMap] = await Promise.all([
+        fetchJsonWithTimeout<{ data?: { animes?: RawExtrasGqlAnime[] } }>(
+          SHIKI_GRAPHQL,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: gqlQuery, variables: { ids: String(shikiId) } })
+          },
+          7500
+        ).catch(() => null),
+        fetchJsonWithTimeout<RawShikiSimilarItem[]>(
+          `${SHIKI_REST_ANIMES}/${shikiId}/similar`,
+          undefined,
+          6500
+        ).catch(() => [] as RawShikiSimilarItem[]),
+        fetchAniListSeiyuuMap(shikiId)
+      ]);
+
+      const node = gqlRes?.data?.animes?.[0];
+      const videos = mapShikiVideos(node?.videos);
+
+      // Update artwork videos cache if present
+      const existingArt = shikiCache.get(shikiId);
+      if (existingArt && !existingArt.videos?.length && videos.length > 0) {
+        setShikiCached({ ...existingArt, videos });
+      }
+
+      // Related / Franchise timeline in chronological watch order
+      const relSeen = new Set<number>([shikiId]);
+      const relatedItems: ShikiRelatedAnime[] = [];
+      for (const rel of node?.related ?? []) {
+        const target = rel.anime;
+        if (!target) continue;
+        const id = Number(target.id);
+        if (!Number.isFinite(id) || id <= 0 || relSeen.has(id)) continue;
+        relSeen.add(id);
+        const poster = resolveShikiUrl(
+          target.poster?.main2xUrl || target.poster?.mainUrl || target.poster?.originalUrl
+        );
+        relatedItems.push({
+          id,
+          relationKind: (rel.relationKind ?? 'other').toLowerCase(),
+          relationLabel: formatRelationKindLabel(rel.relationKind),
+          title: target.english || target.name || target.russian || 'Anime',
+          subTitle: target.name && target.english && target.name !== target.english ? target.name : undefined,
+          kind: (target.kind ?? 'tv').toUpperCase(),
+          year: target.airedOn?.year ?? undefined,
+          airedDate: target.airedOn?.date ?? (target.airedOn?.year ? `${target.airedOn.year}-99-99` : undefined),
+          score: target.score && target.score > 0 ? Number(target.score.toFixed(1)) : undefined,
+          episodes: target.episodes && target.episodes > 0 ? target.episodes : undefined,
+          poster
+        });
+      }
+
+      if (relatedItems.length > 0 && node) {
+        relatedItems.push({
+          id: shikiId,
+          relationKind: 'current',
+          relationLabel: 'Current',
+          title: node.english || node.name || node.russian || 'Anime',
+          subTitle: node.name && node.english && node.name !== node.english ? node.name : undefined,
+          kind: (node.kind ?? 'tv').toUpperCase(),
+          year: node.airedOn?.year ?? undefined,
+          airedDate: node.airedOn?.date ?? (node.airedOn?.year ? `${node.airedOn.year}-99-99` : undefined),
+          score: node.score && node.score > 0 ? Number(node.score.toFixed(1)) : undefined,
+          episodes: node.episodes && node.episodes > 0 ? node.episodes : undefined,
+          poster: resolveShikiUrl(node.poster?.main2xUrl || node.poster?.mainUrl || node.poster?.originalUrl),
+          isCurrent: true
+        });
+
+        relatedItems.sort((a, b) => {
+          const da = a.airedDate ?? '9999-99-99';
+          const db = b.airedDate ?? '9999-99-99';
+          if (da !== db) return da.localeCompare(db);
+          return relationOrderWeight(a.relationKind) - relationOrderWeight(b.relationKind);
+        });
+      }
+
+      // Characters & Cast (filter placeholder missing posters gracefully in UI, Main first)
+      const charSeen = new Set<number>();
+      const characters: ShikiCharacterCast[] = [];
+      for (const roleItem of node?.characterRoles ?? []) {
+        const ch = roleItem.character;
+        if (!ch) continue;
+        const cid = Number(ch.id);
+        if (!Number.isFinite(cid) || cid <= 0 || charSeen.has(cid)) continue;
+        charSeen.add(cid);
+        const roleEn = roleItem.rolesEn?.[0] ?? roleItem.rolesRu?.[0] ?? 'Supporting';
+        const isMain = roleEn.toLowerCase() === 'main';
+        const rawPoster = resolveShikiUrl(ch.poster?.mainUrl || ch.poster?.originalUrl);
+        const cleanPoster = rawPoster.includes('/missing_') ? '' : rawPoster;
+
+        const key = normalizeCastNameKey(ch.name);
+        let enrich = seiyuuMap.get(key);
+        if (!enrich && key.includes(' ')) {
+          const reversed = key.split(' ').reverse().join(' ');
+          enrich = seiyuuMap.get(reversed);
+        }
+
+        characters.push({
+          id: cid,
+          name: ch.name?.trim() || ch.russian?.trim() || 'Character',
+          russian: ch.russian?.trim() || '',
+          role: isMain ? 'Main' : 'Supporting',
+          isMain,
+          gender: enrich?.gender ?? '',
+          poster: cleanPoster,
+          voiceActor: enrich?.voiceActor
+        });
+      }
+      characters.sort((a, b) => {
+        if (a.isMain !== b.isMain) return a.isMain ? -1 : 1;
+        return 0;
+      });
+
+      // Similar / More Like This (deduplicate & exclude current + any franchise entries)
+      const excludedIds = new Set<number>([shikiId, ...relatedItems.map((r) => r.id)]);
+      const similar: ShikiSimilarAnime[] = [];
+      for (const item of Array.isArray(similarRes) ? similarRes : []) {
+        if (!item || !item.id || excludedIds.has(item.id)) continue;
+        excludedIds.add(item.id);
+        const poster = resolveShikiUrl(item.image?.original || item.image?.preview);
+        if (!poster || poster.includes('/missing_')) continue;
+        const numScore = typeof item.score === 'string' ? Number(item.score) : (item.score ?? 0);
+        const yearMatch = item.aired_on?.match(/^(\d{4})/);
+        similar.push({
+          id: item.id,
+          title: item.name,
+          subTitle: item.russian?.trim() || undefined,
+          year: yearMatch ? Number(yearMatch[1]) : undefined,
+          score: Number.isFinite(numScore) && numScore > 0 ? Number(numScore.toFixed(1)) : undefined,
+          episodes: item.episodes && item.episodes > 0 ? item.episodes : undefined,
+          kind: (item.kind ?? 'tv').toUpperCase(),
+          poster
+        });
+        if (similar.length >= 12) break;
+      }
+
+      const result: AnimePageExtras = {
+        shikiId,
+        videos,
+        related: relatedItems,
+        characters,
+        similar
+      };
+
+      if (videos.length > 0 || relatedItems.length > 0 || characters.length > 0 || similar.length > 0) {
+        persistAnimeExtras(result);
+      }
+      return result;
+    } finally {
+      animeExtrasPending.delete(shikiId);
+    }
+  })();
+
+  animeExtrasPending.set(shikiId, req);
   return req;
 }

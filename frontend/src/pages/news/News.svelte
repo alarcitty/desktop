@@ -12,6 +12,7 @@
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../marlakit/button/SecondButton.svelte';
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
+  import { portal } from '../../marlakit/portal';
   import { getCachedNewsFeed, loadNewsFeed, type NewsItem } from '../../api/news';
   import { openWatch } from '../../app/player.svelte';
 
@@ -138,6 +139,7 @@
 
   $effect(() =>
   {
+    viewportWidth;
     measureTabs();
     const fonts = document.fonts;
     const onFonts = () => measureTabs();
@@ -463,6 +465,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
+    use:portal
     class="reader-backdrop"
     transition:fade={{ duration: 200, easing: cubicOut }}
     onclick={closeStory}
@@ -555,7 +558,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    contain: layout style;
+    contain: style;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -563,8 +566,8 @@
   .news-hero-wrap {
     position: relative;
     width: 100%;
-    min-height: 540px;
-    padding: 72px 0 42px 0;
+    min-height: clamp(410px, 58vh, 540px);
+    padding: 68px 0 clamp(28px, 4vw, 42px) 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -603,18 +606,17 @@
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
-    height: 48px;
-    min-height: 48px;
-    max-height: 48px;
+    gap: 16px;
+    height: clamp(32px, 3.4vw, 48px);
     flex-shrink: 0;
     padding: 0 var(--page-pad-x);
     box-sizing: content-box;
-    margin: 30px 0 auto 0;
+    margin: clamp(18px, 2.5vw, 30px) 0 auto 0;
   }
 
   .news-tabs {
     position: relative;
-    height: 48px;
+    height: clamp(32px, 3.4vw, 48px);
     flex: 1 1 auto;
     min-width: 0;
     opacity: 0;
@@ -629,7 +631,7 @@
     left: 0;
     bottom: 0;
     font-family: 'PP Monument Extended', sans-serif;
-    font-size: 48px;
+    font-size: clamp(28px, 3.2vw, 48px);
     line-height: 1;
     white-space: nowrap;
     visibility: hidden;
@@ -654,7 +656,7 @@
     border: none;
     cursor: pointer;
     font-family: 'PP Monument Extended', sans-serif;
-    font-size: 48px;
+    font-size: clamp(28px, 3.2vw, 48px);
     line-height: 1;
     white-space: nowrap;
     text-rendering: geometricPrecision;
@@ -753,7 +755,7 @@
     grid-area: 1 / 1;
     position: relative;
     z-index: 2;
-    padding: 48px var(--page-pad-x) 0 var(--page-pad-x);
+    padding: clamp(28px, 4vw, 48px) var(--page-pad-x) 0 var(--page-pad-x);
     max-width: 920px;
     display: flex;
     flex-direction: column;
@@ -762,7 +764,7 @@
   .hero-title {
     margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(32px, 3.8vw, 54px);
+    font-size: clamp(28px, 3.8vw, 54px);
     font-weight: 700;
     line-height: 1.06;
     letter-spacing: -0.02em;
@@ -782,7 +784,7 @@
     margin: 12px 0 0 0;
     max-width: 780px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 18px;
+    font-size: clamp(14.5px, 1.45vw, 18px);
     line-height: 1.4;
     color: rgba(255, 255, 255, 0.65);
     display: -webkit-box;
@@ -950,7 +952,7 @@
   .story-title {
     margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 18px;
+    font-size: clamp(16px, 1.45vw, 18px);
     font-weight: 700;
     line-height: 1.24;
     color: #f3f3f3;
@@ -1051,13 +1053,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 28px;
+    padding: clamp(16px, 2.5vw, 28px);
   }
 
   .reader-modal {
     position: relative;
     width: min(820px, 100%);
-    max-height: calc(100vh - 56px);
+    max-height: calc(100vh - 36px);
     overflow-y: auto;
     border-radius: 18px;
     background: rgba(14, 14, 17, 0.94);
@@ -1068,7 +1070,7 @@
   .reader-hero {
     position: relative;
     width: 100%;
-    height: 270px;
+    height: clamp(180px, 28vh, 270px);
     overflow: hidden;
     background: #101014;
   }
@@ -1120,7 +1122,7 @@
   .reader-content {
     position: relative;
     z-index: 3;
-    padding: 24px 30px 30px 30px;
+    padding: clamp(18px, 2.5vw, 24px) clamp(20px, 3vw, 30px) clamp(22px, 3vw, 30px);
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -1129,7 +1131,7 @@
   .reader-title {
     margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 26px;
+    font-size: clamp(20px, 2.2vw, 26px);
     font-weight: 700;
     line-height: 1.2;
     color: #ffffff;
@@ -1144,7 +1146,7 @@
   .reader-para {
     margin: 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 16px;
+    font-size: clamp(14.5px, 1.35vw, 16px);
     line-height: 1.55;
     color: #c2c2c8;
   }

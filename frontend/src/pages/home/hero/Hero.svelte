@@ -1450,7 +1450,7 @@
     flex-direction: column;
     box-sizing: border-box;
     margin-top: auto;
-    padding-top: 120px;
+    padding-top: clamp(78px, 11vh, 120px);
     position: relative;
     z-index: 2;
   }
@@ -1493,7 +1493,7 @@
     padding: 0;
     max-width: 760px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 19px;
+    font-size: clamp(15px, 1.45vw, 19px);
     font-weight: 400;
     color: #8f8f94;
     line-height: 1.36;
@@ -1648,11 +1648,21 @@
     .hero-body {
       flex-direction: column;
       align-items: flex-start;
-      gap: 20px;
+      gap: 18px;
     }
 
     .hero-strip-wrap {
       width: 100%;
+    }
+  }
+
+  @media (max-height: 740px) {
+    .hero-content {
+      padding-top: 76px;
+    }
+
+    .hero-bottom-arrow {
+      margin-top: 10px;
     }
   }
 

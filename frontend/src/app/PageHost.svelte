@@ -151,6 +151,10 @@
 
   .page-slot.is-entered {
     opacity: 1;
+    transform: none;
+  }
+
+  .page-slot.is-animating.is-entered {
     transform: translate3d(0, 0, 0);
     transition:
       opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1),

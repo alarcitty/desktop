@@ -12,6 +12,7 @@
 
   let viewportRef = $state<HTMLDivElement | null>(null);
   let contentRef = $state<HTMLDivElement | null>(null);
+  let trackRef = $state<HTMLDivElement | null>(null);
   let thumbRef = $state<HTMLDivElement | null>(null);
   let hasOverflow = $state(false);
   let isVisible = $state(false);
@@ -167,8 +168,9 @@
 
     if (!hasOverflow) hasOverflow = true;
 
-    const nextThumbH = Math.max((clientHeight / scrollHeight) * clientHeight, 36);
-    const availableTrack = clientHeight - nextThumbH;
+    const trackHeight = trackRef?.clientHeight || clientHeight;
+    const nextThumbH = Math.max((clientHeight / scrollHeight) * trackHeight, 36);
+    const availableTrack = Math.max(0, trackHeight - nextThumbH);
     const maxScroll = scrollHeight - clientHeight;
     const nextTop = maxScroll > 0 ? (viewportRef.scrollTop / maxScroll) * availableTrack : 0;
 
@@ -251,7 +253,8 @@
     if (!isDragging || !viewportRef) return;
     const deltaY = e.clientY - startY;
     const { scrollHeight, clientHeight } = viewportRef;
-    const availableTrack = clientHeight - thumbHeight;
+    const trackHeight = trackRef?.clientHeight || clientHeight;
+    const availableTrack = trackHeight - thumbHeight;
     if (availableTrack <= 0) return;
     const maxScroll = scrollHeight - clientHeight;
     viewportRef.scrollTop = startScrollTop + (deltaY / availableTrack) * maxScroll;
@@ -310,6 +313,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
+      bind:this={trackRef}
       class="marlakit-scroll-track"
       class:visible={isVisible || isDragging}
       onclick={handleTrackClick}
@@ -357,9 +361,9 @@
 
   .marlakit-scroll-track {
     position: absolute;
-    top: 4px;
-    right: 4px;
-    bottom: 4px;
+    top: 10px;
+    right: 6px;
+    bottom: 10px;
     width: 8px;
     background: transparent;
     border-radius: 999px;

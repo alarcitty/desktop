@@ -13,6 +13,7 @@
     expandCustomPip,
     fallbackVoice,
     nextEpisode,
+    prevEpisode,
     player,
     registerPlayerPauseControl,
     reportPlaybackProgress,
@@ -50,6 +51,7 @@
       sources: episodeSources(dubEp)
     };
   });
+  const hasPrev = $derived(Boolean(player.release && player.episodeIndex > 0));
   const hasNext = $derived(Boolean(player.release && player.episodeIndex + 1 < episodes.length));
 
   const displayTitle = $derived(
@@ -372,9 +374,12 @@
         preferMaxQuality={true}
         opening={currentEpisode.opening}
         ending={currentEpisode.ending}
+        {hasPrev}
         {hasNext}
         hasFallback={player.voices.some((v) => v.id !== player.selectedVoiceId)}
         isPip={isPipVisible}
+        keyboardEnabled={Boolean((router.current === 'anime' && !player.pipMode) || isPipVisible)}
+        onprev={prevEpisode}
         onnext={nextEpisode}
         ontimeprogress={(sec, dur, force) => reportPlaybackProgress(sec, dur, force)}
         onselectvoice={(voice, sec) => void switchVoice(voice, sec)}
