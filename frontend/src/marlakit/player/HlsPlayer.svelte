@@ -210,12 +210,20 @@
   let activeBlobRevoke: (() => void) | null = null;
   let pendingRestoreSeek: (() => void) | null = null;
 
+  export function play(): void {
+    if (videoEl && videoEl.paused) {
+      void videoEl.play().catch(() => {});
+    }
+  }
+
   export function pause(): void {
+    playing = false;
     videoEl?.pause();
+    dubAudioEl?.pause();
   }
 
   export function beginReparent(): boolean {
-    const wasPlaying = Boolean(videoEl && !videoEl.paused) || playing;
+    const wasPlaying = videoEl ? !videoEl.paused : playing;
     reparentingGuard = true;
     return wasPlaying;
   }
@@ -2137,6 +2145,8 @@
               class="pip-top-btn"
               aria-label="Return to page"
               title="Return to page"
+              onpointerdown={(e) => e.stopPropagation()}
+              onmousedown={(e) => e.stopPropagation()}
               onclick={(e) => {
                 e.stopPropagation();
                 onexpandpip?.();
@@ -2151,6 +2161,8 @@
               class="pip-top-btn"
               aria-label="Close mini-player"
               title="Close mini-player"
+              onpointerdown={(e) => e.stopPropagation()}
+              onmousedown={(e) => e.stopPropagation()}
               onclick={(e) => {
                 e.stopPropagation();
                 onclosepip?.();
@@ -2539,6 +2551,10 @@
     --wails-draggable: drag;
   }
 
+  .hls-player.is-pip:hover .top-bar {
+    opacity: 1;
+  }
+
   .hls-player.is-pip .top-bar:active {
     cursor: grabbing;
   }
@@ -2606,6 +2622,8 @@
   }
 
   .pip-top-btn {
+    position: relative;
+    z-index: 2;
     width: 26px;
     height: 26px;
     border: none;
@@ -2619,6 +2637,10 @@
     justify-content: center;
     cursor: pointer;
     transition: background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+  }
+
+  .pip-top-btn :global(svg) {
+    pointer-events: none;
   }
 
   .pip-top-btn:hover {
@@ -2640,6 +2662,7 @@
     top: 0;
     left: 0;
     right: 0;
+    z-index: 6;
     padding: 20px 24px 36px;
     background: linear-gradient(180deg, rgba(7, 7, 7, 0.82) 0%, rgba(7, 7, 7, 0) 100%);
     display: flex;

@@ -125,9 +125,12 @@
     }
 
     if (targetParent && node.parentElement !== targetParent) {
-      const wasPlaying = hlsPlayerRef?.beginReparent() ?? player.isPlaying;
+      const shouldPreservePlay = targetParent !== parkingEl && !player.pipDismissed;
+      const wasPlaying = shouldPreservePlay ? (hlsPlayerRef?.beginReparent() ?? player.isPlaying) : false;
       targetParent.appendChild(node);
-      hlsPlayerRef?.endReparent(wasPlaying);
+      if (shouldPreservePlay) {
+        hlsPlayerRef?.endReparent(wasPlaying);
+      }
     }
   });
 
@@ -250,25 +253,34 @@
   }
 
   async function handleClosePip() {
-    if (bindings.osPipActive) {
-      await setOsPipWindowMode(false);
-    }
-    if (docPipWindow) {
-      await closeDocPipIfOpen();
-    }
     closeCustomPip();
+    try {
+      if (bindings.osPipActive) {
+        await setOsPipWindowMode(false);
+      }
+      if (docPipWindow) {
+        await closeDocPipIfOpen();
+      }
+    } catch {
+      // Ignore OS/Document PiP cleanup errors
+    }
   }
 
   let activeDragCleanup: (() => void) | null = null;
 
   onMount(() => {
-    registerPlayerPauseControl(() => {
-      hlsPlayerRef?.pause();
-    });
+    registerPlayerPauseControl(
+      () => {
+        hlsPlayerRef?.pause();
+      },
+      () => {
+        hlsPlayerRef?.play();
+      }
+    );
     return () => {
       activeDragCleanup?.();
       activeDragCleanup = null;
-      registerPlayerPauseControl(null);
+      registerPlayerPauseControl(null, null);
     };
   });
 

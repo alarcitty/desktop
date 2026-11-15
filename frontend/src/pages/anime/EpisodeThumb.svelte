@@ -444,39 +444,39 @@
         preload="none"
         aria-hidden="true"
       ></video>
+    </div>
 
-      <div class="ep-thumb-fade" aria-hidden="true"></div>
-      {#if isWatched || isCurrent}
-        <div class="ep-status-row" aria-hidden="true">
-          {#if isCurrent}
-            <span class="ep-badge-now">Playing</span>
-          {/if}
-          {#if isWatched}
-            <span class="ep-badge-watched" title="Watched">
-              <Check size={12} strokeWidth={2.6} />
-            </span>
-          {/if}
-        </div>
-      {/if}
-      <div class="ep-overlay-bottom">
-        <div class="ep-title-row">
-          {#if episode.name}
-            <span class="ep-num">EP {episode.ordinal}</span>
-            <span class="ep-name">{episode.name}</span>
-          {:else}
-            <span class="ep-num">Episode {episode.ordinal}</span>
-          {/if}
-        </div>
-        {#if episode.duration > 0}
-          <span class="ep-duration">{formatDuration(episode.duration)}</span>
+    <div class="ep-thumb-fade" aria-hidden="true"></div>
+    {#if isWatched || isCurrent}
+      <div class="ep-status-row" aria-hidden="true">
+        {#if isCurrent}
+          <span class="ep-badge-now">Playing</span>
+        {/if}
+        {#if isWatched}
+          <span class="ep-badge-watched" title="Watched">
+            <Check size={12} strokeWidth={2.6} />
+          </span>
         {/if}
       </div>
-      {#if progressRatio > 0.02}
-        <div class="ep-progress-track" aria-hidden="true">
-          <div class="ep-progress-fill" style:width={`${Math.min(100, Math.round(progressRatio * 100))}%`}></div>
-        </div>
+    {/if}
+    <div class="ep-overlay-bottom">
+      <div class="ep-title-row">
+        {#if episode.name}
+          <span class="ep-num">EP {episode.ordinal}</span>
+          <span class="ep-name">{episode.name}</span>
+        {:else}
+          <span class="ep-num">Episode {episode.ordinal}</span>
+        {/if}
+      </div>
+      {#if episode.duration > 0}
+        <span class="ep-duration">{formatDuration(episode.duration)}</span>
       {/if}
     </div>
+    {#if progressRatio > 0.02}
+      <div class="ep-progress-track" aria-hidden="true">
+        <div class="ep-progress-fill" style:width={`${Math.min(100, Math.round(progressRatio * 100))}%`}></div>
+      </div>
+    {/if}
   {/if}
 </button>
 
@@ -487,31 +487,35 @@
     padding: 0;
     border: none;
     outline: none;
+    --ep-r-tl: 0px;
+    --ep-r-tr: 0px;
+    --ep-r-br: 0px;
+    --ep-r-bl: 0px;
     border-radius: 0;
+    clip-path: inset(0 round var(--ep-r-tl) var(--ep-r-tr) var(--ep-r-br) var(--ep-r-bl));
     overflow: hidden;
     background: #0c0c0c;
     isolation: isolate;
     contain: layout style paint;
-    transform: translate3d(0, 0, 0);
     cursor: pointer;
     text-align: left;
     transition: background-color 0.24s var(--ease-out);
   }
 
   .ep-card.corner-tl {
-    border-top-left-radius: var(--radius-card);
+    --ep-r-tl: var(--radius-card);
   }
 
   .ep-card.corner-tr {
-    border-top-right-radius: var(--radius-card);
+    --ep-r-tr: var(--radius-card);
   }
 
   .ep-card.corner-bl {
-    border-bottom-left-radius: var(--radius-card);
+    --ep-r-bl: var(--radius-card);
   }
 
   .ep-card.corner-br {
-    border-bottom-right-radius: var(--radius-card);
+    --ep-r-br: var(--radius-card);
   }
 
   /* List variant: zero inner thumbnail padding, left-only rounding, blurred screenshot full-row background */
@@ -522,20 +526,18 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    border-radius: var(--radius-card) 0 0 var(--radius-card);
+    --ep-r-tl: var(--radius-card);
+    --ep-r-tr: 0px;
+    --ep-r-br: 0px;
+    --ep-r-bl: var(--radius-card);
+    border-radius: 0;
     background: #0e0e11;
     overflow: hidden;
   }
 
-  .ep-card.is-list.corner-tl,
-  .ep-card.is-list.corner-bl {
-    border-top-left-radius: var(--radius-card);
-    border-bottom-left-radius: var(--radius-card);
-  }
-
   .ep-list-bg {
     position: absolute;
-    inset: 0;
+    inset: -2px;
     z-index: 0;
     pointer-events: none;
     overflow: hidden;
@@ -558,7 +560,7 @@
 
   .ep-list-bg-scrim {
     position: absolute;
-    inset: 0;
+    inset: -2px;
     background: linear-gradient(
       90deg,
       rgba(12, 12, 12, 0.25) 0%,
@@ -573,7 +575,8 @@
     width: 164px;
     height: 100%;
     flex-shrink: 0;
-    border-radius: var(--radius-card) 0 0 var(--radius-card);
+    border-radius: 0;
+    clip-path: inset(0 round var(--radius-card) 0 0 var(--radius-card));
     overflow: hidden;
     background: #09090b;
   }
@@ -680,6 +683,7 @@
 
   .ep-thumb-wrap {
     position: relative;
+    z-index: 0;
     width: 100%;
     aspect-ratio: 16 / 9;
     overflow: hidden;
@@ -687,11 +691,12 @@
   }
 
   .ep-thumb {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
-    backface-visibility: hidden;
     transition: transform 0.45s var(--ease-out);
   }
 
@@ -717,6 +722,8 @@
   }
 
   .ep-thumb-fallback {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     display: flex;
@@ -733,7 +740,7 @@
 
   .ep-thumb-fade {
     position: absolute;
-    inset: -4px;
+    inset: -2px;
     z-index: 2;
     background: linear-gradient(
       180deg,

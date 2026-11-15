@@ -1004,15 +1004,17 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    border-radius: var(--radius-card);
+    border-radius: 0;
+    clip-path: inset(0 round var(--radius-card));
     overflow: hidden;
-    transform: translateZ(0);
+    isolation: isolate;
   }
 
   .library-row {
     position: relative;
     height: clamp(206px, 24vw, 268px);
     overflow: hidden;
+    clip-path: inset(0);
     background: #0c0c0c;
     isolation: isolate;
     display: flex;
@@ -1049,7 +1051,7 @@
 
   .row-dim {
     position: absolute;
-    inset: -4px;
+    inset: -2px;
     z-index: 1;
     background: rgba(4, 4, 4, 0.78);
     transform: translate3d(0, 0, 0);
@@ -1068,8 +1070,10 @@
     flex: 0 0 clamp(150px, 20vw, 245px);
     width: clamp(150px, 20vw, 245px);
     height: 100%;
-    border-radius: var(--radius-card);
+    border-radius: 0;
+    clip-path: inset(0 round var(--radius-card));
     overflow: hidden;
+    isolation: isolate;
   }
 
   .row-poster {
@@ -1079,7 +1083,6 @@
     object-fit: cover;
     user-select: none;
     pointer-events: none;
-    backface-visibility: hidden;
     transition: transform var(--hover-dur) var(--ease-out);
   }
 
@@ -1218,10 +1221,10 @@
   .library-tile {
     position: relative;
     aspect-ratio: 1 / 1;
-    border-radius: var(--radius-card);
+    border-radius: 0;
+    clip-path: inset(0 round var(--radius-card));
     overflow: hidden;
     background: #0c0c0c;
-    contain: layout paint;
     isolation: isolate;
     display: flex;
     flex-direction: column;
@@ -1230,27 +1233,15 @@
     outline: none;
   }
 
-  .library-tile::after {
-    content: '';
-    position: absolute;
-    inset: -3px;
-    border-radius: calc(var(--radius-card) + 3px);
-    border: 4px solid #0c0c0c;
-    transform: translateZ(0);
-    pointer-events: none;
-    z-index: 5;
-  }
-
   .tile-poster {
     position: absolute;
     inset: 0;
+    z-index: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
-    backface-visibility: hidden;
     user-select: none;
     pointer-events: none;
-    will-change: transform;
     transition: transform 0.4s var(--ease-out);
   }
 
@@ -1261,11 +1252,13 @@
   .tile-overlay {
     position: absolute;
     inset: -2px;
+    z-index: 1;
     background: linear-gradient(
       180deg,
       rgba(7, 7, 7, 0.06) 0%,
       rgba(7, 7, 7, 0.36) 45%,
-      rgba(7, 7, 7, 0.92) 100%
+      rgba(7, 7, 7, 0.92) 94%,
+      #0c0c0c 100%
     );
     pointer-events: none;
     transition: opacity var(--hover-dur) var(--ease-out);
@@ -1278,6 +1271,7 @@
   .tile-hover-dim {
     position: absolute;
     inset: -2px;
+    z-index: 1;
     background: linear-gradient(
       180deg,
       rgba(7, 7, 7, 0.82) 0%,

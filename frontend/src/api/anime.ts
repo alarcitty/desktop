@@ -168,7 +168,7 @@ export interface HomeFeeds {
   recommendations: HomeRecommendationItem[];
 }
 
-const HOME_CACHE_KEY = 'mila.cache.home.v2';
+const HOME_CACHE_KEY = 'mila.cache.home.v3';
 const HOME_CACHE_FRESH_MS = 20 * 60 * 1000;
 const HOME_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const SHIKI_CACHE_KEY = 'mila.cache.shiki.v1';
@@ -1299,7 +1299,7 @@ export async function loadHomeFeeds(forceRefresh = false): Promise<HomeFeeds> {
         searchQueries: [r.name?.english ?? '', r.name?.main ?? '', shiki?.name ?? ''].filter(Boolean),
         title,
         titleLines: splitTitleLines(title),
-        description: truncateDescription(descSource, 155),
+        description: truncateDescription(descSource, 380),
         poster,
         fallbackPoster: shikiPoster && shikiPoster !== poster ? shikiPoster : undefined,
         score: rawScore > 0 ? Number(rawScore.toFixed(1)) : undefined,
@@ -2909,7 +2909,7 @@ export interface AnimePageExtras {
 }
 
 const ANILIST_GRAPHQL = 'https://graphql.anilist.co';
-const ANIME_EXTRAS_CACHE_KEY = 'mila.cache.animeExtras.v2';
+const ANIME_EXTRAS_CACHE_KEY = 'mila.cache.animeExtras.v3';
 const ANIME_EXTRAS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const ANIME_EXTRAS_MAX_ITEMS = 60;
 
@@ -3297,15 +3297,29 @@ export async function loadAnimePageExtras(shikiId: number): Promise<AnimePageExt
 
       // Similar / More Like This (deduplicate & exclude current + any franchise entries)
       const excludedIds = new Set<number>([shikiId, ...relatedItems.map((r) => r.id)]);
-      const similar: ShikiSimilarAnime[] = [];
+      const similarCandidates: Array<{ item: RawShikiSimilarItem; fallbackPoster: string }> = [];
       for (const item of Array.isArray(similarRes) ? similarRes : []) {
         if (!item || !item.id || excludedIds.has(item.id)) continue;
         excludedIds.add(item.id);
-        const poster = resolveShikiUrl(item.image?.original || item.image?.preview);
-        if (!poster || poster.includes('/missing_')) continue;
+        const fallbackPoster = resolveShikiUrl(item.image?.original || item.image?.preview);
+        if (!fallbackPoster || fallbackPoster.includes('/missing_')) continue;
+        similarCandidates.push({ item, fallbackPoster });
+        if (similarCandidates.length >= 12) break;
+      }
+
+      // Enrich similar items with high-resolution GraphQL posters (REST original/preview is often low-res).
+      const similarIds = similarCandidates.map((c) => c.item.id);
+      const artMap =
+        similarIds.length > 0
+          ? await ensureShikimoriArtwork(similarIds).catch(() => shikiCache)
+          : shikiCache;
+
+      const similar: ShikiSimilarAnime[] = similarCandidates.map(({ item, fallbackPoster }) => {
+        const art = artMap.get(item.id);
+        const poster = art?.posterOriginal || art?.posterMain || fallbackPoster;
         const numScore = typeof item.score === 'string' ? Number(item.score) : (item.score ?? 0);
         const yearMatch = item.aired_on?.match(/^(\d{4})/);
-        similar.push({
+        return {
           id: item.id,
           title: item.name,
           subTitle: item.russian?.trim() || undefined,
@@ -3314,9 +3328,8 @@ export async function loadAnimePageExtras(shikiId: number): Promise<AnimePageExt
           episodes: item.episodes && item.episodes > 0 ? item.episodes : undefined,
           kind: (item.kind ?? 'tv').toUpperCase(),
           poster
-        });
-        if (similar.length >= 12) break;
-      }
+        };
+      });
 
       const result: AnimePageExtras = {
         shikiId,

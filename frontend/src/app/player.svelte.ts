@@ -119,7 +119,7 @@ export const player = $state<{
   dubOffsetSec: 0,
   episodeIndex: 0,
   resumeTime: 0,
-  autoplay: true,
+  autoplay: false,
   isPlaying: false,
   pipMode: false,
   pipManual: false,
@@ -136,6 +136,7 @@ let extrasRequestToken = 0;
 let lastLoadedExtrasShikiId = 0;
 let lastHistorySyncMs = 0;
 let voiceDiscoveryPromise: Promise<VoiceTrackOption[]> | null = null;
+let playControlCallback: (() => void) | null = null;
 let pauseControlCallback: (() => void) | null = null;
 const failedVoiceIds = new Set<string>();
 const torrentReleaseCache = new Map<string, PlayableRelease>();
@@ -240,7 +241,13 @@ function refreshAnimeExtras(shikiId?: number): void {
 async function loadTargetIntoPlayer(
   token: number,
   target: WatchTarget,
-  opts?: { preserveEpisodeOrdinal?: number; preserveEpisodeIndex?: number; preserveTime?: number; keepVoices?: boolean }
+  opts?: {
+    preserveEpisodeOrdinal?: number;
+    preserveEpisodeIndex?: number;
+    preserveTime?: number;
+    keepVoices?: boolean;
+    autoplay?: boolean;
+  }
 ): Promise<PlayableRelease | null> {
   player.loading = true;
   player.error = '';
@@ -260,7 +267,7 @@ async function loadTargetIntoPlayer(
   }
   player.episodeIndex = opts?.preserveEpisodeIndex ?? 0;
   player.resumeTime = opts?.preserveTime ?? 0;
-  player.autoplay = true;
+  player.autoplay = Boolean(opts?.autoplay);
 
   if (target.shikiId && !player.shikiArt) {
     ensureShikimoriArtwork([target.shikiId])
@@ -344,7 +351,7 @@ export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Pr
   player.loading = true;
   player.error = '';
   player.resumeTime = Number.isFinite(preserveTime) && preserveTime > 0.5 ? preserveTime : 0;
-  player.autoplay = true;
+  player.autoplay = player.isPlaying || player.autoplay;
 
   try {
     const cachedTorrent = voice.provider === 'torrent' ? torrentReleaseCache.get(voice.id) : undefined;
@@ -525,9 +532,10 @@ export async function fallbackVoice(autoFromFailure = false): Promise<boolean> {
 
 export async function openWatch(
   target: WatchTarget,
-  opts?: { episodeOrdinal?: number; episodeIndex?: number; resumeTime?: number }
+  opts?: { episodeOrdinal?: number; episodeIndex?: number; resumeTime?: number; autoPlay?: boolean }
 ): Promise<void> {
   const token = ++activeRequestToken;
+  const shouldAutoPlay = Boolean(opts?.autoPlay);
   player.seasons = [];
   player.pipMode = false;
   player.pipManual = false;
@@ -538,7 +546,7 @@ export async function openWatch(
     alias: target.releaseAlias,
     title: target.title,
     searchQueries: target.searchQueries,
-    autoPlay: true,
+    autoPlay: shouldAutoPlay,
     episode: opts?.episodeIndex,
     episodeOrdinal: opts?.episodeOrdinal,
     resumeTime: opts?.resumeTime
@@ -547,7 +555,8 @@ export async function openWatch(
   const rel = await loadTargetIntoPlayer(token, target, {
     preserveEpisodeOrdinal: opts?.episodeOrdinal,
     preserveEpisodeIndex: opts?.episodeIndex,
-    preserveTime: opts?.resumeTime
+    preserveTime: opts?.resumeTime,
+    autoplay: shouldAutoPlay
   });
   if (!rel || token !== activeRequestToken) return;
 
@@ -577,10 +586,10 @@ export async function switchSeason(season: AnimeSeasonEntry): Promise<void> {
     alias: target.releaseAlias,
     title: target.title,
     searchQueries: target.searchQueries,
-    autoPlay: true,
+    autoPlay: false,
     episode: 0
   });
-  const rel = await loadTargetIntoPlayer(token, target);
+  const rel = await loadTargetIntoPlayer(token, target, { autoplay: false });
   if (rel && token === activeRequestToken && player.seasons.length === 0) {
     loadFranchiseSeasons(rel.id)
       .then((seasons) => {
@@ -593,6 +602,7 @@ export async function switchSeason(season: AnimeSeasonEntry): Promise<void> {
 }
 
 async function restoreRouteTarget(params: RouteParams): Promise<void> {
+  const shouldAutoPlay = Boolean(params.autoPlay);
   const matchesCurrentRelease = Boolean(
     player.release &&
       ((params.alias && player.release.alias === params.alias) ||
@@ -602,6 +612,7 @@ async function restoreRouteTarget(params: RouteParams): Promise<void> {
   );
 
   if (matchesCurrentRelease && player.release) {
+    player.autoplay = shouldAutoPlay;
     const nextIdx = applyPreservedEpisode(
       player.release,
       params.episodeOrdinal,
@@ -625,7 +636,8 @@ async function restoreRouteTarget(params: RouteParams): Promise<void> {
   const rel = await loadTargetIntoPlayer(token, target, {
     preserveEpisodeOrdinal: params.episodeOrdinal,
     preserveEpisodeIndex: params.episode,
-    preserveTime: params.resumeTime
+    preserveTime: params.resumeTime,
+    autoplay: shouldAutoPlay
   });
   if (!rel || token !== activeRequestToken) return;
 
@@ -647,7 +659,7 @@ onRouteRestore((entry) => {
 export async function retryWatch(): Promise<void> {
   if (!player.target) return;
   const token = ++activeRequestToken;
-  const rel = await loadTargetIntoPlayer(token, player.target);
+  const rel = await loadTargetIntoPlayer(token, player.target, { autoplay: player.autoplay });
   if (rel && token === activeRequestToken && player.seasons.length === 0) {
     loadFranchiseSeasons(rel.id)
       .then((seasons) => {
@@ -662,12 +674,19 @@ export async function retryWatch(): Promise<void> {
 export function selectEpisode(index: number): void {
   if (!player.release) return;
   if (index < 0 || index >= player.release.episodes.length) return;
+  const isSameEpisode = index === player.episodeIndex;
   failedVoiceIds.clear();
-  player.resumeTime = 0;
+  if (!isSameEpisode) {
+    player.resumeTime = 0;
+  }
   player.autoplay = true;
   player.pipDismissed = false;
   player.episodeIndex = index;
   const ep = player.release.episodes[index];
+  if (isSameEpisode) {
+    playControlCallback?.();
+    return;
+  }
   if (router.current === 'anime') {
     updateCurrentRouteParams({
       episode: index,
@@ -711,8 +730,12 @@ export function setInlinePlayerStage(el: HTMLElement | null): void {
   player.inlineStageEl = el;
 }
 
-export function registerPlayerPauseControl(fn: (() => void) | null): void {
+export function registerPlayerPauseControl(
+  fn: (() => void) | null,
+  playFn?: (() => void) | null
+): void {
   pauseControlCallback = fn;
+  playControlCallback = playFn ?? null;
 }
 
 export function setPlayerPlaying(playing: boolean): void {
@@ -744,6 +767,7 @@ export function toggleCustomPip(): void {
 }
 
 export function expandCustomPip(): void {
+  const wasPlaying = player.isPlaying;
   player.pipMode = false;
   player.pipManual = false;
   player.pipDismissed = false;
@@ -754,7 +778,7 @@ export function expandCustomPip(): void {
       alias: player.release?.alias ?? player.target?.releaseAlias,
       title: player.title,
       searchQueries: player.target?.searchQueries,
-      autoPlay: true,
+      autoPlay: wasPlaying,
       episode: player.episodeIndex,
       episodeOrdinal: player.release?.episodes[player.episodeIndex]?.ordinal
     });

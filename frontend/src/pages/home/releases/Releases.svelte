@@ -430,8 +430,8 @@
     text-shadow: none;
     max-width: min(480px, 92%);
     display: -webkit-box;
-    line-clamp: 5;
-    -webkit-line-clamp: 5;
+    line-clamp: 7;
+    -webkit-line-clamp: 7;
     -webkit-box-orient: vertical;
     overflow: hidden;
     opacity: 0;
@@ -534,8 +534,8 @@
     }
 
     .card-description {
-      line-clamp: 4;
-      -webkit-line-clamp: 4;
+      line-clamp: 5;
+      -webkit-line-clamp: 5;
     }
 
     .releases-bottom-arrow {

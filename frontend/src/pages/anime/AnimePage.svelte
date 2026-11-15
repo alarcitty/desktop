@@ -2372,29 +2372,33 @@
     padding: 0;
     border: none;
     outline: none;
+    --card-r-tl: 0px;
+    --card-r-tr: 0px;
+    --card-r-br: 0px;
+    --card-r-bl: 0px;
     border-radius: 0;
+    clip-path: inset(0 round var(--card-r-tl) var(--card-r-tr) var(--card-r-br) var(--card-r-bl));
     overflow: hidden;
     aspect-ratio: 16 / 9;
     background: #0c0c0c;
     isolation: isolate;
-    transform: translate3d(0, 0, 0);
     cursor: pointer;
   }
 
   .frame-card.corner-tl {
-    border-top-left-radius: var(--radius-card);
+    --card-r-tl: var(--radius-card);
   }
 
   .frame-card.corner-tr {
-    border-top-right-radius: var(--radius-card);
+    --card-r-tr: var(--radius-card);
   }
 
   .frame-card.corner-bl {
-    border-bottom-left-radius: var(--radius-card);
+    --card-r-bl: var(--radius-card);
   }
 
   .frame-card.corner-br {
-    border-bottom-right-radius: var(--radius-card);
+    --card-r-br: var(--radius-card);
   }
 
   .frame-img {
@@ -2402,7 +2406,6 @@
     height: 100%;
     object-fit: cover;
     display: block;
-    backface-visibility: hidden;
     transition: transform 0.45s var(--ease-out);
   }
 
@@ -2471,30 +2474,34 @@
     padding: 0;
     border: none;
     outline: none;
+    --card-r-tl: 0px;
+    --card-r-tr: 0px;
+    --card-r-br: 0px;
+    --card-r-bl: 0px;
     border-radius: 0;
+    clip-path: inset(0 round var(--card-r-tl) var(--card-r-tr) var(--card-r-br) var(--card-r-bl));
     overflow: hidden;
     aspect-ratio: 16 / 9;
     background: #0c0c0c;
     isolation: isolate;
-    transform: translate3d(0, 0, 0);
     cursor: pointer;
     text-align: left;
   }
 
   .trailer-card.corner-tl {
-    border-top-left-radius: var(--radius-card);
+    --card-r-tl: var(--radius-card);
   }
 
   .trailer-card.corner-tr {
-    border-top-right-radius: var(--radius-card);
+    --card-r-tr: var(--radius-card);
   }
 
   .trailer-card.corner-bl {
-    border-bottom-left-radius: var(--radius-card);
+    --card-r-bl: var(--radius-card);
   }
 
   .trailer-card.corner-br {
-    border-bottom-right-radius: var(--radius-card);
+    --card-r-br: var(--radius-card);
   }
 
   .trailer-bg {
@@ -2600,7 +2607,8 @@
     padding: 0 16px 0 0;
     border: none;
     outline: none;
-    border-radius: var(--radius-card) 0 0 var(--radius-card);
+    border-radius: 0;
+    clip-path: inset(0 round var(--radius-card) 0 0 var(--radius-card));
     overflow: hidden;
     background: #0e0e11;
     display: flex;
@@ -2614,7 +2622,7 @@
 
   .trailer-row-bg {
     position: absolute;
-    inset: 0;
+    inset: -2px;
     z-index: 0;
     pointer-events: none;
     overflow: hidden;
@@ -2637,7 +2645,7 @@
 
   .trailer-row-bg-scrim {
     position: absolute;
-    inset: 0;
+    inset: -2px;
     background: linear-gradient(
       90deg,
       rgba(12, 12, 12, 0.25) 0%,
@@ -2652,7 +2660,8 @@
     width: 164px;
     height: 100%;
     flex-shrink: 0;
-    border-radius: var(--radius-card) 0 0 var(--radius-card);
+    border-radius: 0;
+    clip-path: inset(0 round var(--radius-card) 0 0 var(--radius-card));
     overflow: hidden;
     background: #09090b;
   }
