@@ -169,7 +169,7 @@ function formatHentaiTrackLabel(provider: HentaiProviderName, variant?: string):
   const isUnc = cleanVariant.toLowerCase() === 'uncensored';
   return {
     label: cleanVariant ? `HentaiGasm · ${cleanVariant}` : 'HentaiGasm',
-    sublabel: isUnc ? 'Без цензуры · MP4' : 'MP4 Sub',
+    sublabel: isUnc ? 'Uncensored · MP4' : 'MP4 Sub',
     isSub: cleanVariant.toLowerCase() !== 'dubbed'
   };
 }

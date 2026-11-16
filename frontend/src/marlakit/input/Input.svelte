@@ -62,7 +62,7 @@
     align-items: center;
     width: 320px;
     height: 38px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--mila-inputs-bg, rgba(255, 255, 255, 0.08));
     border-radius: 9px;
     padding: 0 12px;
     box-sizing: border-box;
@@ -73,11 +73,11 @@
   }
 
   .marlakit-input-wrap:hover {
-    background: rgba(255, 255, 255, 0.09);
+    background: var(--mila-inputs-bgHover, rgba(255, 255, 255, 0.09));
   }
 
   .marlakit-input-wrap:focus-within {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--mila-inputs-bgFocus, rgba(255, 255, 255, 0.12));
   }
 
   .marlakit-input-wrap.disabled {
@@ -90,7 +90,7 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--mila-inputs-icon, rgba(255, 255, 255, 0.35));
   }
 
   .marlakit-input-field {
@@ -100,7 +100,7 @@
     background: transparent;
     border: none;
     outline: none;
-    color: #ffffff;
+    color: var(--mila-inputs-text, #ffffff);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 15px;
     font-weight: 400;
@@ -109,6 +109,6 @@
   }
 
   .marlakit-input-field::placeholder {
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--mila-inputs-placeholder, rgba(255, 255, 255, 0.3));
   }
 </style>

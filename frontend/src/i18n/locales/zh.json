@@ -1,0 +1,101 @@
+{
+  "setup": {
+    "welcome": "欢迎使用",
+    "continue": "继续",
+    "chooseLanguage": "选择语言",
+    "chooseLanguageSub": "选择界面和目录显示的语言。",
+    "chooseTheme": "选择主题",
+    "chooseThemeSub": "挑选最适合您的界面外观。",
+    "defaultQuality": "默认视频画质",
+    "defaultQualitySub": "播放剧集时的首选清晰度。",
+    "allDone": "准备就绪",
+    "themeDark": "深色",
+    "themeLight": "浅色",
+    "themeCustom": "强调色",
+    "qualityAuto": "自动"
+  },
+  "nav": {
+    "home": "首页",
+    "library": "片库",
+    "news": "资讯",
+    "watchTogether": "一起看"
+  },
+  "header": {
+    "searchPlaceholder": "搜索动漫...",
+    "openFilters": "打开搜索筛选",
+    "filters": "筛选",
+    "signInGoogle": "通过 Google 登录",
+    "signOut": "退出登录",
+    "account": "账号"
+  },
+  "home": {
+    "newReleases": "最新更新",
+    "recommendations": "猜你喜欢",
+    "watchEp": "观看第 {n} 集",
+    "planToWatch": "想看",
+    "inPlanToWatch": "已在想看",
+    "opening": "片头曲",
+    "expandCredits": "展开信息",
+    "collapseCredits": "收起信息",
+    "explore": "浏览",
+    "seasonalReleases": "新番更新",
+    "search": "搜索",
+    "dataApis": "数据源与 API",
+    "libraries": "依赖库",
+    "typography": "字体",
+    "socials": "社交链接"
+  },
+  "anime": {
+    "watchEp": "观看第 {n} 集",
+    "planToWatch": "想看",
+    "inPlanToWatch": "已在想看",
+    "episodes": "剧集列表",
+    "episodeLabel": "第 {n} 集",
+    "frames": "剧照",
+    "trailers": "预告片",
+    "franchise": "关联系列",
+    "charactersCast": "角色与声优",
+    "moreLikeThis": "相似推荐",
+    "castFilterPlaceholder": "搜索角色或声优...",
+    "castEmpty": "未找到匹配的角色或声优",
+    "torrents": "种子资源",
+    "retry": "重试",
+    "loading": "加载中",
+    "unavailable": "《{title}》暂无可用播放源"
+  },
+  "library": {
+    "likes": "喜欢",
+    "watchLater": "稍后再看",
+    "favorites": "收藏",
+    "history": "历史",
+    "sortDate": "日期",
+    "sortYear": "年份",
+    "sortRating": "评分",
+    "sortTitle": "A–Z",
+    "searchPlaceholder": "筛选片库..."
+  },
+  "news": {
+    "all": "全部",
+    "news": "资讯",
+    "releases": "新番",
+    "sync": "同步",
+    "watchEp": "观看第 {n} 集",
+    "details": "详情",
+    "readStory": "阅读全文",
+    "watch": "观看",
+    "loadError": "无法加载动漫资讯"
+  },
+  "search": {
+    "placeholder": "搜索动漫...",
+    "anyYear": "全部年份",
+    "years": "年份",
+    "episodes": "集数",
+    "sort": "排序",
+    "genres": "类型",
+    "allGenres": "全部类型"
+  },
+  "player": {
+    "episode": "第 {n} 集",
+    "uncensoredMp4": "无修版 · MP4"
+  }
+}

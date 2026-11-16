@@ -93,3 +93,7 @@ export function TorrentProbeFile(arg1, arg2) {
 export function TorrentSearch(arg1, arg2) {
   return window['go']['mila']['Mila']['TorrentSearch'](arg1, arg2);
 }
+
+export function ZokoProbe(arg1, arg2, arg3) {
+  return window['go']['mila']['Mila']['ZokoProbe'](arg1, arg2, arg3);
+}

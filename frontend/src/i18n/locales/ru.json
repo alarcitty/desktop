@@ -1,0 +1,101 @@
+{
+  "setup": {
+    "welcome": "Добро пожаловать",
+    "continue": "Продолжить",
+    "chooseLanguage": "Выберите язык",
+    "chooseLanguageSub": "Язык интерфейса и каталога в приложении.",
+    "chooseTheme": "Выберите тему",
+    "chooseThemeSub": "Оформление интерфейса под ваш стиль.",
+    "defaultQuality": "Качество видео",
+    "defaultQualitySub": "Предпочитаемое разрешение при запуске серии.",
+    "allDone": "Готово",
+    "themeDark": "Тёмная",
+    "themeLight": "Светлая",
+    "themeCustom": "Акцент",
+    "qualityAuto": "Авто"
+  },
+  "nav": {
+    "home": "Главная",
+    "library": "Библиотека",
+    "news": "Новости",
+    "watchTogether": "Смотреть вместе"
+  },
+  "header": {
+    "searchPlaceholder": "Найти аниме...",
+    "openFilters": "Открыть фильтры поиска",
+    "filters": "Фильтры",
+    "signInGoogle": "Войти через Google",
+    "signOut": "Выйти",
+    "account": "Аккаунт"
+  },
+  "home": {
+    "newReleases": "Новые релизы",
+    "recommendations": "Вам может понравиться",
+    "watchEp": "Смотреть {n} серию",
+    "planToWatch": "В планах",
+    "inPlanToWatch": "Запланировано",
+    "opening": "Опенинг",
+    "expandCredits": "Открыть инфо",
+    "collapseCredits": "Скрыть инфо",
+    "explore": "Разделы",
+    "seasonalReleases": "Релизы сезона",
+    "search": "Поиск",
+    "dataApis": "Данные и API",
+    "libraries": "Библиотеки",
+    "typography": "Шрифты",
+    "socials": "Соцсети"
+  },
+  "anime": {
+    "watchEp": "Смотреть {n} серию",
+    "planToWatch": "В планах",
+    "inPlanToWatch": "Запланировано",
+    "episodes": "Серии",
+    "episodeLabel": "Серия {n}",
+    "frames": "Кадры",
+    "trailers": "Трейлеры",
+    "franchise": "Франшиза и связанные",
+    "charactersCast": "Персонажи и сэйю",
+    "moreLikeThis": "Похожие тайтлы",
+    "castFilterPlaceholder": "Персонаж или актёр...",
+    "castEmpty": "Нет подходящих персонажей или актёров",
+    "torrents": "Торренты",
+    "retry": "Повторить",
+    "loading": "Загрузка",
+    "unavailable": "«{title}» сейчас недоступно ни на одном из источников"
+  },
+  "library": {
+    "likes": "Нравится",
+    "watchLater": "Посмотреть позже",
+    "favorites": "Избранное",
+    "history": "История",
+    "sortDate": "Дата",
+    "sortYear": "Год",
+    "sortRating": "Рейтинг",
+    "sortTitle": "А–Я",
+    "searchPlaceholder": "Фильтр библиотеки..."
+  },
+  "news": {
+    "all": "Все",
+    "news": "Новости",
+    "releases": "Релизы",
+    "sync": "Обновить",
+    "watchEp": "Смотреть {n} серию",
+    "details": "Подробнее",
+    "readStory": "Читать",
+    "watch": "Смотреть",
+    "loadError": "Не удалось загрузить ленту"
+  },
+  "search": {
+    "placeholder": "Поиск аниме...",
+    "anyYear": "Любой год",
+    "years": "Годы",
+    "episodes": "Серии",
+    "sort": "Сортировка",
+    "genres": "Жанры",
+    "allGenres": "Все жанры"
+  },
+  "player": {
+    "episode": "Серия {n}",
+    "uncensoredMp4": "Без цензуры · MP4"
+  }
+}

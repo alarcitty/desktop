@@ -239,7 +239,7 @@ export async function fetchYaniKodikDubs(yaniAnimeId: number): Promise<KodikDubO
       return {
         id: `kodik:${yaniAnimeId}:${studioKey}:${ordinal}`,
         ordinal,
-        name: `Серия ${ordinal}`,
+        name: `Episode ${ordinal}`,
         duration: 0,
         hls_720: buildKodikMasterUrl(iframe, YANI_REFERER)
       };

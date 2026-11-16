@@ -62,8 +62,8 @@
     position: relative;
     height: 43px;
     padding: 0 26px;
-    background: rgba(255, 255, 255, 0.96);
-    color: #111111;
+    background: var(--mila-buttons-mainBg, rgba(255, 255, 255, 0.96));
+    color: var(--mila-buttons-mainText, #111111);
     border: none;
     outline: none;
     box-shadow: none;
@@ -80,11 +80,11 @@
     white-space: nowrap;
     line-height: 1;
     margin: 0;
-    transition: background-color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease, opacity 0.15s ease;
   }
 
   .marlakit-btn-main:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.95);
+    background: var(--mila-buttons-mainBgHover, rgba(255, 255, 255, 0.95));
   }
 
   .marlakit-btn-main:active:not(:disabled) {

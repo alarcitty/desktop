@@ -120,7 +120,7 @@ export async function fetchDreamCastEpisodes(
     return {
       id: `dreamcast:${releaseId}:${ordinal}`,
       ordinal,
-      name: `Серия ${ordinal}`,
+      name: `Episode ${ordinal}`,
       duration: 0,
       hls_1080: rewritePlayDcUrl(rawUrl)
     };

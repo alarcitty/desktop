@@ -5,11 +5,17 @@
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import RgbLine from '../../marlakit/slider/RgbLine.svelte';
-  import logoSrc from '../../assets/mila_header.svg';
+  import MilaLogo from '../../themes/MilaLogo.svelte';
+  import { i18n, setLocale, SUPPORTED_LOCALES, t } from '../../app/i18n.svelte';
+  import {
+    setCustomHue,
+    setThemeMode,
+    SUPPORTED_THEMES,
+    theme,
+    type ThemeMode
+  } from '../../app/theme.svelte';
 
   type SetupStep = 'welcome' | 'question' | 'done' | 'outro';
-  type LanguagePref = 'ru' | 'en' | 'zh';
-  type ThemePref = 'dark' | 'light' | 'custom';
   type QualityPref = '1080p' | '720p' | 'auto';
 
   interface Props {
@@ -19,28 +25,8 @@
 
   let { ready = true, onContinue }: Props = $props();
 
-  const LANG_KEY = 'mila.setup.language';
-  const THEME_KEY = 'mila.setup.theme';
-  const HUE_KEY = 'mila.setup.customHue';
   const QUALITY_KEY = 'mila.setup.quality';
-
-  const langOptions: Array<{ value: LanguagePref; label: string }> = [
-    { value: 'ru', label: 'Русский' },
-    { value: 'en', label: 'English' },
-    { value: 'zh', label: '中文' }
-  ];
-
-  const themeOptions: Array<{ value: ThemePref; label: string }> = [
-    { value: 'dark', label: 'Dark' },
-    { value: 'light', label: 'Light' },
-    { value: 'custom', label: 'Custom' }
-  ];
-
-  const qualityOptions: Array<{ value: QualityPref; label: string }> = [
-    { value: '1080p', label: '1080p' },
-    { value: '720p', label: '720p' },
-    { value: 'auto', label: 'Auto' }
-  ];
+  const qualityValues: QualityPref[] = ['1080p', '720p', 'auto'];
 
   function readStorage<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
     try {
@@ -52,21 +38,8 @@
     return fallback;
   }
 
-  function readSavedHue(): number {
-    try {
-      const n = Number(window.localStorage.getItem(HUE_KEY));
-      if (Number.isFinite(n) && n >= 0 && n <= 360) return n;
-    } catch {
-      // Ignore restricted storage contexts
-    }
-    return 215;
-  }
-
   let step = $state<SetupStep>('welcome');
   let qIndex = $state(0);
-  let selectedLang = $state<LanguagePref>(readStorage(LANG_KEY, ['ru', 'en', 'zh'], 'ru'));
-  let selectedTheme = $state<ThemePref>(readStorage(THEME_KEY, ['dark', 'light', 'custom'], 'dark'));
-  let customHue = $state<number>(readSavedHue());
   let selectedQuality = $state<QualityPref>(
     readStorage(QUALITY_KEY, ['1080p', '720p', 'auto'], '1080p')
   );
@@ -82,28 +55,39 @@
   const currentQuestionMeta = $derived.by(() => {
     if (qIndex === 0) {
       return {
-        title: 'Choose your language',
-        subtitle: 'Select the language used across the interface and catalog.',
-        ariaLabel: 'Interface language',
-        valueKey: selectedLang,
-        valueLabel: langOptions.find((o) => o.value === selectedLang)?.label ?? 'Русский'
+        title: t('setup.chooseLanguage'),
+        subtitle: t('setup.chooseLanguageSub'),
+        ariaLabel: t('setup.chooseLanguage'),
+        valueKey: i18n.locale,
+        valueLabel:
+          SUPPORTED_LOCALES.find((o) => o.code === i18n.locale)?.nativeLabel ?? 'English'
       };
     }
     if (qIndex === 1) {
+      const themeLabelMap: Record<ThemeMode, string> = {
+        dark: t('setup.themeDark'),
+        light: t('setup.themeLight'),
+        custom: t('setup.themeCustom')
+      };
       return {
-        title: 'Choose your theme',
-        subtitle: 'Pick the appearance that feels right for your space.',
-        ariaLabel: 'Theme appearance',
-        valueKey: selectedTheme,
-        valueLabel: themeOptions.find((o) => o.value === selectedTheme)?.label ?? 'Dark'
+        title: t('setup.chooseTheme'),
+        subtitle: t('setup.chooseThemeSub'),
+        ariaLabel: t('setup.chooseTheme'),
+        valueKey: `${i18n.locale}-${theme.mode}`,
+        valueLabel: themeLabelMap[theme.mode]
       };
     }
+    const qualityLabelMap: Record<QualityPref, string> = {
+      '1080p': '1080p',
+      '720p': '720p',
+      auto: t('setup.qualityAuto')
+    };
     return {
-      title: 'Default video quality',
-      subtitle: 'Preferred resolution when starting an episode.',
-      ariaLabel: 'Default video quality',
-      valueKey: selectedQuality,
-      valueLabel: qualityOptions.find((o) => o.value === selectedQuality)?.label ?? '1080p'
+      title: t('setup.defaultQuality'),
+      subtitle: t('setup.defaultQualitySub'),
+      ariaLabel: t('setup.defaultQuality'),
+      valueKey: `${i18n.locale}-${selectedQuality}`,
+      valueLabel: qualityLabelMap[selectedQuality]
     };
   });
 
@@ -170,29 +154,26 @@
   function cycleCurrent(delta: 1 | -1) {
     slideDir = delta;
     if (qIndex === 0) {
-      const idx = langOptions.findIndex((o) => o.value === selectedLang);
-      const next = langOptions[(idx + delta + langOptions.length) % langOptions.length].value;
-      selectedLang = next;
-      saveStorage(LANG_KEY, next);
+      const idx = SUPPORTED_LOCALES.findIndex((o) => o.code === i18n.locale);
+      const next =
+        SUPPORTED_LOCALES[(idx + delta + SUPPORTED_LOCALES.length) % SUPPORTED_LOCALES.length].code;
+      setLocale(next);
       return;
     }
     if (qIndex === 1) {
-      const idx = themeOptions.findIndex((o) => o.value === selectedTheme);
-      const next = themeOptions[(idx + delta + themeOptions.length) % themeOptions.length].value;
-      selectedTheme = next;
-      saveStorage(THEME_KEY, next);
+      const idx = SUPPORTED_THEMES.indexOf(theme.mode);
+      const next = SUPPORTED_THEMES[(idx + delta + SUPPORTED_THEMES.length) % SUPPORTED_THEMES.length];
+      setThemeMode(next);
       return;
     }
-    const idx = qualityOptions.findIndex((o) => o.value === selectedQuality);
-    const next =
-      qualityOptions[(idx + delta + qualityOptions.length) % qualityOptions.length].value;
+    const idx = qualityValues.indexOf(selectedQuality);
+    const next = qualityValues[(idx + delta + qualityValues.length) % qualityValues.length];
     selectedQuality = next;
     saveStorage(QUALITY_KEY, next);
   }
 
   function handleHueChange(nextHue: number) {
-    customHue = nextHue;
-    saveStorage(HUE_KEY, String(nextHue));
+    setCustomHue(nextHue);
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -267,7 +248,7 @@
         class="setup-logo-frame"
         out:revealBlur={{ duration: 340, y: -12, scale: 0.92, blur: 7 }}
       >
-        <img src={logoSrc} alt="Mila" class="setup-logo" decoding="async" draggable="false" />
+        <MilaLogo class="setup-logo" />
       </div>
     {/if}
   </div>
@@ -317,13 +298,13 @@
             </button>
           </div>
 
-          {#if qIndex === 1 && selectedTheme === 'custom'}
+          {#if qIndex === 1 && theme.mode === 'custom'}
             <div
               class="setup-rgb-wrap"
               in:revealBlur={{ duration: 320, y: 8, scale: 0.95, blur: 6 }}
               out:revealBlur={{ duration: 220, y: 6, scale: 0.95, blur: 5 }}
             >
-              <RgbLine bind:hue={customHue} onchange={handleHueChange} />
+              <RgbLine hue={theme.hue} onchange={handleHueChange} />
             </div>
           {/if}
         </div>
@@ -337,7 +318,7 @@
       in:revealBlur={{ duration: 540, delay: 300, y: 12, scale: 0.96, blur: 8 }}
       out:revealBlur={{ duration: 420, y: -8, scale: 0.97, blur: 8 }}
     >
-      <h1 class="setup-done-title">All done</h1>
+      <h1 class="setup-done-title">{t('setup.allDone')}</h1>
     </div>
   {/if}
 
@@ -348,7 +329,7 @@
         out:revealBlur={{ duration: 240, y: 8, scale: 0.95, blur: 6 }}
       >
         <MainButton class="setup-primary-btn" onclick={handleWelcome}>
-          Welcome
+          {t('setup.welcome')}
         </MainButton>
       </div>
     {:else if step === 'question'}
@@ -362,7 +343,7 @@
           loading={pendingContinue && !ready}
           onclick={handleContinue}
         >
-          Continue
+          {t('setup.continue')}
         </MainButton>
       </div>
     {/if}
@@ -379,13 +360,14 @@
     height: clamp(440px, 58vh, 540px);
     transform: translate3d(-50%, -50%, 0);
     border-radius: 15px;
-    background: #0c0c0c;
+    background: var(--mila-setup-cardBg, #0c0c0c);
     overflow: hidden;
     -webkit-app-region: drag;
     transition:
       width 760ms cubic-bezier(0.22, 1, 0.36, 1),
       height 760ms cubic-bezier(0.22, 1, 0.36, 1),
-      border-radius 760ms cubic-bezier(0.22, 1, 0.36, 1);
+      border-radius 760ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 360ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .setup-scene.is-expanded {
@@ -397,13 +379,13 @@
     position: absolute;
     left: 50%;
     top: 44%;
-    width: 380px;
-    height: 190px;
+    width: 420px;
+    height: 220px;
     transform: translate3d(-50%, -50%, 0) scale(1);
     background: radial-gradient(
       ellipse at center,
-      rgba(255, 255, 255, 0.055) 0%,
-      rgba(255, 255, 255, 0.015) 45%,
+      var(--mila-setup-ambientGlow, rgba(255, 255, 255, 0.06)) 0%,
+      var(--mila-setup-ambientGlowSoft, rgba(255, 255, 255, 0.015)) 48%,
       transparent 75%
     );
     pointer-events: none;
@@ -451,7 +433,7 @@
     animation: setup-logo-in 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
-  .setup-logo {
+  :global(.setup-logo) {
     width: 236px;
     height: auto;
     display: block;
@@ -488,8 +470,9 @@
     font-weight: 700;
     line-height: 1.12;
     letter-spacing: -0.025em;
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
     margin: 0;
+    transition: color 280ms ease;
   }
 
   .setup-question-sub {
@@ -499,7 +482,8 @@
     font-size: 13.5px;
     font-weight: 400;
     line-height: 1.42;
-    color: rgba(255, 255, 255, 0.46);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.46));
+    transition: color 280ms ease;
   }
 
   .setup-stepper-zone {
@@ -528,7 +512,7 @@
     box-shadow: none;
     padding: 8px;
     margin: 0;
-    color: rgba(255, 255, 255, 0.46);
+    color: var(--mila-setup-chevron, rgba(255, 255, 255, 0.46));
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -540,7 +524,7 @@
   }
 
   .stepper-chevron:hover {
-    color: #ffffff;
+    color: var(--mila-setup-chevronHover, #ffffff);
   }
 
   .stepper-chevron:active {
@@ -562,9 +546,10 @@
     font-weight: 700;
     line-height: 1.05;
     letter-spacing: -0.02em;
-    color: #ffffff;
+    color: var(--mila-setup-valueText, #ffffff);
     white-space: nowrap;
     user-select: none;
+    transition: color 260ms ease;
   }
 
   .setup-rgb-wrap {
@@ -594,7 +579,7 @@
     font-weight: 700;
     line-height: 1.1;
     letter-spacing: -0.025em;
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
     margin: 0;
   }
 

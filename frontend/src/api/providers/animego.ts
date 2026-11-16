@@ -205,7 +205,7 @@ export async function fetchAnimeGOEpisodes(
   const episodes: PlayableEpisode[] = epList.map((ep) => ({
     id: `animego:${animeId}:${translationId}:${ep.ordinal}`,
     ordinal: ep.ordinal,
-    name: `Серия ${ep.ordinal}`,
+    name: `Episode ${ep.ordinal}`,
     duration: 0,
     ...buildAnimeGOEpisodeStream(animeId, ep, translationId, resolvedEmbed, resolvedSlug)
   }));
@@ -273,7 +273,7 @@ export async function findAnimeGOMatch(
     const episodes: PlayableEpisode[] = epList.map((ep) => ({
       id: `animego:${bestItem.id}:${trId}:${ep.ordinal}`,
       ordinal: ep.ordinal,
-      name: `Серия ${ep.ordinal}`,
+      name: `Episode ${ep.ordinal}`,
       duration: 0,
       ...buildAnimeGOEpisodeStream(bestItem.id, ep, trId, dub.embedUrl, dub.providerSlug)
     }));

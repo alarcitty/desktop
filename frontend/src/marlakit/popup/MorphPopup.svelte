@@ -163,7 +163,7 @@
     position: fixed;
     inset: 0;
     z-index: 1000;
-    background: rgba(5, 5, 7, 0.62);
+    background: var(--mila-popup-backdrop, rgba(5, 5, 7, 0.62));
     -webkit-backdrop-filter: blur(14px);
     backdrop-filter: blur(14px);
     opacity: 0;
@@ -188,7 +188,8 @@
     border: none;
     border-radius: 9px;
     opacity: 1;
-    background: rgba(18, 18, 22, 0.94);
+    background: var(--mila-popup-bg, rgba(18, 18, 22, 0.94));
+    color: var(--mila-text-primary, #ffffff);
     box-shadow: 0 36px 100px rgba(0, 0, 0, 0);
     transition:
       left var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1),
@@ -205,8 +206,8 @@
   {
     padding: 16px;
     border-radius: var(--radius-card, 16px);
-    background: rgba(12, 12, 14, 0.96);
-    box-shadow: 0 36px 100px rgba(0, 0, 0, 0.85);
+    background: var(--mila-popup-bgExpanded, rgba(12, 12, 14, 0.96));
+    box-shadow: var(--mila-popup-shadow, 0 36px 100px rgba(0, 0, 0, 0.85));
   }
 
   .popup-panel.fully-expanded

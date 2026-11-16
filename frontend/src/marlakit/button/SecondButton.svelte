@@ -62,10 +62,10 @@
     position: relative;
     height: 43px;
     padding: 0 26px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--mila-buttons-secondBg, rgba(255, 255, 255, 0.08));
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    color: #ffffff;
+    color: var(--mila-buttons-secondText, #ffffff);
     border: none;
     outline: none;
     box-shadow: none;
@@ -82,11 +82,11 @@
     white-space: nowrap;
     line-height: 1;
     margin: 0;
-    transition: background-color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease, opacity 0.15s ease;
   }
 
   .marlakit-btn-second:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.14);
+    background: var(--mila-buttons-secondBgHover, rgba(255, 255, 255, 0.14));
   }
 
   .marlakit-btn-second:active:not(:disabled) {

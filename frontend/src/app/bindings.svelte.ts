@@ -225,6 +225,20 @@ export async function invokeHentaiGetEpisodes(provider: string, target: string):
   }
 }
 
+export async function invokeZokoProbe(
+  malID: number,
+  episodeCount: number,
+  query: string
+): Promise<string | null> {
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.ZokoProbe !== 'function') return null;
+  try {
+    return await goMila.ZokoProbe(malID, episodeCount, query);
+  } catch {
+    return null;
+  }
+}
+
 const bindingRegistry: BindingDescriptor[] = [
   {
     id: 'nav.back',

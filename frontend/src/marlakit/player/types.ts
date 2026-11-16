@@ -43,6 +43,7 @@ export type VoiceProviderId =
   | 'kodik'
   | 'hentaimama'
   | 'hentaigasm'
+  | 'zoko'
   | string;
 
 export interface DubAudioSource {

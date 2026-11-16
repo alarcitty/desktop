@@ -15,8 +15,9 @@
   import { portal } from '../../marlakit/portal';
   import { getCachedNewsFeed, loadNewsFeed, type NewsItem } from '../../api/news';
   import { openWatch } from '../../app/player.svelte';
+  import { t } from '../../app/i18n.svelte';
 
-  const tabs = ['All', 'News', 'Episodes'] as const;
+  const tabs = $derived([t('news.all'), t('news.news'), t('news.releases')] as const);
   const TAB_GAP = 22;
   const TAB_INACTIVE_SCALE = 0.5;
 
@@ -140,6 +141,7 @@
   $effect(() =>
   {
     viewportWidth;
+    tabs;
     measureTabs();
     const fonts = document.fonts;
     const onFonts = () => measureTabs();
@@ -277,7 +279,7 @@
           A<span class="probe-mark" bind:this={probeMarkEl}></span>
         </span>
 
-        {#each tabs as tab, index (tab)}
+        {#each tabs as tab, index (index)}
           {@const layout = tabLayout[index] ?? { x: 0, scale: index === activeTab ? 1 : TAB_INACTIVE_SCALE }}
           <button
             type="button"
@@ -298,12 +300,12 @@
         type="button"
         class="sync-btn"
         class:is-spinning={refreshing}
-        aria-label="Refresh feed"
-        title="Refresh news and latest episodes"
+        aria-label={t('news.sync')}
+        title={t('news.sync')}
         onclick={() => fetchFeed(true)}
       >
         <RefreshCw size={15} strokeWidth={2} class="sync-icon" />
-        <span>Sync</span>
+        <span>{t('news.sync')}</span>
       </button>
     </div>
 
@@ -337,27 +339,27 @@
               {#snippet icon()}
                 <Play size={16} fill="currentColor" strokeWidth={0} />
               {/snippet}
-              Watch Ep {leadItem.episodeOrdinal ?? 1}
+              {t('news.watchEp', { n: leadItem.episodeOrdinal ?? 1 })}
             </MainButton>
             <SecondButton onclick={() => openStory(leadItem)}>
               {#snippet icon()}
                 <BookOpen size={16} strokeWidth={2} />
               {/snippet}
-              Details
+              {t('news.details')}
             </SecondButton>
           {:else}
             <MainButton onclick={() => openStory(leadItem)}>
               {#snippet icon()}
                 <BookOpen size={16} strokeWidth={2} />
               {/snippet}
-              Read Story
+              {t('news.readStory')}
             </MainButton>
             {#if leadItem.shikiId}
               <SecondButton loading={watchingId === leadItem.id} onclick={(e) => watchItem(leadItem, e)}>
                 {#snippet icon()}
                   <Play size={16} fill="currentColor" strokeWidth={0} />
                 {/snippet}
-                Watch
+                {t('news.watch')}
               </SecondButton>
             {/if}
           {/if}
@@ -377,9 +379,9 @@
       </div>
     {:else if error && items.length === 0}
       <div class="news-empty">
-        <p class="empty-title">Could not load anime feed</p>
+        <p class="empty-title">{t('news.loadError')}</p>
         <p class="empty-sub">{error}</p>
-        <MainButton onclick={() => fetchFeed(true)}>Retry</MainButton>
+        <MainButton onclick={() => fetchFeed(true)}>{t('anime.retry')}</MainButton>
       </div>
     {:else}
       <div class="news-views">
@@ -554,12 +556,14 @@
     min-height: 100vh;
     padding: 0 0 56px 0;
     box-sizing: border-box;
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
+    color: var(--mila-text-primary, #ffffff);
     overflow: hidden;
     display: flex;
     flex-direction: column;
     contain: style;
     -webkit-font-smoothing: antialiased;
+    transition: background-color 360ms cubic-bezier(0.22, 1, 0.36, 1), color 320ms ease;
   }
 
   /* Full-bleed edge-to-edge Home-style banner hero */
@@ -596,8 +600,8 @@
     z-index: 1;
     pointer-events: none;
     background:
-      linear-gradient(90deg, rgba(12, 12, 12, 0.94) 18%, rgba(12, 12, 12, 0.62) 55%, rgba(12, 12, 12, 0.25) 100%),
-      linear-gradient(180deg, rgba(12, 12, 12, 0.45) 0%, rgba(12, 12, 12, 0.2) 45%, rgba(12, 12, 12, 1) 100%);
+      linear-gradient(90deg, rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.94) 18%, rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.62) 55%, rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.25) 100%),
+      linear-gradient(180deg, rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.45) 0%, rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.2) 45%, var(--mila-app-canvas, #0c0c0c) 100%);
   }
 
   .news-head {
@@ -679,20 +683,19 @@
 
   .tab-regular {
     font-weight: 400;
-    color: #5f5f5f;
+    color: var(--mila-text-dim, #5f5f5f);
     opacity: 1;
   }
 
   .tab-black {
     font-weight: 900;
-    color: #ffffff;
-    text-shadow: 0 4px 4px rgba(0, 0, 0, 0.25);
+    color: var(--mila-text-primary, #ffffff);
     opacity: 0;
     pointer-events: none;
   }
 
   .news-tab:hover .tab-regular {
-    color: #8a8a8a;
+    color: var(--mila-text-muted, #8a8a8a);
   }
 
   .news-tab.active .tab-regular {
@@ -711,9 +714,9 @@
     padding: 0 14px;
     border: none;
     border-radius: 11px;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.06));
     backdrop-filter: blur(12px);
-    color: rgba(255, 255, 255, 0.72);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.72));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
     cursor: pointer;
@@ -725,8 +728,8 @@
   }
 
   .sync-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.12));
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .sync-btn:active {
@@ -768,7 +771,7 @@
     font-weight: 700;
     line-height: 1.06;
     letter-spacing: -0.02em;
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
     display: -webkit-box;
     line-clamp: 2;
     -webkit-line-clamp: 2;
@@ -786,7 +789,7 @@
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: clamp(14.5px, 1.45vw, 18px);
     line-height: 1.4;
-    color: rgba(255, 255, 255, 0.65);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.65));
     display: -webkit-box;
     line-clamp: 3;
     -webkit-line-clamp: 3;
@@ -871,7 +874,7 @@
     width: 100%;
     border-radius: var(--radius-card);
     overflow: hidden;
-    background: #0c0c0c;
+    background: var(--mila-cards-bg, #0c0c0c);
     cursor: pointer;
     isolation: isolate;
     contain: layout paint;
@@ -885,7 +888,7 @@
     position: absolute;
     inset: -3px;
     border-radius: calc(var(--radius-card) + 3px);
-    border: 4px solid #0c0c0c;
+    border: 4px solid var(--mila-app-canvas, #0c0c0c);
     transform: translateZ(0);
     pointer-events: none;
     z-index: 5;
@@ -928,7 +931,7 @@
     position: absolute;
     inset: -3px;
     z-index: 1;
-    background: linear-gradient(180deg, rgba(16, 16, 18, 0) 36%, #101012 95%);
+    background: linear-gradient(180deg, rgba(16, 16, 18, 0) 36%, var(--mila-cards-bg, #101012) 95%);
     pointer-events: none;
   }
 
@@ -936,7 +939,7 @@
     position: relative;
     z-index: 2;
     margin-top: -2px;
-    background: #101012;
+    background: var(--mila-cards-bg, #101012);
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -955,7 +958,7 @@
     font-size: clamp(16px, 1.45vw, 18px);
     font-weight: 700;
     line-height: 1.24;
-    color: #f3f3f3;
+    color: var(--mila-text-primary, #f3f3f3);
     display: -webkit-box;
     line-clamp: 2;
     -webkit-line-clamp: 2;
@@ -968,7 +971,7 @@
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 14px;
     line-height: 1.42;
-    color: #8d8d8d;
+    color: var(--mila-text-muted, #8d8d8d);
     display: -webkit-box;
     line-clamp: 2;
     -webkit-line-clamp: 2;
@@ -990,7 +993,7 @@
     gap: 10px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
-    color: #6b6b70;
+    color: var(--mila-text-dim, #6b6b70);
   }
 
   .meta-comments {
@@ -1020,7 +1023,7 @@
   .news-empty {
     padding: 72px 24px;
     border-radius: var(--radius-card);
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.03));
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1032,14 +1035,14 @@
     margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
     font-size: 20px;
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .empty-sub {
     margin: 0 0 8px 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 14px;
-    color: #8d8d8d;
+    color: var(--mila-text-muted, #8d8d8d);
   }
 
   /* Borderless Article Reader Modal */
@@ -1047,7 +1050,7 @@
     position: fixed;
     inset: 0;
     z-index: 220;
-    background: rgba(4, 4, 5, 0.72);
+    background: var(--mila-popup-backdrop, rgba(4, 4, 5, 0.72));
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
     display: flex;
@@ -1062,8 +1065,8 @@
     max-height: calc(100vh - 36px);
     overflow-y: auto;
     border-radius: 18px;
-    background: rgba(14, 14, 17, 0.94);
-    box-shadow: 0 32px 90px rgba(0, 0, 0, 0.8);
+    background: var(--mila-popup-bgExpanded, rgba(14, 14, 17, 0.94));
+    box-shadow: var(--mila-popup-shadow, 0 32px 90px rgba(0, 0, 0, 0.8));
     outline: none;
   }
 
@@ -1072,7 +1075,7 @@
     width: 100%;
     height: clamp(180px, 28vh, 270px);
     overflow: hidden;
-    background: #101014;
+    background: var(--mila-app-surface, #101014);
   }
 
   .reader-hero-img {
@@ -1092,7 +1095,7 @@
     position: absolute;
     inset: 0;
     z-index: 2;
-    background: linear-gradient(180deg, rgba(14, 14, 17, 0.12) 0%, rgba(14, 14, 17, 0.96) 100%);
+    background: linear-gradient(180deg, rgba(var(--mila-app-canvasRgb, 14, 14, 17), 0.12) 0%, var(--mila-popup-bgExpanded, rgba(14, 14, 17, 0.96)) 100%);
   }
 
   .reader-close {
@@ -1104,9 +1107,9 @@
     height: 34px;
     border: none;
     border-radius: 10px;
-    background: rgba(10, 10, 12, 0.65);
+    background: var(--mila-app-surfaceGlass, rgba(10, 10, 12, 0.65));
     backdrop-filter: blur(12px);
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--mila-text-primary, rgba(255, 255, 255, 0.85));
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1115,8 +1118,8 @@
   }
 
   .reader-close:hover {
-    background: rgba(255, 255, 255, 0.16);
-    color: #ffffff;
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.16));
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .reader-content {
@@ -1134,7 +1137,7 @@
     font-size: clamp(20px, 2.2vw, 26px);
     font-weight: 700;
     line-height: 1.2;
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .reader-paragraphs {
@@ -1148,18 +1151,18 @@
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: clamp(14.5px, 1.35vw, 16px);
     line-height: 1.55;
-    color: #c2c2c8;
+    color: var(--mila-text-secondary, #c2c2c8);
   }
 
   .reader-quote {
     margin: 4px 0 0 0;
     padding: 12px 16px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
     border-radius: 12px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 15px;
     line-height: 1.5;
-    color: #9e9ea6;
+    color: var(--mila-text-muted, #9e9ea6);
   }
 
   .reader-actions {

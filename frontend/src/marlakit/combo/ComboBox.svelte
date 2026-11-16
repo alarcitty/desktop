@@ -241,7 +241,7 @@
     outline: none;
     border-radius: 8px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.88);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.88));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 12.5px;
     font-weight: 400;
@@ -254,8 +254,8 @@
 
   .marla-combo-trigger:hover:not(:disabled),
   .marla-combo-trigger.is-open:not(:disabled) {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
+    background: var(--mila-popup-itemHover, rgba(255, 255, 255, 0.1));
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .marla-combo-trigger:disabled {
@@ -267,11 +267,11 @@
     position: absolute;
     padding: 6px;
     border-radius: 12px;
-    background: rgba(14, 14, 17, 0.96);
+    background: var(--mila-popup-bg, rgba(14, 14, 17, 0.96));
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border: none;
-    box-shadow: none;
+    border: 1px solid var(--mila-app-borderSubtle, rgba(255, 255, 255, 0.08));
+    box-shadow: var(--mila-popup-shadow, none);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -331,7 +331,7 @@
     font-size: 11.5px;
     font-weight: 400;
     letter-spacing: 0.02em;
-    color: rgba(255, 255, 255, 0.44);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.44));
     user-select: none;
   }
 
@@ -349,7 +349,7 @@
     outline: none;
     border-radius: 8px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.72);
+    color: var(--mila-popup-itemText, rgba(255, 255, 255, 0.72));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
     font-weight: 400;
@@ -375,8 +375,8 @@
   }
 
   .marla-combo-item:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
+    background: var(--mila-popup-itemHover, rgba(255, 255, 255, 0.1));
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .marla-combo-item:disabled {
@@ -385,9 +385,9 @@
   }
 
   .marla-combo-item.active {
-    background: rgba(255, 255, 255, 0.06);
-    color: #ffffff;
-    font-weight: 400;
+    background: var(--mila-popup-itemActive, rgba(255, 255, 255, 0.06));
+    color: var(--mila-popup-itemTextActive, #ffffff);
+    font-weight: 500;
   }
 
   .marla-combo-meta {
@@ -412,7 +412,7 @@
     font-size: 11px;
     line-height: 1.25;
     font-weight: 400;
-    color: rgba(255, 255, 255, 0.45);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.45));
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -420,7 +420,7 @@
   }
 
   .marla-combo-footer {
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--mila-app-borderSubtle, rgba(255, 255, 255, 0.08));
     margin-top: 4px;
     padding: 8px 10px 4px;
   }

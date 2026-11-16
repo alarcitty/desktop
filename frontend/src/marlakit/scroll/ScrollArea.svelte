@@ -382,7 +382,7 @@
   .marlakit-scroll-thumb {
     width: 5px;
     margin-left: auto;
-    background: rgba(255, 255, 255, 0.22);
+    background: var(--mila-app-scrollbarThumb, rgba(255, 255, 255, 0.22));
     border-radius: 999px;
     cursor: pointer;
     will-change: transform;
@@ -392,7 +392,7 @@
 
   .marlakit-scroll-track:hover .marlakit-scroll-thumb,
   .marlakit-scroll-thumb.dragging {
-    background: rgba(255, 255, 255, 0.45);
+    background: var(--mila-app-scrollbarThumbHover, rgba(255, 255, 255, 0.45));
     width: 6px;
   }
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { navigate } from '../../../app/router.svelte';
   import { openSearch } from '../../../app/search.svelte';
+  import { t } from '../../../app/i18n.svelte';
 
   interface Props {
     open: boolean;
@@ -39,23 +40,23 @@
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 
-  const columns: CreditGroup[][] = [
+  const columns = $derived<CreditGroup[][]>([
     [
       {
-        title: 'Explore',
+        title: t('home.explore'),
         items: [
-          { label: 'Home', action: () => scrollToSection('') },
-          { label: 'Seasonal Releases', action: () => scrollToSection('.releases-section') },
-          { label: 'Recommendations', action: () => scrollToSection('.recommendations-section') },
-          { label: 'Library', action: () => navigate('library') },
-          { label: 'News', action: () => navigate('news') },
-          { label: 'Search', action: () => openSearch({ filters: true }) }
+          { label: t('nav.home'), action: () => scrollToSection('') },
+          { label: t('home.seasonalReleases'), action: () => scrollToSection('.releases-section') },
+          { label: t('home.recommendations'), action: () => scrollToSection('.recommendations-section') },
+          { label: t('nav.library'), action: () => navigate('library') },
+          { label: t('nav.news'), action: () => navigate('news') },
+          { label: t('home.search'), action: () => openSearch({ filters: true }) }
         ]
       }
     ],
     [
       {
-        title: 'Data & APIs',
+        title: t('home.dataApis'),
         items: [
           { label: 'Shikimori', href: 'https://shikimori.one' },
           { label: 'AniLiberty', href: 'https://aniliberty.top' },
@@ -69,7 +70,7 @@
     ],
     [
       {
-        title: 'Libraries',
+        title: t('home.libraries'),
         items: [
           { label: 'hls.js', href: 'https://github.com/video-dev/hls.js' },
           { label: 'anacrolix/torrent', href: 'https://github.com/anacrolix/torrent' },
@@ -78,7 +79,7 @@
         ]
       },
       {
-        title: 'Typography',
+        title: t('home.typography'),
         items: [
           { label: 'PP Monument Extended' },
           { label: 'RF Dewi Extended' },
@@ -88,7 +89,7 @@
     ],
     [
       {
-        title: 'Socials',
+        title: t('home.socials'),
         items: [
           // Replace with project links when ready
           { label: 'Telegram', href: 'https://t.me' },
@@ -97,7 +98,7 @@
         ]
       }
     ]
-  ];
+  ]);
 
   $effect(() => {
     cancelAnimationFrame(revealRaf);
@@ -199,9 +200,10 @@
     grid-template-rows: 0fr;
     opacity: 0;
     width: 100%;
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
     overflow: hidden;
     transition:
+      background-color 360ms cubic-bezier(0.22, 1, 0.36, 1),
       grid-template-rows 0.56s cubic-bezier(0.22, 1, 0.36, 1),
       opacity 0.42s cubic-bezier(0.22, 1, 0.36, 1);
   }
@@ -255,7 +257,7 @@
     font-size: 13.5px;
     font-weight: 400;
     line-height: 1.3;
-    color: rgba(255, 255, 255, 0.42);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.42));
     user-select: none;
   }
 
@@ -281,7 +283,7 @@
     font-size: 14px;
     font-weight: 400;
     line-height: 1.38;
-    color: rgba(255, 255, 255, 0.88);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.88));
     text-align: left;
   }
 
@@ -296,11 +298,11 @@
   }
 
   .credits-link:hover {
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .credits-label {
-    color: rgba(255, 255, 255, 0.78);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.78));
     user-select: none;
   }
 

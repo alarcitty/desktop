@@ -24,7 +24,7 @@ const DEFAULT_LIBRARY_ITEMS: LibraryItem[] = [
   {
     id: 'alya',
     shikiId: 54744,
-    searchQueries: ['Tokidoki Bosotto', 'Аля иногда кокетничает'],
+    searchQueries: ['Tokidoki Bosotto', 'Alya Sometimes Hides Her Feelings in Russian'],
     title: 'Alya Sometimes Hides Her Feelings in Russian',
     description:
       'The story centers on Alisa Mikhailovna "Alya" Kujou, a stunning and brilliant student who acts cold and distant to everyone, and her unmotivated seatmate, Masachika Kuze. To hide her true feelings of embarrassment, affection, or frustration, Alya frequently mutters sweet.',
@@ -37,7 +37,7 @@ const DEFAULT_LIBRARY_ITEMS: LibraryItem[] = [
   {
     id: 'black-clover',
     shikiId: 34572,
-    searchQueries: ['Black Clover', 'Чёрный клевер'],
+    searchQueries: ['Black Clover'],
     title: 'Black Clover',
     description:
       'is a popular fantasy anime about two orphans, Asta and Yuno, who grew up together and strive to become the Wizard King. In a world where magic is everything, Yuno is a prodigy born with a rare grimoire, while Asta is the only person completely devoid of magical power. Refusing to give up, Asta obtains a mysterious five-leaf clover grimoire that grants him Anti-Magic.',
@@ -51,7 +51,7 @@ const DEFAULT_LIBRARY_ITEMS: LibraryItem[] = [
     id: 'tsukimichi',
     shikiId: 43523,
     releaseAlias: 'tsuki-ga-michibiku-isekai-douchuu',
-    searchQueries: ['Tsuki ga Michibiku Isekai Douchuu', 'Лунное путешествие'],
+    searchQueries: ['Tsuki ga Michibiku Isekai Douchuu', 'Tsukimichi: Moonlit Fantasy'],
     title: 'Tsukimichi: Moonlit Fantasy',
     description:
       'follows Makoto Misumi, an ordinary high schooler summoned to another world as a hero, only to be cast away by the goddess for his lack of beauty. Stripped of his title and sent to a barren wasteland, he discovers an overwhelming power of his own and slowly gathers allies among the monsters and outcasts of the new world.',

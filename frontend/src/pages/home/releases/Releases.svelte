@@ -10,6 +10,7 @@
   import MetaLine from '../../../marlakit/meta/MetaLine.svelte';
   import { getCachedHomeFeeds, loadHomeFeeds, type HomeReleaseItem } from '../../../api/anime';
   import { openWatch } from '../../../app/player.svelte';
+  import { t } from '../../../app/i18n.svelte';
 
   let releases = $state<HomeReleaseItem[]>(getCachedHomeFeeds()?.releases ?? []);
 
@@ -83,7 +84,7 @@
 
 <section class="releases-section">
   <!-- Section Title -->
-  <h2 class="section-title">New Releases</h2>
+  <h2 class="section-title">{t('home.newReleases')}</h2>
 
   <!-- Ambient Layer Blur underneath cards (GPU-accelerated cross-fade, zero layout recalculation) -->
   <div class="releases-underlay-blur" aria-hidden="true">
@@ -151,14 +152,14 @@
               {#snippet icon()}
                 <Play size={16} fill="currentColor" strokeWidth={0} />
               {/snippet}
-              Watch
+              {t('news.watch')}
             </MainButton>
 
             <SecondButton loading={isPlanLoading && activeIndex === index} onclick={handlePlanClick}>
               {#snippet icon()}
                 <Bookmark size={16} strokeWidth={2} />
               {/snippet}
-              Plan to Watch
+              {t('home.planToWatch')}
             </SecondButton>
           </div>
         </div>
@@ -177,16 +178,17 @@
     position: relative;
     width: 100%;
     height: 710px;
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
     overflow-x: clip;
     overflow-y: visible;
     box-sizing: border-box;
     contain: layout style;
     user-select: none;
     z-index: 4;
+    transition: background-color 360ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  /* Section title: 48px, #D4D4D4, PP Monument Extended Black */
+  /* Section title: 48px, PP Monument Extended Black */
   .section-title {
     position: absolute;
     top: clamp(28px, 3.5vw, 44px);
@@ -198,13 +200,14 @@
     font-family: 'PP Monument Extended', sans-serif;
     font-size: clamp(28px, 3.3vw, 48px);
     font-weight: 900;
-    color: #D4D4D4;
+    color: var(--mila-text-heading, #D4D4D4);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1;
     z-index: 5;
     text-shadow: none;
+    transition: color 320ms ease;
   }
 
   /* Ambient Layer Blur underlay trailing down smoothly into the next section */
@@ -367,6 +370,12 @@
     width: clamp(440px, 56vw, 840px);
     max-width: 100%;
     pointer-events: none;
+    --mila-buttons-mainBg: var(--mila-media-mainBtnBg, rgba(255, 255, 255, 0.96));
+    --mila-buttons-mainText: var(--mila-media-mainBtnText, #111111);
+    --mila-buttons-secondBg: var(--mila-media-secondBtnBg, rgba(255, 255, 255, 0.08));
+    --mila-buttons-secondText: var(--mila-media-secondBtnText, #ffffff);
+    --mila-meta-tag: var(--mila-media-subtext, rgba(255, 255, 255, 0.56));
+    --mila-meta-dot: var(--mila-media-muted, rgba(255, 255, 255, 0.36));
   }
 
   .card:not(.is-active) .card-content {
@@ -488,8 +497,13 @@
     transform: translateX(-50%) translateY(2px);
   }
 
-  :global(.arrow-icon) {
-    color: #D0D0D0;
+  .releases-bottom-arrow :global(.arrow-icon) {
+    color: var(--mila-cards-notchArrow, #D0D0D0);
+    transition: color 0.2s ease;
+  }
+
+  .releases-bottom-arrow:hover :global(.arrow-icon) {
+    color: var(--mila-cards-notchArrowHover, #ffffff);
   }
 
   @media (max-width: 1120px) {

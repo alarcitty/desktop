@@ -59,7 +59,7 @@
     align-items: center;
     gap: 4px;
     font-weight: 700;
-    color: var(--marlakit-yellow);
+    color: var(--mila-cards-rating, var(--marlakit-yellow));
     font-variant-numeric: tabular-nums;
     line-height: 1;
   }
@@ -68,12 +68,12 @@
     width: 3px;
     height: 3px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.36);
+    background: var(--mila-meta-dot, var(--mila-text-dim, rgba(255, 255, 255, 0.36)));
     flex-shrink: 0;
   }
 
   .meta-tag {
-    color: rgba(255, 255, 255, 0.56);
+    color: var(--mila-meta-tag, var(--mila-text-muted, rgba(255, 255, 255, 0.56)));
     letter-spacing: 0.01em;
     line-height: 1.2;
   }

@@ -37,6 +37,7 @@ export interface WailsMilaGoBindings {
   AnimeGOPlayer?: (animeId: number) => Promise<string>;
   HentaiSearch?: (query: string) => Promise<string>;
   HentaiGetEpisodes?: (provider: string, target: string) => Promise<string>;
+  ZokoProbe?: (malID: number, episodeCount: number, query: string) => Promise<string>;
   TorrentSearch?: (query: string, aniLibriaID: number) => Promise<string>;
   TorrentOpen?: (magnet: string) => Promise<string>;
   TorrentProbeFile?: (infoHash: string, fileIndex: number) => Promise<string>;

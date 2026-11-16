@@ -2,7 +2,7 @@
   import Search from "@lucide/svelte/icons/search";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import { cubicOut } from "svelte/easing";
-  import logoSrc from "../../assets/mila_header.svg";
+  import MilaLogo from "../../themes/MilaLogo.svelte";
   import Input from "../../marlakit/input/Input.svelte";
   import SocialButton from "../../marlakit/button/SocialButton.svelte";
   import ComboBox from "../../marlakit/combo/ComboBox.svelte";
@@ -12,6 +12,7 @@
   import { router, navigate } from "../../app/router.svelte";
   import { search, openSearch, setSearchAnchor } from "../../app/search.svelte";
   import { auth, initAuth, loginWithGoogle, logout } from "../../app/auth.svelte";
+  import { t } from "../../app/i18n.svelte";
 
   interface Props {
     hidden?: boolean;
@@ -62,15 +63,22 @@
     }
   }
 
+  const navLabels: Record<string, string> = {
+    home: 'nav.home',
+    library: 'nav.library',
+    news: 'nav.news',
+    'watch-together': 'nav.watchTogether'
+  };
+
   const userDisplayName = $derived(
-    auth.user?.name?.trim() || auth.user?.email?.split("@")[0] || "Account"
+    auth.user?.name?.trim() || auth.user?.email?.split("@")[0] || t("header.account")
   );
   const userInitial = $derived(userDisplayName.slice(0, 1).toUpperCase());
   const accountSections = $derived<ComboSection[]>([
     {
       id: "account",
       title: auth.user?.email || undefined,
-      options: [{ value: "logout", label: "Sign out", disabled: auth.loading }]
+      options: [{ value: "logout", label: t("header.signOut"), disabled: auth.loading }]
     }
   ]);
 
@@ -115,7 +123,7 @@
   {/if}
   <div class="header-left">
     <div class="logo-wrap">
-      <img src={logoSrc} alt="mila" class="logo-img" decoding="async" />
+      <MilaLogo class="logo-img" />
     </div>
 
     <!-- marlakit Input component (hidden while the search popup is morphing out of it) -->
@@ -123,7 +131,7 @@
       <Input
         bind:value={search.query}
         oninput={handleSearchInput}
-        placeholder="Search something..."
+        placeholder={t("header.searchPlaceholder")}
       >
         {#snippet icon()}
           <Search size={16} strokeWidth={1.8} />
@@ -132,8 +140,8 @@
           <button
             type="button"
             class="search-filter-btn"
-            aria-label="Open search filters"
-            title="Filters"
+            aria-label={t("header.openFilters")}
+            title={t("header.filters")}
             onclick={(e) => {
               e.stopPropagation();
               openSearch({ filters: true });
@@ -151,16 +159,17 @@
     <nav class="nav-tabs">
       {#each pages as tab (tab.id)}
         {@const TabIcon = tab.icon}
+        {@const tabTitle = t(navLabels[tab.id] ?? tab.name)}
         <button
           type="button"
           class="tab-btn"
           class:active={router.current === tab.id}
           onclick={() => navigate(tab.id)}
-          title={tab.name}
-          aria-label={tab.name}
+          title={tabTitle}
+          aria-label={tabTitle}
         >
           <TabIcon size={18} strokeWidth={1.7} />
-          <span class="tab-name">{tab.name}</span>
+          <span class="tab-name">{tabTitle}</span>
         </button>
       {/each}
     </nav>
@@ -244,7 +253,7 @@
                 />
               </svg>
             {/snippet}
-            Continue with Google
+            {t("header.signInGoogle")}
           </SocialButton>
         </div>
       {/if}
@@ -283,11 +292,11 @@
     inset: 0 0 -18px 0;
     background: linear-gradient(
       180deg,
-      rgba(12, 12, 12, 0.86) 0%,
-      rgba(12, 12, 12, 0.56) 62%,
-      rgba(12, 12, 12, 0) 100%
+      var(--mila-header-fadeTop, rgba(12, 12, 12, 0.86)) 0%,
+      var(--mila-header-fadeMid, rgba(12, 12, 12, 0.56)) 62%,
+      var(--mila-header-fadeBottom, rgba(12, 12, 12, 0)) 100%
     );
-    opacity: 0;
+    opacity: var(--mila-header-baseFadeOpacity, 0);
     pointer-events: none;
     z-index: -1;
     transition: opacity 0.26s ease;
@@ -330,7 +339,7 @@
     border: none;
     border-radius: 6px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.42);
+    color: var(--mila-inputs-icon, rgba(255, 255, 255, 0.42));
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -342,7 +351,7 @@
   }
 
   .search-filter-btn:hover {
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
     background: transparent;
   }
 
@@ -357,7 +366,7 @@
     height: 66px;
   }
 
-  .logo-img {
+  :global(.logo-img) {
     height: 52px;
     width: auto;
     display: block;
@@ -389,7 +398,7 @@
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--mila-header-navText, rgba(255, 255, 255, 0.5));
     font-family: 'Medeo Sans', system-ui, sans-serif;
     font-size: 14px;
     line-height: 1;
@@ -401,11 +410,11 @@
   }
 
   .tab-btn:hover {
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--mila-header-navTextHover, rgba(255, 255, 255, 0.85));
   }
 
   .tab-btn.active {
-    color: #ffffff;
+    color: var(--mila-header-navTextActive, #ffffff);
   }
 
   .tab-btn:active {
@@ -487,13 +496,13 @@
     background: transparent;
     border: none;
     cursor: pointer;
-    color: rgba(255, 255, 255, 0.92);
+    color: var(--mila-text-primary, rgba(255, 255, 255, 0.92));
     transition: color var(--hover-dur) var(--ease-out);
   }
 
   .auth-trigger:hover,
   .auth-trigger.is-open {
-    color: #ffffff;
+    color: var(--mila-header-navTextActive, #ffffff);
   }
 
   .auth-user-name {
@@ -520,8 +529,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
+    background: var(--mila-header-avatarBg, rgba(255, 255, 255, 0.12));
+    color: var(--mila-header-avatarText, #fff);
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
     font-size: 12px;
     font-weight: 700;
@@ -542,7 +551,7 @@
   }
 
   @media (max-width: 980px) {
-    .logo-img {
+    :global(.logo-img) {
       height: 44px;
     }
 

@@ -1,0 +1,101 @@
+{
+  "setup": {
+    "welcome": "Welcome",
+    "continue": "Continue",
+    "chooseLanguage": "Choose your language",
+    "chooseLanguageSub": "Select the language used across the interface and catalog.",
+    "chooseTheme": "Choose your theme",
+    "chooseThemeSub": "Pick the appearance that feels right for your space.",
+    "defaultQuality": "Default video quality",
+    "defaultQualitySub": "Preferred resolution when starting an episode.",
+    "allDone": "All done",
+    "themeDark": "Dark",
+    "themeLight": "Light",
+    "themeCustom": "Accent",
+    "qualityAuto": "Auto"
+  },
+  "nav": {
+    "home": "Home",
+    "library": "Library",
+    "news": "News",
+    "watchTogether": "Watch Together"
+  },
+  "header": {
+    "searchPlaceholder": "Search something...",
+    "openFilters": "Open search filters",
+    "filters": "Filters",
+    "signInGoogle": "Sign in with Google",
+    "signOut": "Sign out",
+    "account": "Account"
+  },
+  "home": {
+    "newReleases": "New Releases",
+    "recommendations": "You might also like",
+    "watchEp": "Watch Ep {n}",
+    "planToWatch": "Plan to Watch",
+    "inPlanToWatch": "In Plan to Watch",
+    "opening": "Opening",
+    "expandCredits": "Expand credits",
+    "collapseCredits": "Collapse credits",
+    "explore": "Explore",
+    "seasonalReleases": "Seasonal Releases",
+    "search": "Search",
+    "dataApis": "Data & APIs",
+    "libraries": "Libraries",
+    "typography": "Typography",
+    "socials": "Socials"
+  },
+  "anime": {
+    "watchEp": "Watch Ep {n}",
+    "planToWatch": "Plan to Watch",
+    "inPlanToWatch": "In Plan to Watch",
+    "episodes": "Episodes",
+    "episodeLabel": "Episode {n}",
+    "frames": "Frames",
+    "trailers": "Trailers",
+    "franchise": "Franchise & Related",
+    "charactersCast": "Characters & Cast",
+    "moreLikeThis": "More like this",
+    "castFilterPlaceholder": "Character or VA...",
+    "castEmpty": "No matching characters or voice actors",
+    "torrents": "Torrents",
+    "retry": "Retry",
+    "loading": "Loading",
+    "unavailable": "\"{title}\" is currently unavailable on any source"
+  },
+  "library": {
+    "likes": "Likes",
+    "watchLater": "Watch later",
+    "favorites": "Favorites",
+    "history": "History",
+    "sortDate": "Date",
+    "sortYear": "Year",
+    "sortRating": "Rating",
+    "sortTitle": "A–Z",
+    "searchPlaceholder": "Filter library..."
+  },
+  "news": {
+    "all": "All",
+    "news": "News",
+    "releases": "Releases",
+    "sync": "Sync",
+    "watchEp": "Watch Ep {n}",
+    "details": "Details",
+    "readStory": "Read Story",
+    "watch": "Watch",
+    "loadError": "Could not load anime feed"
+  },
+  "search": {
+    "placeholder": "Search anime...",
+    "anyYear": "Any year",
+    "years": "Years",
+    "episodes": "Episodes",
+    "sort": "Sort",
+    "genres": "Genres",
+    "allGenres": "All genres"
+  },
+  "player": {
+    "episode": "Episode {n}",
+    "uncensoredMp4": "Uncensored · MP4"
+  }
+}

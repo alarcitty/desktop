@@ -8,6 +8,7 @@ const animeVostLoader = createLazyModuleLoader(() => import('./providers/animevo
 const dreamCastLoader = createLazyModuleLoader(() => import('./providers/dreamcast'));
 const hentaiLoader = createLazyModuleLoader(() => import('./providers/hentai'));
 const kodikLoader = createLazyModuleLoader(() => import('./providers/kodik'));
+const zokoLoader = createLazyModuleLoader(() => import('./providers/zoko'));
 import {
   dedupeSearchQueries,
   fetchJsonWithTimeout,
@@ -16,9 +17,90 @@ import {
   titleTokens
 } from './providers/shared';
 import { resolveBackendApiBase } from './bridge';
+import { i18n, t } from '../app/i18n.svelte';
 
 const SHIKI_GRAPHQL = 'https://shikimori.io/api/graphql';
+const ANILIST_GRAPHQL = 'https://graphql.anilist.co';
 const SHIKI_REST_ANIMES = 'https://shikimori.io/api/animes';
+
+const RU_TO_EN_GENRE: Record<string, string> = {
+  'экшен': 'Action',
+  'боевые искусства': 'Martial Arts',
+  'приключения': 'Adventure',
+  'комедия': 'Comedy',
+  'драма': 'Drama',
+  'фэнтези': 'Fantasy',
+  'фантастика': 'Sci-Fi',
+  'научная фантастика': 'Sci-Fi',
+  'романтика': 'Romance',
+  'повседневность': 'Slice of Life',
+  'сверхъестественное': 'Supernatural',
+  'детектив': 'Mystery',
+  'мистика': 'Mystery',
+  'тайна': 'Mystery',
+  'триллер': 'Thriller',
+  'психологическое': 'Psychological',
+  'психология': 'Psychological',
+  'ужасы': 'Horror',
+  'меха': 'Mecha',
+  'музыка': 'Music',
+  'спорт': 'Sports',
+  'школа': 'School',
+  'исекай': 'Isekai',
+  'сёнен': 'Shounen',
+  'сёнэн': 'Shounen',
+  'сёдзё': 'Shoujo',
+  'сэйнэн': 'Seinen',
+  'дзёсэй': 'Josei',
+  'исторический': 'Historical',
+  'история': 'Historical',
+  'военное': 'Military',
+  'космос': 'Space',
+  'пародия': 'Parody',
+  'гарем': 'Harem',
+  'этти': 'Ecchi',
+  'демоны': 'Demons',
+  'магия': 'Magic',
+  'вампиры': 'Vampire',
+  'самураи': 'Samurai',
+  'игры': 'Game',
+  'полиция': 'Police',
+  'суперсила': 'Super Power',
+  'безумие': 'Avant Garde',
+  'авангард': 'Avant Garde',
+  'гурман': 'Gourmet',
+  'киберпанк': 'Cyberpunk',
+  'работа': 'Workplace',
+  'перерождение': 'Reincarnation',
+  'выживание': 'Survival'
+};
+
+export function translateGenreName(raw?: string | null): string {
+  const trimmed = raw?.trim() ?? '';
+  if (!trimmed) return '';
+  if (i18n.locale === 'ru') return trimmed;
+  return RU_TO_EN_GENRE[trimmed.toLowerCase()] ?? trimmed;
+}
+
+export function cleanAnilistDescription(raw?: string | null): string {
+  if (!raw) return '';
+  return raw
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?[^>]+>/g, '')
+    .replace(/\(\s*Source:\s*[^)]+\)\s*$/i, '')
+    .replace(/\[Written by[^\]]+\]\s*$/i, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export function pickArtworkDescription(art?: ShikiArtwork | null): string {
+  if (!art) return '';
+  if (i18n.locale === 'ru') {
+    return art.description || art.descriptionEnglish || '';
+  }
+  return art.descriptionEnglish || art.description || '';
+}
 // Official AniLibria v1 API (https://anilibria.top/api/docs/v1) with mirror and local proxy fallback.
 const ANILIBRIA_API_BASES = [
   'https://anilibria.top/api/v1',
@@ -63,6 +145,7 @@ export interface ShikiArtwork {
   russian: string;
   english: string;
   description: string;
+  descriptionEnglish?: string;
   score: number;
   year?: number;
   status?: string;
@@ -429,11 +512,61 @@ function mapShikiNode(item: ShikiGqlNode): ShikiArtwork | null {
   };
 }
 
+const anilistEnrichedIds = new Set<number>();
+
+async function enrichAnilistEnglish(ids: readonly number[]): Promise<void> {
+  const missing = Array.from(
+    new Set(
+      ids.filter((id) => id > 0 && !anilistEnrichedIds.has(id) && !shikiCache.get(id)?.descriptionEnglish)
+    )
+  ).slice(0, 50);
+  if (missing.length === 0) return;
+  for (const id of missing) anilistEnrichedIds.add(id);
+
+  try {
+    const query = `query($ids:[Int]){Page(perPage:50){media(idMal_in:$ids,type:ANIME){idMal title{english romaji} description(asHtml:false)}}}`;
+    const payload = await fetchJsonWithTimeout<{
+      data?: {
+        Page?: {
+          media?: Array<{
+            idMal?: number;
+            title?: { english?: string | null; romaji?: string | null };
+            description?: string | null;
+          }>;
+        };
+      };
+    }>(
+      ANILIST_GRAPHQL,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, variables: { ids: missing } })
+      },
+      5500
+    );
+    for (const item of payload.data?.Page?.media ?? []) {
+      const id = item.idMal ?? 0;
+      const existing = shikiCache.get(id);
+      if (!id || !existing) continue;
+      const descEn = cleanAnilistDescription(item.description);
+      const updated: ShikiArtwork = {
+        ...existing,
+        english: existing.english || item.title?.english?.trim() || '',
+        descriptionEnglish: descEn || existing.descriptionEnglish
+      };
+      setShikiCached(updated);
+    }
+  } catch {
+    // Non-fatal: AniList English synopsis fallback is best-effort
+  }
+}
+
 // Fetches Shikimori posters, screenshots (banners), and cleaned descriptions in a single batch call.
 export async function ensureShikimoriArtwork(ids: readonly number[]): Promise<Map<number, ShikiArtwork>> {
   while (true) {
     const missing = ids.filter((id) => id > 0 && !shikiCache.has(id));
     if (missing.length === 0) {
+      await enrichAnilistEnglish(ids);
       return shikiCache;
     }
 
@@ -1015,6 +1148,28 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
     }
   }
 
+  const zokoMatch = await zokoLoader
+    .load()
+    .then((m) => m.findZokoMatch(providerTitles, target.shikiId ?? null, shikiArt?.episodes ?? null))
+    .catch(() => null);
+  if (zokoMatch && zokoMatch.dubs.length > 0) {
+    const chosen = zokoMatch.dubs.find((d) => d.mode === 'dub') ?? zokoMatch.dubs[0];
+    if (chosen.episodes.length > 0) {
+      return {
+        id: zokoMatch.malId,
+        alias: chosen.voice.id,
+        title: shikiArt?.english || shikiArt?.name || target.title,
+        titleEnglish: shikiArt?.english || shikiArt?.name,
+        year: shikiArt?.year,
+        provider: 'zoko',
+        voiceLabel: chosen.voice.label,
+        poster: shikiArt?.posterOriginal || shikiArt?.posterMain,
+        banner: shikiArt?.screenshots?.[0],
+        episodes: chosen.episodes
+      };
+    }
+  }
+
   const hentaiMatch = await hentaiLoader
     .load()
     .then((m) => m.findHentaiMatch(providerTitles, shikiArt?.year ?? null))
@@ -1034,7 +1189,7 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
     };
   }
 
-  throw new Error(`«${target.title}» сейчас недоступно для воспроизведения ни на одном из источников`);
+  throw new Error(t('anime.unavailable', { title: target.title }));
 }
 
 export function episodeSources(ep: PlayableEpisode): HlsSources {
@@ -1136,7 +1291,7 @@ function mapShikiToSpotlight(art: ShikiArtwork, releaseAlias?: string): HomeSpot
     poster: art.posterOriginal || art.posterMain || shots[0] || '',
     score: art.score > 0 ? Number(art.score.toFixed(1)) : 0,
     metaTags: buildMetaTags(art),
-    description: truncateDescription(art.description, 330)
+    description: truncateDescription(pickArtworkDescription(art), 330)
   };
 }
 
@@ -1253,6 +1408,13 @@ export async function loadHomeFeeds(forceRefresh = false): Promise<HomeFeeds> {
     if (libShikiIds.length > 0) {
       await ensureShikimoriArtwork(libShikiIds).catch(() => {});
     }
+    const spotlightEnrichIds = [
+      ...ongoingArts.slice(0, 12).map((a) => a.id),
+      ...rankedArts.slice(0, 10).map((a) => a.id)
+    ];
+    if (spotlightEnrichIds.length > 0) {
+      await enrichAnilistEnglish(spotlightEnrichIds).catch(() => {});
+    }
 
     const topLibArts: ShikiArtwork[] = [];
     for (const item of topCatRaw) {
@@ -1303,10 +1465,10 @@ export async function loadHomeFeeds(forceRefresh = false): Promise<HomeFeeds> {
       const libTags = [
         r.year ? String(r.year) : '',
         epCount ? `${epCount} ep` : '',
-        ...(r.genres ?? []).slice(0, 3).map((g) => g.name ?? '').filter(Boolean)
+        ...(r.genres ?? []).slice(0, 3).map((g) => translateGenreName(g.name)).filter(Boolean)
       ].filter(Boolean);
       const tags = shiki ? buildMetaTags(shiki) : libTags;
-      const descSource = shiki?.description || cleanBBCode(r.description);
+      const descSource = pickArtworkDescription(shiki) || cleanBBCode(r.description);
 
       if (r.shikimori?.id) usedShikiIds.add(r.shikimori.id);
       const fKey = franchiseKey(title);
@@ -1534,11 +1696,11 @@ function mapFranchiseSeasons(rawList: RawFranchiseReleaseNode[]): AnimeSeasonEnt
       id: r.id,
       alias: r.alias,
       shikiId: r.shikimori?.id ?? undefined,
-      title: r.name?.main || r.name?.english || 'Anime',
+      title: r.name?.english || r.name?.main || 'Anime',
       titleEnglish: r.name?.english || undefined,
       shortLabel,
       year: r.year ?? undefined,
-      typeLabel: r.type?.description || r.type?.value || undefined,
+      typeLabel: r.type?.value || r.type?.description || undefined,
       episodesTotal: r.episodes_total ?? undefined,
       poster
     };
@@ -1653,7 +1815,7 @@ function releaseCandidateToSearchItem(
     r.rating?.average ||
     0;
   const libGenres = (r.genres ?? [])
-    .map((g) => g?.name?.trim())
+    .map((g) => translateGenreName(g?.name))
     .filter((g): g is string => Boolean(g));
   const genres = libGenres.length > 0 ? libGenres : (shiki?.genres ?? []);
   const genreIds = (r.genres ?? [])
@@ -1670,10 +1832,12 @@ function releaseCandidateToSearchItem(
     (shiki?.episodes && shiki.episodes > 0 ? shiki.episodes : undefined) ??
     (shiki?.episodesAired && shiki.episodesAired > 0 ? shiki.episodesAired : undefined);
 
+  const fallbackTitle = targetSeason?.title || r.name?.main || '';
   return {
     id: franchise ? `fr-${franchise.id}` : `rel-${r.id}`,
     title: cleanTitle,
-    subTitle: franchise?.name && franchise.name !== cleanTitle ? franchise.name : undefined,
+    subTitle:
+      i18n.locale === 'ru' && fallbackTitle && fallbackTitle !== cleanTitle ? fallbackTitle : undefined,
     year: targetSeason?.year ?? r.year ?? shiki?.year ?? undefined,
     score: rawScore > 0 ? Number(rawScore.toFixed(1)) : undefined,
     typeLabel: targetSeason?.typeLabel ?? r.type?.value ?? r.type?.description ?? 'TV',
@@ -1709,7 +1873,7 @@ export async function loadCatalogGenres(signal?: AbortSignal): Promise<CatalogGe
         )
         .map((g) => ({
           id: g.id,
-          name: g.name.trim(),
+          name: translateGenreName(g.name),
           totalReleases: typeof g.total_releases === 'number' ? g.total_releases : undefined
         }))
         .sort((a, b) => (b.totalReleases ?? 0) - (a.totalReleases ?? 0));
@@ -2224,7 +2388,7 @@ export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption 
   const cast = rel.voiceActors?.slice(0, 3).join(', ');
   const epPart = rel.episodes.length > 0 ? `${rel.episodes.length} ep` : '';
   const kindTag =
-    provider === 'dreamcast' || provider === 'hentaimama'
+    provider === 'dreamcast' || provider === 'hentaimama' || provider === 'zoko'
       ? '1080p HLS'
       : provider === 'animevost' || provider === 'hentaigasm'
         ? 'MP4'
@@ -2238,7 +2402,9 @@ export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption 
           ? 'HentaiMama'
           : provider === 'hentaigasm'
             ? 'HentaiGasm'
-            : 'AniLibria';
+            : provider === 'zoko'
+              ? 'English Dub'
+              : 'AniLibria';
   const sublabel = cast || [epPart, kindTag].filter(Boolean).join(' · ') || undefined;
   return {
     id: rel.alias,
@@ -2263,7 +2429,7 @@ export async function resolveVoiceTrackRelease(
     const { fetchDreamCastEpisodes } = await dreamCastLoader.load();
     const episodes = await fetchDreamCastEpisodes(releaseId, releaseUrl);
     if (episodes.length === 0) {
-      throw new Error(`Dream Cast: нет доступных серий для ${target.title}`);
+      throw new Error(`Dream Cast: no episodes available for ${target.title}`);
     }
     return {
       ...(baseRelease ?? {
@@ -2301,7 +2467,7 @@ export async function resolveVoiceTrackRelease(
     const { fetchAnimeGOEpisodes } = await animeGoLoader.load();
     const episodes = await fetchAnimeGOEpisodes(animeId, trId, embedUrl, providerSlug);
     if (episodes.length === 0) {
-      throw new Error(`AnimeGO: нет доступных серий для ${target.title}`);
+      throw new Error(`AnimeGO: no episodes available for ${target.title}`);
     }
     return {
       ...(baseRelease ?? {
@@ -2327,7 +2493,7 @@ export async function resolveVoiceTrackRelease(
     const { fetchKodikEpisodes } = await kodikLoader.load();
     const episodes = await fetchKodikEpisodes(yaniId, studioKey);
     if (episodes.length === 0) {
-      throw new Error(`Kodik: нет доступных серий для ${target.title}`);
+      throw new Error(`Kodik: no episodes available for ${target.title}`);
     }
     return {
       ...(baseRelease ?? {
@@ -2352,7 +2518,7 @@ export async function resolveVoiceTrackRelease(
     const { fetchAnimeVostEpisodes } = await animeVostLoader.load();
     const episodes = await fetchAnimeVostEpisodes(releaseId);
     if (episodes.length === 0) {
-      throw new Error(`AnimeVost: нет доступных серий для ${target.title}`);
+      throw new Error(`AnimeVost: no episodes available for ${target.title}`);
     }
     return {
       ...(baseRelease ?? {
@@ -2372,12 +2538,43 @@ export async function resolveVoiceTrackRelease(
     };
   }
 
+  if (voice.provider === 'zoko') {
+    const malId = Number(voice.providerId) || Number(target.shikiId) || 0;
+    const mode = voice.sourceId === 'sub' ? 'sub' : 'dub';
+    const { fetchZokoEpisodes } = await zokoLoader.load();
+    const episodes = await fetchZokoEpisodes(
+      malId,
+      mode,
+      shikiArt?.episodes ?? baseRelease?.episodes?.length ?? null,
+      dedupeSearchQueries([shikiArt?.english, shikiArt?.name, target.title])
+    );
+      if (episodes.length === 0) {
+      throw new Error(`${voice.label}: no episodes available for ${target.title}`);
+    }
+    return {
+      ...(baseRelease ?? {
+        id: malId,
+        title: shikiArt?.english || shikiArt?.name || target.title,
+        titleEnglish: shikiArt?.english || shikiArt?.name,
+        year: shikiArt?.year,
+        poster: shikiArt?.posterOriginal || shikiArt?.posterMain,
+        banner: shikiArt?.screenshots?.[0]
+      }),
+      id: malId,
+      alias: voice.id,
+      provider: 'zoko',
+      voiceLabel: voice.label,
+      voiceActors: undefined,
+      episodes: mergeBaseEpisodeMetadata(episodes, baseRelease?.episodes)
+    };
+  }
+
   if (voice.provider === 'hentaimama' || voice.provider === 'hentaigasm') {
     const hentaiTarget = typeof voice.sourceId === 'string' ? voice.sourceId : '';
     const { fetchHentaiEpisodes } = await hentaiLoader.load();
     const episodes = await fetchHentaiEpisodes(voice.provider, hentaiTarget);
-    if (episodes.length === 0) {
-      throw new Error(`${voice.label}: нет доступных серий для ${target.title}`);
+      if (episodes.length === 0) {
+      throw new Error(`${voice.label}: no episodes available for ${target.title}`);
     }
     const releaseId = Number(voice.providerId) || 900_000_001;
     return {
@@ -2461,19 +2658,38 @@ export async function findVoiceOptions(
   const kodikPromise = !isHentaiPrimary
     ? kodikLoader.load().then((m) => m.findKodikMatch(searchTitles, shikiArt?.year ?? primary.year ?? null, shikiId))
     : Promise.resolve(null);
+  const zokoPromise = !isHentaiPrimary
+    ? zokoLoader
+        .load()
+        .then((m) =>
+          m.findZokoMatch(
+            dedupeSearchQueries([
+              shikiArt?.english,
+              shikiArt?.name,
+              primary.titleEnglish,
+              primary.title,
+              ...(extraTitles ?? [])
+            ]),
+            shikiId ?? null,
+            shikiArt?.episodes ?? (primary.episodes.length > 0 ? primary.episodes.length : null)
+          )
+        )
+    : Promise.resolve(null);
 
   const hentaiPromise = isHentaiPrimary
     ? hentaiLoader.load().then((m) => m.findAllHentaiTracks(searchTitles, shikiArt?.year ?? primary.year ?? null))
     : Promise.resolve([]);
 
-  const [libSettled, dcSettled, avSettled, agoSettled, kodikSettled, hentaiSettled] = await Promise.allSettled([
-    libPromise,
-    dcPromise,
-    avPromise,
-    agoPromise,
-    kodikPromise,
-    hentaiPromise
-  ]);
+  const [libSettled, dcSettled, avSettled, agoSettled, kodikSettled, zokoSettled, hentaiSettled] =
+    await Promise.allSettled([
+      libPromise,
+      dcPromise,
+      avPromise,
+      agoPromise,
+      kodikPromise,
+      zokoPromise,
+      hentaiPromise
+    ]);
 
   if (libSettled.status === 'fulfilled' && libSettled.value) {
     const [appRes, catRes] = libSettled.value;
@@ -2554,6 +2770,15 @@ export async function findVoiceOptions(
       if (studioKey && seenStudioKeys.has(studioKey)) continue;
       seenIds.add(dub.voice.id);
       if (studioKey) seenStudioKeys.add(studioKey);
+      options.push(dub.voice);
+    }
+  }
+
+  if (zokoSettled.status === 'fulfilled' && zokoSettled.value) {
+    for (const dub of zokoSettled.value.dubs) {
+      if (seenIds.has(dub.voice.id)) continue;
+      if (dub.mode === 'sub' && seenStudioKeys.has('sub')) continue;
+      seenIds.add(dub.voice.id);
       options.push(dub.voice);
     }
   }
@@ -2972,7 +3197,6 @@ export interface AnimePageExtras {
   similar: ShikiSimilarAnime[];
 }
 
-const ANILIST_GRAPHQL = 'https://graphql.anilist.co';
 const ANIME_EXTRAS_CACHE_KEY = 'mila.cache.animeExtras.v3';
 const ANIME_EXTRAS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const ANIME_EXTRAS_MAX_ITEMS = 60;
@@ -3385,8 +3609,8 @@ export async function loadAnimePageExtras(shikiId: number): Promise<AnimePageExt
         const yearMatch = item.aired_on?.match(/^(\d{4})/);
         return {
           id: item.id,
-          title: item.name,
-          subTitle: item.russian?.trim() || undefined,
+          title: art?.english || art?.name || item.name,
+          subTitle: i18n.locale === 'ru' ? item.russian?.trim() || undefined : undefined,
           year: yearMatch ? Number(yearMatch[1]) : undefined,
           score: Number.isFinite(numScore) && numScore > 0 ? Number(numScore.toFixed(1)) : undefined,
           episodes: item.episodes && item.episodes > 0 ? item.episodes : undefined,

@@ -49,6 +49,7 @@
     setInlinePlayerStage,
     switchSeason
   } from '../../app/player.svelte';
+  import { t } from '../../app/i18n.svelte';
 
   const EP_PAGE_SIZE = 16;
   const EP_VIEW_MODE_KEY = 'mila.anime.episodesViewMode';
@@ -763,7 +764,7 @@
               {#snippet icon()}
                 <Play size={16} fill="currentColor" strokeWidth={0} />
               {/snippet}
-              Watch Ep {currentEpisode?.ordinal ?? 1}
+              {t('anime.watchEp', { n: currentEpisode?.ordinal ?? 1 })}
             </MainButton>
 
             <SecondButton loading={isPlanLoading} onclick={handlePlanToggle}>
@@ -774,7 +775,7 @@
                   <Bookmark size={16} strokeWidth={2} />
                 {/if}
               {/snippet}
-              {inLibrary ? 'In Plan to Watch' : 'Plan to Watch'}
+              {inLibrary ? t('anime.inPlanToWatch') : t('anime.planToWatch')}
             </SecondButton>
 
             <button
@@ -863,7 +864,7 @@
     <div class="player-frame-wrap">
       <div class="player-stage">
       {#if player.loading}
-        <div class="stage-state" role="status" aria-label="Loading" transition:fade={{ duration: 180 }}>
+        <div class="stage-state" role="status" aria-label={t('anime.loading')} transition:fade={{ duration: 180 }}>
           <div class="spinner" aria-hidden="true"></div>
         </div>
       {:else if player.error}
@@ -873,7 +874,7 @@
             {#snippet icon()}
               <RefreshCw size={15} strokeWidth={2} />
             {/snippet}
-            Retry
+            {t('anime.retry')}
           </MainButton>
         </div>
       {:else if currentEpisode}
@@ -909,7 +910,7 @@
       <section class="episodes-section" aria-label="Episodes">
         <div class="section-head">
           <div class="section-head-left">
-            <h2 class="section-heading">Episodes</h2>
+            <h2 class="section-heading">{t('anime.episodes')}</h2>
             <span class="section-count">{episodes.length}</span>
           </div>
 
@@ -1060,10 +1061,10 @@
           <div class="section-head-left">
             <h2 class="section-heading">
               {galleryShots.length > 0 && trailerVideos.length > 0
-                ? 'Frames & Trailers'
+                ? `${t('anime.frames')} & ${t('anime.trailers')}`
                 : trailerVideos.length > 0
-                  ? 'Trailers'
-                  : 'Frames'}
+                  ? t('anime.trailers')
+                  : t('anime.frames')}
             </h2>
             <span class="section-count">{galleryShots.length + trailerVideos.length}</span>
           </div>
@@ -1190,7 +1191,7 @@
     <section class="franchise-section" aria-label="Franchise and Related">
       <div class="section-head is-bleed-head">
         <div class="section-head-left">
-          <h2 class="section-heading">Franchise & Related</h2>
+          <h2 class="section-heading">{t('anime.franchise')}</h2>
           <span class="section-count">{relatedEntries.length}</span>
         </div>
       </div>
@@ -1231,7 +1232,7 @@
     <section class="cast-section" aria-label="Characters and Cast">
       <div class="section-head cast-section-head is-bleed-head">
         <div class="section-head-left">
-          <h2 class="section-heading">Characters & Cast</h2>
+          <h2 class="section-heading">{t('anime.charactersCast')}</h2>
           <span class="section-count">{filteredCharacters.length}</span>
         </div>
 
@@ -1347,9 +1348,9 @@
             <input
               type="text"
               bind:value={charQuery}
-              placeholder="Character or VA..."
+              placeholder={t('anime.castFilterPlaceholder')}
               class="cast-search-input"
-              aria-label="Filter characters or voice actors"
+              aria-label={t('anime.castFilterPlaceholder')}
             />
           </label>
 
@@ -1519,15 +1520,15 @@
           </div>
         {/if}
       {:else}
-        <div class="cast-empty is-bleed-head">No matching characters or voice actors</div>
+        <div class="cast-empty is-bleed-head">{t('anime.castEmpty')}</div>
       {/if}
     </section>
   {/if}
 
   {#if similarEntries.length > 0}
-    <section class="more-section" aria-label="More like this">
+    <section class="more-section" aria-label={t('anime.moreLikeThis')}>
       <div class="more-heading-wrap">
-        <h2 class="more-title">More like this</h2>
+        <h2 class="more-title">{t('anime.moreLikeThis')}</h2>
       </div>
 
       <div class="more-stage">
@@ -1691,12 +1692,13 @@
   .anime-page {
     width: 100%;
     min-height: 100%;
-    background: #0c0c0c;
-    color: #ffffff;
+    background: var(--mila-app-canvas, #0c0c0c);
+    color: var(--mila-text-primary, #ffffff);
     display: flex;
     flex-direction: column;
     padding-bottom: 0;
     box-sizing: border-box;
+    transition: background-color 360ms cubic-bezier(0.22, 1, 0.36, 1), color 320ms ease;
   }
 
   .anime-hero-bg {
@@ -1728,9 +1730,9 @@
     inset: 0;
     background: linear-gradient(
       90deg,
-      rgba(12, 12, 12, 0.9) 0%,
-      rgba(12, 12, 12, 0.56) 52%,
-      rgba(12, 12, 12, 0.44) 100%
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.9) 0%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.56) 52%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.44) 100%
     );
     pointer-events: none;
     z-index: 1;
@@ -1741,10 +1743,10 @@
     inset: 0;
     background: linear-gradient(
       180deg,
-      rgba(12, 12, 12, 0.42) 0%,
-      rgba(12, 12, 12, 0.22) 38%,
-      rgba(12, 12, 12, 0.78) 78%,
-      #0c0c0c 100%
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.42) 0%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.22) 38%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.78) 78%,
+      var(--mila-app-canvas, #0c0c0c) 100%
     );
     pointer-events: none;
     z-index: 2;
@@ -1767,7 +1769,7 @@
     font-weight: 700;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.42);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.42));
     user-select: none;
   }
 
@@ -1781,7 +1783,7 @@
     outline: none;
     border-radius: 21px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.48);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.48));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 14px;
     font-weight: 500;
@@ -1790,8 +1792,8 @@
   }
 
   .back-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.92);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.06));
+    color: var(--mila-text-primary, rgba(255, 255, 255, 0.92));
     transform: translateX(-2px);
   }
 
@@ -1818,7 +1820,7 @@
     font-weight: 700;
     line-height: 1.02;
     letter-spacing: -0.02em;
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .anime-meta-line {
@@ -1871,12 +1873,12 @@
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: clamp(14.5px, 1.45vw, 18px);
     line-height: 1.44;
-    color: rgba(255, 255, 255, 0.62);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.62));
     transition: color 0.36s var(--ease-out);
   }
 
   .anime-description.is-expanded {
-    color: rgba(255, 255, 255, 0.72);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.72));
   }
 
   .desc-toggle {
@@ -1884,7 +1886,7 @@
     padding: 0;
     border: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.65);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.65));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
     cursor: pointer;
@@ -1892,7 +1894,7 @@
   }
 
   .desc-toggle:hover {
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .overview-actions {
@@ -2186,14 +2188,14 @@
     font-family: 'PP Monument Extended', system-ui, sans-serif;
     font-size: clamp(20px, 2vw, 24px);
     font-weight: 900;
-    color: #e4e4e7;
+    color: var(--mila-text-heading, #e4e4e7);
     letter-spacing: -0.01em;
   }
 
   .section-count {
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.42);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.42));
   }
 
   .range-tabs {
@@ -2209,8 +2211,8 @@
     border: none;
     outline: none;
     border-radius: 11px;
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.72);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.72));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
     font-weight: 500;
@@ -2219,14 +2221,14 @@
   }
 
   .range-pill:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.12));
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .range-pill.is-active {
-    background: rgba(255, 255, 255, 0.16);
-    color: #ffffff;
-    font-weight: 400;
+    background: var(--mila-app-surfaceActive, rgba(255, 255, 255, 0.16));
+    color: var(--mila-accent-highlight, #ffffff);
+    font-weight: 500;
   }
 
   .torrent-toggle-pill {
@@ -2243,7 +2245,7 @@
     height: 36px;
     padding: 3px;
     border-radius: 11px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
     box-sizing: border-box;
   }
 
@@ -2254,7 +2256,7 @@
     outline: none;
     border-radius: 8px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.44);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.44));
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -2267,12 +2269,12 @@
   }
 
   .sort-chip-btn:hover {
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.8));
   }
 
   .sort-chip-btn.active {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.1));
+    color: var(--mila-accent-highlight, #ffffff);
   }
 
   .ep-view-modes {
@@ -2283,7 +2285,7 @@
     height: 36px;
     padding: 3px;
     border-radius: 11px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
     box-sizing: border-box;
   }
 
@@ -2294,7 +2296,7 @@
     width: 30px;
     height: 30px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.1));
     pointer-events: none;
     transition: transform 0.32s var(--ease-out);
   }
@@ -2313,7 +2315,7 @@
     outline: none;
     border-radius: 8px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.42);
+    color: var(--mila-text-dim, rgba(255, 255, 255, 0.42));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2322,11 +2324,11 @@
   }
 
   .ep-view-btn:hover {
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.8));
   }
 
   .ep-view-btn.active {
-    color: #ffffff;
+    color: var(--mila-accent-highlight, #ffffff);
   }
 
   /* Connected Corner-Only Mosaic Grids (Episodes, Frames, Trailers) */
@@ -3159,12 +3161,12 @@
     padding: 0 14px 0 0;
     border-radius: 14px;
     overflow: hidden;
-    background: rgba(255, 255, 255, 0.032);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.032));
     transition: background-color 0.22s var(--ease-out);
   }
 
   .cast-card:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.06));
   }
 
   .cast-portrait-wrap {
@@ -3223,7 +3225,7 @@
     font-size: 13.5px;
     font-weight: 700;
     letter-spacing: -0.01em;
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3239,12 +3241,12 @@
     flex-shrink: 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 10.5px;
-    color: rgba(255, 255, 255, 0.46);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.46));
   }
 
   .cast-role-tag.is-main {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    color: #ffffff;
+    color: var(--mila-accent-highlight, #ffffff);
     font-weight: 700;
     letter-spacing: -0.01em;
   }
@@ -3252,7 +3254,7 @@
   .cast-gender-tag {
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 10.5px;
-    color: rgba(255, 255, 255, 0.34);
+    color: var(--mila-text-dim, rgba(255, 255, 255, 0.34));
   }
 
   .cast-sub-name {
@@ -3309,14 +3311,14 @@
   }
 
   .cast-more-btn:hover {
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .cast-empty {
     padding: 24px 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13.5px;
-    color: rgba(255, 255, 255, 0.42);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.42));
   }
 
   .cast-section:last-child .cast-empty {
@@ -3329,10 +3331,11 @@
     width: 100%;
     margin-top: auto;
     padding-top: clamp(42px, 5vw, 64px);
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
     overflow: visible;
     display: flex;
     flex-direction: column;
+    transition: background-color 360ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .more-heading-wrap {
@@ -3347,7 +3350,7 @@
     font-family: 'PP Monument Extended', system-ui, sans-serif;
     font-size: clamp(26px, 3.2vw, 48px);
     font-weight: 900;
-    color: #d4d4d4;
+    color: var(--mila-text-heading, #d4d4d4);
     line-height: 1;
     user-select: none;
   }

@@ -54,7 +54,7 @@
   .marlakit-btn-social {
     position: relative;
     height: 40px;
-    background: #eaeaea;
+    background: var(--mila-buttons-socialBg, #eaeaea);
     border-radius: 12px;
     border: none;
     outline: none;
@@ -63,16 +63,16 @@
     justify-content: center;
     cursor: pointer;
     --wails-draggable: no-drag;
-    transition: background-color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+    transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
     padding: 0 16px;
     box-sizing: border-box;
     user-select: none;
     white-space: nowrap;
-    color: #1a1a1a;
+    color: var(--mila-buttons-socialText, #1a1a1a);
   }
 
   .marlakit-btn-social:hover:not(:disabled) {
-    background: #ffffff;
+    background: var(--mila-buttons-socialBgHover, #ffffff);
   }
 
   .marlakit-btn-social:active:not(:disabled) {
@@ -111,7 +111,7 @@
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 14px;
     font-weight: 500;
-    color: #1a1a1a;
+    color: var(--mila-buttons-socialText, #1a1a1a);
     line-height: 1;
   }
 

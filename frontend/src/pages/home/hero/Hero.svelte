@@ -28,6 +28,7 @@
     computeAdjacentHeroIndices,
     hasEnoughHeroPreviewBuffer
   } from './heroBuffer';
+  import { t } from '../../../app/i18n.svelte';
   import { openWatch, player } from '../../../app/player.svelte';
   import { router } from '../../../app/router.svelte';
   import { search } from '../../../app/search.svelte';
@@ -976,14 +977,14 @@
                   {#snippet icon()}
                     <Play size={16} fill="currentColor" strokeWidth={0} />
                   {/snippet}
-                  Watch
+                  {t('news.watch')}
                 </MainButton>
 
                 <SecondButton loading={isPlanLoading} onclick={handlePlanClick}>
                   {#snippet icon()}
                     <Bookmark size={16} strokeWidth={2} />
                   {/snippet}
-                  Plan to Watch
+                  {t('home.planToWatch')}
                 </SecondButton>
 
                 {#if videoReady && previewClip}
@@ -1219,7 +1220,7 @@
     width: 100%;
     min-height: 105vh;
     padding-top: 72px;
-    background-color: #0c0c0c;
+    background-color: var(--mila-app-canvas, #0c0c0c);
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
@@ -1297,17 +1298,17 @@
     pointer-events: none;
   }
 
-  /* bottom fade to solid #0C0C0C */
+  /* bottom fade to canvas */
   .bg-fade-to-solid {
     position: absolute;
     inset: 0;
     background: linear-gradient(
       180deg,
       rgba(0, 0, 0, 0) 0%,
-      rgba(12, 12, 12, 0) 40%,
-      rgba(12, 12, 12, 0.6) 70%,
-      rgba(12, 12, 12, 0.95) 90%,
-      #0c0c0c 100%
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0) 40%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.6) 70%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.95) 90%,
+      var(--mila-app-canvas, #0c0c0c) 100%
     );
     z-index: 3;
     pointer-events: none;
@@ -1320,6 +1321,12 @@
     flex: 1;
     display: flex;
     flex-direction: column;
+    --mila-buttons-mainBg: var(--mila-media-mainBtnBg, rgba(255, 255, 255, 0.96));
+    --mila-buttons-mainText: var(--mila-media-mainBtnText, #111111);
+    --mila-buttons-secondBg: var(--mila-media-secondBtnBg, rgba(255, 255, 255, 0.08));
+    --mila-buttons-secondText: var(--mila-media-secondBtnText, #ffffff);
+    --mila-meta-tag: var(--mila-media-subtext, rgba(255, 255, 255, 0.56));
+    --mila-meta-dot: var(--mila-media-muted, rgba(255, 255, 255, 0.36));
   }
 
   .hero-container {
@@ -1848,7 +1855,7 @@
     height: 2px;
     width: 100%;
     z-index: 3;
-    background: rgba(255, 255, 255, 0.85);
+    background: var(--mila-progress-heroStripFill, rgba(255, 255, 255, 0.85));
     transform-origin: left center;
     animation-name: spotlightSweep;
     animation-timing-function: linear;

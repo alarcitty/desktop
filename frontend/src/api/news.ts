@@ -1,4 +1,10 @@
-import { ensureShikimoriArtwork, truncateDescription } from './anime';
+import {
+  ensureShikimoriArtwork,
+  pickArtworkDescription,
+  translateGenreName,
+  truncateDescription
+} from './anime';
+import { i18n } from '../app/i18n.svelte';
 
 const SHIKI_TOPICS_URL = 'https://shikimori.io/api/topics?forum=news&limit=14';
 const ANILIBRIA_LATEST_URL = 'https://anilibria.top/api/v1/anime/releases/latest?limit=12';
@@ -375,25 +381,33 @@ export async function loadNewsFeed(force = false): Promise<NewsFeed> {
       const epOrdinal = r.latest_episode?.ordinal;
       const publishedAt = r.fresh_at || r.latest_episode?.updated_at || r.updated_at || '';
       const rawScore = r.shikimori?.rating || art?.score || 0;
-      const desc: string = String(r.description ?? art?.description ?? '').replace(/\r\n/g, '\n').trim();
+      const descEn = pickArtworkDescription(art);
+      const rawDesc = i18n.locale === 'ru'
+        ? String(r.description ?? art?.description ?? '')
+        : descEn || String(r.description ?? '');
+      const desc: string = rawDesc.replace(/\r\n/g, '\n').trim();
       const paragraphs = desc
         .split(/\n{2,}/)
         .map((p: string) => p.replace(/\n+/g, ' ').trim())
         .filter(Boolean);
 
       const genres = (r.genres ?? [])
-        .map((g) => g.name ?? '')
+        .map((g) => translateGenreName(g.name))
         .filter(Boolean)
         .slice(0, 3);
-      const tag = epOrdinal ? `EPISODE ${epOrdinal}` : r.type?.description || 'RELEASE';
+      const tag = epOrdinal ? `EPISODE ${epOrdinal}` : r.type?.value || r.type?.description || 'RELEASE';
+      const relTitle =
+        i18n.locale === 'ru'
+          ? r.name?.main || art?.russian || r.name?.english || 'Anime Release'
+          : art?.english || r.name?.english || art?.name || r.name?.main || 'Anime Release';
 
       return {
         id: `lib-${r.id}`,
         kind: 'release',
         tag,
-        title: r.name?.main || r.name?.english || 'Anime Release',
+        title: relTitle,
         excerpt: truncateDescription(desc || r.name?.english || 'New episode available in 1080p HLS.', 135),
-        paragraphs: paragraphs.length > 0 ? paragraphs : [r.name?.english || r.name?.main || ''],
+        paragraphs: paragraphs.length > 0 ? paragraphs : [relTitle],
         publishedAt,
         publishedMs: Date.parse(publishedAt) || 0,
         relativeTime: formatRelativeTime(publishedAt),

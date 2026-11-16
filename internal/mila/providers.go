@@ -168,6 +168,15 @@ func newProviderProxyHandler(routes []providerRoute) http.Handler {
 		case "/ext/hentai/episodes":
 			serveHentaiEpisodes(w, r)
 			return
+		case "/ext/zoko/probe":
+			serveZokoProbe(w, r)
+			return
+		case "/ext/zoko/resolve":
+			serveZokoResolveJSON(w, r)
+			return
+		case "/ext/zoko/master.m3u8":
+			serveZokoMasterPlaylist(w, r)
+			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/torrent/") {
 			serveTorrentRoute(w, r)

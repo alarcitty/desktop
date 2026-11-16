@@ -1663,11 +1663,11 @@
   .search-body.expanded :global(.search-popup-input) {
     height: 48px;
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--mila-inputs-bg, rgba(255, 255, 255, 0.08));
   }
 
   .search-body.expanded :global(.search-popup-input:focus-within) {
-    background: rgba(255, 255, 255, 0.11);
+    background: var(--mila-inputs-bgFocus, rgba(255, 255, 255, 0.11));
   }
 
   .search-body :global(.search-popup-input .marlakit-input-field) {
@@ -1696,7 +1696,7 @@
     border: none;
     outline: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.48);
+    color: var(--mila-inputs-icon, rgba(255, 255, 255, 0.48));
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1716,7 +1716,7 @@
   .modal-filter-btn:hover,
   .modal-filter-btn.is-open,
   .modal-filter-btn.has-active {
-    color: #ffffff;
+    color: var(--mila-accent-highlight, #ffffff);
     background: transparent;
   }
 
@@ -1729,8 +1729,8 @@
     height: 15px;
     padding: 0 4px;
     border-radius: 999px;
-    background: #ffffff;
-    color: #0c0c0c;
+    background: var(--mila-accent-primary, #ffffff);
+    color: var(--mila-text-onAccent, #0c0c0c);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 10px;
     font-weight: 700;
@@ -1757,8 +1757,8 @@
     font-family: 'Medeo Sans Display', 'Medeo Sans', system-ui, sans-serif;
     font-size: 11.5px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.48);
-    background: rgba(255, 255, 255, 0.08);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.48));
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.08));
     border-radius: 7px;
     line-height: 1;
     cursor: pointer;
@@ -1822,8 +1822,8 @@
     border: none;
     outline: none;
     border-radius: 9px;
-    background: rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.78);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.07));
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.78));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 12px;
     font-weight: 500;
@@ -1840,13 +1840,13 @@
 
   .combo-pill:hover,
   .combo-pill.is-open {
-    background: rgba(255, 255, 255, 0.13);
-    color: #ffffff;
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.13));
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .combo-pill.is-filtered {
-    background: #ffffff;
-    color: #0c0c0c;
+    background: var(--mila-accent-primary, #ffffff);
+    color: var(--mila-text-onAccent, #0c0c0c);
     font-weight: 600;
   }
 
@@ -1870,10 +1870,10 @@
     border: none;
     outline: none;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.06));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.62);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.62));
     cursor: pointer;
     flex-shrink: 0;
     transition:
@@ -1882,8 +1882,8 @@
   }
 
   .reset-inline-btn:hover {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.12);
+    color: var(--mila-text-primary, #ffffff);
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.12));
   }
 
   .search-results {
@@ -2180,7 +2180,7 @@
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
     font-size: 15px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.48);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.48));
     user-select: none;
   }
 </style>

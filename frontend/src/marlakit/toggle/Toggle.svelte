@@ -69,11 +69,11 @@
   }
 
   .mk-toggle.is-checked {
-    background: rgba(255, 255, 255, 0.92);
+    background: var(--mila-toggle-trackOn, rgba(255, 255, 255, 0.92));
   }
 
   .mk-toggle.is-checked:hover:not(.is-disabled) {
-    background: #ffffff;
+    background: var(--mila-toggle-trackOnHover, #ffffff);
   }
 
   .mk-toggle.is-disabled {
@@ -85,7 +85,7 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.88);
+    background: var(--mila-toggle-thumbOff, rgba(255, 255, 255, 0.88));
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.36);
     transform: translate3d(0, 0, 0);
     transition:
@@ -94,7 +94,7 @@
   }
 
   .mk-toggle.is-checked .mk-toggle-thumb {
-    background: #0c0c0c;
+    background: var(--mila-toggle-thumbOn, #0c0c0c);
     transform: translate3d(14px, 0, 0);
   }
 </style>

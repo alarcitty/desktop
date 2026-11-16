@@ -1,0 +1,101 @@
+{
+  "setup": {
+    "welcome": "Вітаємо",
+    "continue": "Продовжити",
+    "chooseLanguage": "Оберіть мову",
+    "chooseLanguageSub": "Оберіть мову інтерфейсу та каталогу.",
+    "chooseTheme": "Оберіть тему",
+    "chooseThemeSub": "Виберіть оформлення, яке пасує вашому стилю.",
+    "defaultQuality": "Якість відео",
+    "defaultQualitySub": "Бажана роздільна здатність при запуску серії.",
+    "allDone": "Готово",
+    "themeDark": "Темна",
+    "themeLight": "Світла",
+    "themeCustom": "Акцент",
+    "qualityAuto": "Авто"
+  },
+  "nav": {
+    "home": "Головна",
+    "library": "Бібліотека",
+    "news": "Новини",
+    "watchTogether": "Дивитись разом"
+  },
+  "header": {
+    "searchPlaceholder": "Знайти аніме...",
+    "openFilters": "Відкрити фільтри пошуку",
+    "filters": "Фільтри",
+    "signInGoogle": "Увійти через Google",
+    "signOut": "Вийти",
+    "account": "Акаунт"
+  },
+  "home": {
+    "newReleases": "Нові релізи",
+    "recommendations": "Може сподобатись",
+    "watchEp": "Дивитись {n} серію",
+    "planToWatch": "У планах",
+    "inPlanToWatch": "Заплановано",
+    "opening": "Опенінг",
+    "expandCredits": "Відкрити інфо",
+    "collapseCredits": "Приховати інфо",
+    "explore": "Розділи",
+    "seasonalReleases": "Релізи сезону",
+    "search": "Пошук",
+    "dataApis": "Дані та API",
+    "libraries": "Бібліотеки",
+    "typography": "Шрифти",
+    "socials": "Соцмережі"
+  },
+  "anime": {
+    "watchEp": "Дивитись {n} серію",
+    "planToWatch": "У планах",
+    "inPlanToWatch": "Заплановано",
+    "episodes": "Серії",
+    "episodeLabel": "Серія {n}",
+    "frames": "Кадри",
+    "trailers": "Трейлери",
+    "franchise": "Франшиза та пов'язані",
+    "charactersCast": "Персонажі та сейю",
+    "moreLikeThis": "Схожі тайтли",
+    "castFilterPlaceholder": "Персонаж або актор...",
+    "castEmpty": "Немає відповідних персонажів чи акторів",
+    "torrents": "Торенти",
+    "retry": "Повторити",
+    "loading": "Завантаження",
+    "unavailable": "«{title}» наразі недоступне на жодному джерелі"
+  },
+  "library": {
+    "likes": "Вподобані",
+    "watchLater": "Переглянути пізніше",
+    "favorites": "Вибране",
+    "history": "Історія",
+    "sortDate": "Дата",
+    "sortYear": "Рік",
+    "sortRating": "Рейтинг",
+    "sortTitle": "А–Я",
+    "searchPlaceholder": "Фільтр бібліотеки..."
+  },
+  "news": {
+    "all": "Усі",
+    "news": "Новини",
+    "releases": "Релізи",
+    "sync": "Оновити",
+    "watchEp": "Дивитись {n} серію",
+    "details": "Детальніше",
+    "readStory": "Читати",
+    "watch": "Дивитись",
+    "loadError": "Не вдалося завантажити стрічку"
+  },
+  "search": {
+    "placeholder": "Пошук аніме...",
+    "anyYear": "Будь-який рік",
+    "years": "Роки",
+    "episodes": "Серії",
+    "sort": "Сортування",
+    "genres": "Жанри",
+    "allGenres": "Усі жанри"
+  },
+  "player": {
+    "episode": "Серія {n}",
+    "uncensoredMp4": "Без цензури · MP4"
+  }
+}

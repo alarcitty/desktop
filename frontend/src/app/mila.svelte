@@ -11,6 +11,7 @@
   import { bootState, initBootGate } from './boot.svelte';
   import { bindings, mountBindingsController } from './bindings.svelte';
   import { getSavedPageScroll, registerScrollBridge } from './router.svelte';
+  import './theme.svelte';
   import type { PageId } from '../pages';
 
   let setupOpen = $state(true);
@@ -120,10 +121,12 @@
     user-select: none;
     display: flex;
     flex-direction: column;
-    background-color: #0c0c0c;
+    background-color: var(--mila-app-canvas, #0c0c0c);
+    color: var(--mila-text-primary, #ffffff);
     -webkit-backface-visibility: hidden;
     backface-visibility: hidden;
     transform: translateZ(0);
+    transition: background-color 360ms cubic-bezier(0.22, 1, 0.36, 1), color 320ms ease;
   }
 
   /* 15px rounded corners ONLY inside the native desktop app */
@@ -161,8 +164,11 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background-color: #0c0c0c;
+    background-color: var(--mila-app-canvas, #0c0c0c);
+    color: var(--mila-text-primary, #ffffff);
     transition:
+      background-color 360ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 320ms ease,
       opacity 580ms cubic-bezier(0.22, 1, 0.36, 1),
       transform 580ms cubic-bezier(0.22, 1, 0.36, 1),
       filter 580ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -185,7 +191,7 @@
     position: absolute;
     inset: 0;
     z-index: 9999;
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -196,8 +202,8 @@
     width: 34px;
     height: 34px;
     border-radius: 50%;
-    border: 2.5px solid rgba(255, 255, 255, 0.14);
-    border-top-color: #ffffff;
+    border: 2.5px solid var(--mila-app-spinnerTrack, rgba(255, 255, 255, 0.14));
+    border-top-color: var(--mila-app-spinnerHead, #ffffff);
     animation: app-boot-spin 0.75s linear infinite;
     -webkit-app-region: no-drag;
   }

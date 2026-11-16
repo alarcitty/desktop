@@ -35,6 +35,7 @@
     z-index: 2;
     display: flex;
     flex-direction: column;
-    background-color: #0c0c0c;
+    background-color: var(--mila-app-canvas, #0c0c0c);
+    transition: background-color 360ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 </style>

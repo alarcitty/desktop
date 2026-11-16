@@ -1,0 +1,410 @@
+{
+  "version": 1,
+  "presets": {
+    "dark": {
+      "meta": {
+        "id": "dark",
+        "mode": "dark",
+        "logoTone": "light"
+      },
+      "app": {
+        "canvas": "#0c0c0c",
+        "canvasRgb": "12, 12, 12",
+        "surface": "#121216",
+        "surfaceElevated": "#18181e",
+        "surfaceGlass": "rgba(255, 255, 255, 0.06)",
+        "surfaceHover": "rgba(255, 255, 255, 0.11)",
+        "surfaceActive": "rgba(255, 255, 255, 0.16)",
+        "borderSubtle": "rgba(255, 255, 255, 0.08)",
+        "borderStrong": "rgba(255, 255, 255, 0.18)",
+        "scrollbarThumb": "rgba(255, 255, 255, 0.22)",
+        "scrollbarThumbHover": "rgba(255, 255, 255, 0.45)",
+        "spinnerTrack": "rgba(255, 255, 255, 0.14)",
+        "spinnerHead": "#ffffff"
+      },
+      "text": {
+        "primary": "#ffffff",
+        "heading": "#d4d4d4",
+        "secondary": "rgba(255, 255, 255, 0.72)",
+        "muted": "rgba(255, 255, 255, 0.48)",
+        "dim": "rgba(255, 255, 255, 0.28)",
+        "onAccent": "#111111"
+      },
+      "accent": {
+        "primary": "#ffffff",
+        "primaryHover": "#e8e8ec",
+        "soft": "rgba(255, 255, 255, 0.12)",
+        "glow": "rgba(255, 255, 255, 0.06)",
+        "border": "rgba(255, 255, 255, 0.22)",
+        "highlight": "#ffffff"
+      },
+      "logo": {
+        "color": "#ffffff"
+      },
+      "header": {
+        "fadeTop": "rgba(12, 12, 12, 0.86)",
+        "fadeMid": "rgba(12, 12, 12, 0.56)",
+        "fadeBottom": "rgba(12, 12, 12, 0)",
+        "baseFadeOpacity": "0",
+        "navText": "rgba(255, 255, 255, 0.5)",
+        "navTextHover": "rgba(255, 255, 255, 0.85)",
+        "navTextActive": "#ffffff",
+        "avatarBg": "rgba(255, 255, 255, 0.12)",
+        "avatarText": "#ffffff"
+      },
+      "buttons": {
+        "mainBg": "rgba(255, 255, 255, 0.96)",
+        "mainBgHover": "#ffffff",
+        "mainText": "#111111",
+        "secondBg": "rgba(255, 255, 255, 0.08)",
+        "secondBgHover": "rgba(255, 255, 255, 0.14)",
+        "secondText": "#ffffff",
+        "socialBg": "#eaeaea",
+        "socialBgHover": "#ffffff",
+        "socialText": "#1a1a1a"
+      },
+      "inputs": {
+        "bg": "rgba(255, 255, 255, 0.08)",
+        "bgHover": "rgba(255, 255, 255, 0.09)",
+        "bgFocus": "rgba(255, 255, 255, 0.12)",
+        "text": "#ffffff",
+        "placeholder": "rgba(255, 255, 255, 0.32)",
+        "icon": "rgba(255, 255, 255, 0.38)"
+      },
+      "popup": {
+        "backdrop": "rgba(5, 5, 7, 0.62)",
+        "bg": "rgba(14, 14, 17, 0.96)",
+        "bgExpanded": "rgba(12, 12, 14, 0.96)",
+        "shadow": "0 36px 100px rgba(0, 0, 0, 0.85)",
+        "itemBg": "rgba(255, 255, 255, 0.06)",
+        "itemHover": "rgba(255, 255, 255, 0.11)",
+        "itemActive": "rgba(255, 255, 255, 0.08)",
+        "itemText": "rgba(255, 255, 255, 0.72)",
+        "itemTextActive": "#ffffff"
+      },
+      "setup": {
+        "cardBg": "#0c0c0c",
+        "ambientGlow": "rgba(255, 255, 255, 0.06)",
+        "ambientGlowSoft": "rgba(255, 255, 255, 0.015)",
+        "chevron": "rgba(255, 255, 255, 0.46)",
+        "chevronHover": "#ffffff",
+        "valueText": "#ffffff"
+      },
+      "cards": {
+        "bg": "#101013",
+        "bgHover": "#17171c",
+        "overlay": "rgba(0, 0, 0, 0.46)",
+        "overlayHover": "rgba(0, 0, 0, 0.22)",
+        "dimFrom": "rgba(10, 10, 12, 0.92)",
+        "dimMid": "rgba(10, 10, 12, 0.78)",
+        "dimTo": "rgba(10, 10, 12, 0.54)",
+        "notchBg": "#0c0c0c",
+        "notchArrow": "#d0d0d0",
+        "notchArrowHover": "#ffffff",
+        "badgeBg": "rgba(255, 255, 255, 0.14)",
+        "badgeText": "#ffffff",
+        "rating": "#f9e2af"
+      },
+      "progress": {
+        "track": "rgba(255, 255, 255, 0.16)",
+        "fill": "#ffffff",
+        "heroStripFill": "rgba(255, 255, 255, 0.88)"
+      },
+      "toggle": {
+        "trackOff": "rgba(255, 255, 255, 0.14)",
+        "trackOn": "rgba(255, 255, 255, 0.92)",
+        "trackOnHover": "#ffffff",
+        "thumbOff": "rgba(255, 255, 255, 0.88)",
+        "thumbOn": "#0c0c0c"
+      },
+      "status": {
+        "success": "#a6e3a1",
+        "teal": "#94e2d5",
+        "sky": "#89dceb",
+        "warning": "#f9e2af",
+        "peach": "#fab387",
+        "danger": "#f87171"
+      },
+      "media": {
+        "text": "#ffffff",
+        "heading": "#dadada",
+        "subtext": "rgba(255, 255, 255, 0.74)",
+        "muted": "rgba(255, 255, 255, 0.48)",
+        "mainBtnBg": "rgba(255, 255, 255, 0.96)",
+        "mainBtnText": "#111111",
+        "secondBtnBg": "rgba(255, 255, 255, 0.12)",
+        "secondBtnText": "#ffffff"
+      }
+    },
+    "light": {
+      "meta": {
+        "id": "light",
+        "mode": "light",
+        "logoTone": "dark"
+      },
+      "app": {
+        "canvas": "#f4f4f6",
+        "canvasRgb": "244, 244, 246",
+        "surface": "#ffffff",
+        "surfaceElevated": "#eaeaef",
+        "surfaceGlass": "rgba(18, 18, 24, 0.055)",
+        "surfaceHover": "rgba(18, 18, 24, 0.095)",
+        "surfaceActive": "rgba(18, 18, 24, 0.14)",
+        "borderSubtle": "rgba(18, 18, 24, 0.08)",
+        "borderStrong": "rgba(18, 18, 24, 0.18)",
+        "scrollbarThumb": "rgba(18, 18, 24, 0.2)",
+        "scrollbarThumbHover": "rgba(18, 18, 24, 0.38)",
+        "spinnerTrack": "rgba(18, 18, 24, 0.14)",
+        "spinnerHead": "#111114"
+      },
+      "text": {
+        "primary": "#111114",
+        "heading": "#141418",
+        "secondary": "rgba(17, 17, 20, 0.72)",
+        "muted": "rgba(17, 17, 20, 0.52)",
+        "dim": "rgba(17, 17, 20, 0.34)",
+        "onAccent": "#ffffff"
+      },
+      "accent": {
+        "primary": "#111114",
+        "primaryHover": "#25252b",
+        "soft": "rgba(17, 17, 20, 0.09)",
+        "glow": "rgba(17, 17, 20, 0.05)",
+        "border": "rgba(17, 17, 20, 0.18)",
+        "highlight": "#111114"
+      },
+      "logo": {
+        "color": "#111114"
+      },
+      "header": {
+        "fadeTop": "rgba(244, 244, 246, 0.92)",
+        "fadeMid": "rgba(244, 244, 246, 0.62)",
+        "fadeBottom": "rgba(244, 244, 246, 0)",
+        "baseFadeOpacity": "1",
+        "navText": "rgba(17, 17, 20, 0.56)",
+        "navTextHover": "rgba(17, 17, 20, 0.88)",
+        "navTextActive": "#111114",
+        "avatarBg": "rgba(17, 17, 20, 0.1)",
+        "avatarText": "#111114"
+      },
+      "buttons": {
+        "mainBg": "#111114",
+        "mainBgHover": "#232329",
+        "mainText": "#ffffff",
+        "secondBg": "rgba(17, 17, 20, 0.08)",
+        "secondBgHover": "rgba(17, 17, 20, 0.14)",
+        "secondText": "#111114",
+        "socialBg": "#111114",
+        "socialBgHover": "#24242a",
+        "socialText": "#ffffff"
+      },
+      "inputs": {
+        "bg": "rgba(17, 17, 20, 0.065)",
+        "bgHover": "rgba(17, 17, 20, 0.09)",
+        "bgFocus": "rgba(17, 17, 20, 0.12)",
+        "text": "#111114",
+        "placeholder": "rgba(17, 17, 20, 0.4)",
+        "icon": "rgba(17, 17, 20, 0.48)"
+      },
+      "popup": {
+        "backdrop": "rgba(220, 222, 228, 0.62)",
+        "bg": "rgba(255, 255, 255, 0.96)",
+        "bgExpanded": "rgba(248, 248, 251, 0.96)",
+        "shadow": "0 28px 80px rgba(16, 18, 24, 0.16)",
+        "itemBg": "rgba(17, 17, 20, 0.04)",
+        "itemHover": "rgba(17, 17, 20, 0.08)",
+        "itemActive": "rgba(17, 17, 20, 0.1)",
+        "itemText": "rgba(17, 17, 20, 0.74)",
+        "itemTextActive": "#111114"
+      },
+      "setup": {
+        "cardBg": "#f4f4f6",
+        "ambientGlow": "rgba(17, 17, 20, 0.06)",
+        "ambientGlowSoft": "rgba(17, 17, 20, 0.015)",
+        "chevron": "rgba(17, 17, 20, 0.42)",
+        "chevronHover": "#111114",
+        "valueText": "#111114"
+      },
+      "cards": {
+        "bg": "#ffffff",
+        "bgHover": "#ededf2",
+        "overlay": "rgba(0, 0, 0, 0.36)",
+        "overlayHover": "rgba(0, 0, 0, 0.16)",
+        "dimFrom": "rgba(14, 14, 18, 0.84)",
+        "dimMid": "rgba(14, 14, 18, 0.64)",
+        "dimTo": "rgba(14, 14, 18, 0.42)",
+        "notchBg": "#f4f4f6",
+        "notchArrow": "#4a4a52",
+        "notchArrowHover": "#111114",
+        "badgeBg": "rgba(17, 17, 20, 0.1)",
+        "badgeText": "#111114",
+        "rating": "#d97706"
+      },
+      "progress": {
+        "track": "rgba(17, 17, 20, 0.14)",
+        "fill": "#111114",
+        "heroStripFill": "rgba(255, 255, 255, 0.92)"
+      },
+      "toggle": {
+        "trackOff": "rgba(17, 17, 20, 0.16)",
+        "trackOn": "#111114",
+        "trackOnHover": "#232329",
+        "thumbOff": "#ffffff",
+        "thumbOn": "#ffffff"
+      },
+      "status": {
+        "success": "#16a34a",
+        "teal": "#0d9488",
+        "sky": "#0284c7",
+        "warning": "#d97706",
+        "peach": "#ea580c",
+        "danger": "#dc2626"
+      },
+      "media": {
+        "text": "#ffffff",
+        "heading": "#f4f4f6",
+        "subtext": "rgba(255, 255, 255, 0.8)",
+        "muted": "rgba(255, 255, 255, 0.56)",
+        "mainBtnBg": "rgba(255, 255, 255, 0.96)",
+        "mainBtnText": "#111111",
+        "secondBtnBg": "rgba(255, 255, 255, 0.16)",
+        "secondBtnText": "#ffffff"
+      }
+    },
+    "custom": {
+      "meta": {
+        "id": "custom",
+        "mode": "dark",
+        "logoTone": "light"
+      },
+      "app": {
+        "canvas": "hsl({hue}, 12%, 5%)",
+        "canvasRgb": "{canvasRgb}",
+        "surface": "hsl({hue}, 13%, 8%)",
+        "surfaceElevated": "hsl({hue}, 14%, 11%)",
+        "surfaceGlass": "hsla({hue}, 38%, 74%, 0.075)",
+        "surfaceHover": "hsla({hue}, 44%, 74%, 0.125)",
+        "surfaceActive": "hsla({hue}, 56%, 72%, 0.18)",
+        "borderSubtle": "hsla({hue}, 45%, 72%, 0.1)",
+        "borderStrong": "hsla({hue}, 64%, 70%, 0.24)",
+        "scrollbarThumb": "hsla({hue}, 65%, 72%, 0.26)",
+        "scrollbarThumbHover": "hsla({hue}, 78%, 74%, 0.5)",
+        "spinnerTrack": "hsla({hue}, 55%, 74%, 0.16)",
+        "spinnerHead": "hsl({hue}, 84%, 74%)"
+      },
+      "text": {
+        "primary": "#ffffff",
+        "heading": "hsl({hue}, 14%, 86%)",
+        "secondary": "rgba(255, 255, 255, 0.74)",
+        "muted": "rgba(255, 255, 255, 0.5)",
+        "dim": "rgba(255, 255, 255, 0.3)",
+        "onAccent": "#0e0f12"
+      },
+      "accent": {
+        "primary": "hsl({hue}, 82%, 74%)",
+        "primaryHover": "hsl({hue}, 88%, 81%)",
+        "soft": "hsla({hue}, 78%, 66%, 0.16)",
+        "glow": "hsla({hue}, 84%, 64%, 0.14)",
+        "border": "hsla({hue}, 78%, 70%, 0.34)",
+        "highlight": "hsl({hue}, 84%, 76%)"
+      },
+      "logo": {
+        "color": "#ffffff"
+      },
+      "header": {
+        "fadeTop": "hsla({hue}, 14%, 5%, 0.88)",
+        "fadeMid": "hsla({hue}, 14%, 5%, 0.58)",
+        "fadeBottom": "hsla({hue}, 14%, 5%, 0)",
+        "baseFadeOpacity": "0",
+        "navText": "rgba(255, 255, 255, 0.52)",
+        "navTextHover": "rgba(255, 255, 255, 0.88)",
+        "navTextActive": "hsl({hue}, 82%, 82%)",
+        "avatarBg": "hsla({hue}, 62%, 62%, 0.2)",
+        "avatarText": "#ffffff"
+      },
+      "buttons": {
+        "mainBg": "hsl({hue}, 82%, 76%)",
+        "mainBgHover": "hsl({hue}, 88%, 83%)",
+        "mainText": "#0e0f12",
+        "secondBg": "hsla({hue}, 42%, 72%, 0.1)",
+        "secondBgHover": "hsla({hue}, 50%, 72%, 0.17)",
+        "secondText": "#ffffff",
+        "socialBg": "hsl({hue}, 30%, 91%)",
+        "socialBgHover": "#ffffff",
+        "socialText": "#15161a"
+      },
+      "inputs": {
+        "bg": "hsla({hue}, 34%, 72%, 0.085)",
+        "bgHover": "hsla({hue}, 40%, 72%, 0.11)",
+        "bgFocus": "hsla({hue}, 56%, 70%, 0.16)",
+        "text": "#ffffff",
+        "placeholder": "rgba(255, 255, 255, 0.34)",
+        "icon": "hsla({hue}, 68%, 78%, 0.62)"
+      },
+      "popup": {
+        "backdrop": "rgba(6, 6, 9, 0.64)",
+        "bg": "hsla({hue}, 16%, 7%, 0.96)",
+        "bgExpanded": "hsla({hue}, 16%, 6%, 0.96)",
+        "shadow": "0 36px 100px rgba(0, 0, 0, 0.86)",
+        "itemBg": "hsla({hue}, 40%, 72%, 0.06)",
+        "itemHover": "hsla({hue}, 56%, 72%, 0.13)",
+        "itemActive": "hsla({hue}, 70%, 68%, 0.18)",
+        "itemText": "rgba(255, 255, 255, 0.74)",
+        "itemTextActive": "hsl({hue}, 86%, 84%)"
+      },
+      "setup": {
+        "cardBg": "hsl({hue}, 12%, 5%)",
+        "ambientGlow": "hsla({hue}, 84%, 64%, 0.18)",
+        "ambientGlowSoft": "hsla({hue}, 78%, 62%, 0.055)",
+        "chevron": "rgba(255, 255, 255, 0.48)",
+        "chevronHover": "hsl({hue}, 84%, 78%)",
+        "valueText": "hsl({hue}, 72%, 88%)"
+      },
+      "cards": {
+        "bg": "hsl({hue}, 13%, 7%)",
+        "bgHover": "hsl({hue}, 16%, 10%)",
+        "overlay": "rgba(0, 0, 0, 0.44)",
+        "overlayHover": "rgba(0, 0, 0, 0.2)",
+        "dimFrom": "hsla({hue}, 16%, 5%, 0.92)",
+        "dimMid": "hsla({hue}, 16%, 5%, 0.78)",
+        "dimTo": "hsla({hue}, 16%, 5%, 0.54)",
+        "notchBg": "hsl({hue}, 12%, 5%)",
+        "notchArrow": "#d4d4dc",
+        "notchArrowHover": "hsl({hue}, 82%, 78%)",
+        "badgeBg": "hsla({hue}, 76%, 68%, 0.18)",
+        "badgeText": "hsl({hue}, 84%, 82%)",
+        "rating": "#f9e2af"
+      },
+      "progress": {
+        "track": "hsla({hue}, 44%, 74%, 0.16)",
+        "fill": "hsl({hue}, 82%, 72%)",
+        "heroStripFill": "hsl({hue}, 84%, 76%)"
+      },
+      "toggle": {
+        "trackOff": "hsla({hue}, 38%, 74%, 0.16)",
+        "trackOn": "hsl({hue}, 82%, 72%)",
+        "trackOnHover": "hsl({hue}, 88%, 80%)",
+        "thumbOff": "rgba(255, 255, 255, 0.9)",
+        "thumbOn": "#0e0f12"
+      },
+      "status": {
+        "success": "#a6e3a1",
+        "teal": "#94e2d5",
+        "sky": "#89dceb",
+        "warning": "#f9e2af",
+        "peach": "#fab387",
+        "danger": "#f87171"
+      },
+      "media": {
+        "text": "#ffffff",
+        "heading": "hsl({hue}, 16%, 88%)",
+        "subtext": "rgba(255, 255, 255, 0.76)",
+        "muted": "rgba(255, 255, 255, 0.5)",
+        "mainBtnBg": "hsl({hue}, 82%, 76%)",
+        "mainBtnText": "#0e0f12",
+        "secondBtnBg": "hsla({hue}, 44%, 72%, 0.14)",
+        "secondBtnText": "#ffffff"
+      }
+    }
+  }
+}

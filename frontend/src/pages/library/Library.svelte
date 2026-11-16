@@ -23,6 +23,7 @@
     type LibraryListKind
   } from '../../app/library.svelte';
   import { openWatch } from '../../app/player.svelte';
+  import { t } from '../../app/i18n.svelte';
 
   interface DisplayLibraryItem
   {
@@ -45,14 +46,19 @@
   }
 
   type LibrarySortKey = 'date' | 'year' | 'rating' | 'title';
-  const sortOptions: Array<{ key: LibrarySortKey; label: string }> = [
-    { key: 'date', label: 'Date' },
-    { key: 'year', label: 'Year' },
-    { key: 'rating', label: 'Rating' },
-    { key: 'title', label: 'A–Z' }
-  ];
+  const sortOptions = $derived<Array<{ key: LibrarySortKey; label: string }>>([
+    { key: 'date', label: t('library.sortDate') },
+    { key: 'year', label: t('library.sortYear') },
+    { key: 'rating', label: t('library.sortRating') },
+    { key: 'title', label: t('library.sortTitle') }
+  ]);
 
-  const tabs = ['Likes', 'watch later', 'favorites', 'history'];
+  const tabs = $derived([
+    t('library.likes'),
+    t('library.watchLater'),
+    t('library.favorites'),
+    t('library.history')
+  ]);
   const listByTab: Array<LibraryListKind | null> = ['likes', 'watch_later', 'favorites', null];
   const TAB_GAP = 16;
   const TAB_INACTIVE_SCALE = 0.48;
@@ -161,6 +167,7 @@
 
   $effect(() =>
   {
+    tabs;
     measureTabs();
     const onResize = () => measureTabs();
     window.addEventListener('resize', onResize);
@@ -391,8 +398,8 @@
           type="text"
           class="library-search-input"
           bind:value={searchQuery}
-          placeholder="Search..."
-          aria-label="Search library"
+          placeholder={t('library.searchPlaceholder')}
+          aria-label={t('library.searchPlaceholder')}
           spellcheck="false"
         />
         {#if searchQuery.length > 0}
@@ -618,12 +625,14 @@
     min-height: 100vh;
     padding: 72px 0 0 0;
     box-sizing: border-box;
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
+    color: var(--mila-text-primary, #ffffff);
     overflow: hidden;
     display: flex;
     flex-direction: column;
     contain: layout style;
     -webkit-font-smoothing: antialiased;
+    transition: background-color 360ms cubic-bezier(0.22, 1, 0.36, 1), color 320ms ease;
   }
 
   .library-ambient {
@@ -727,20 +736,19 @@
 
   .tab-regular {
     font-weight: 400;
-    color: #5f5f5f;
+    color: var(--mila-text-dim, #5f5f5f);
     opacity: 1;
   }
 
   .tab-black {
     font-weight: 900;
-    color: #ffffff;
-    text-shadow: 0 4px 4px rgba(0, 0, 0, 0.25);
+    color: var(--mila-text-primary, #ffffff);
     opacity: 0;
     pointer-events: none;
   }
 
   .library-tab:hover .tab-regular {
-    color: #8a8a8a;
+    color: var(--mila-text-muted, #8a8a8a);
   }
 
   .library-tab.active .tab-regular {
@@ -767,23 +775,23 @@
     padding: 0 11px;
     margin-bottom: 2px;
     border-radius: 10px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--mila-inputs-bg, rgba(255, 255, 255, 0.04));
     box-sizing: border-box;
     transition: width 0.25s var(--ease-out), background-color 0.2s ease;
   }
 
   .library-search:hover {
-    background: rgba(255, 255, 255, 0.07);
+    background: var(--mila-inputs-bgHover, rgba(255, 255, 255, 0.07));
   }
 
   .library-search:focus-within,
   .library-search.has-query {
     width: 210px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--mila-inputs-bgFocus, rgba(255, 255, 255, 0.1));
   }
 
   .library-search :global(.library-search-icon) {
-    color: rgba(255, 255, 255, 0.36);
+    color: var(--mila-inputs-icon, rgba(255, 255, 255, 0.36));
     flex-shrink: 0;
     pointer-events: none;
   }
@@ -797,14 +805,14 @@
     border: none;
     outline: none;
     background: transparent;
-    color: #ffffff;
+    color: var(--mila-inputs-text, #ffffff);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13.5px;
     font-weight: 400;
   }
 
   .library-search-input::placeholder {
-    color: rgba(255, 255, 255, 0.34);
+    color: var(--mila-inputs-placeholder, rgba(255, 255, 255, 0.34));
   }
 
   .library-search-clear {
@@ -814,7 +822,7 @@
     border: none;
     border-radius: 999px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.44);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.44));
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -824,8 +832,8 @@
   }
 
   .library-search-clear:hover {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.1);
+    color: var(--mila-text-primary, #ffffff);
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.1));
   }
 
   .clear-history-btn {
@@ -837,7 +845,7 @@
     outline: none;
     border-radius: 10px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.44);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.44));
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -849,8 +857,8 @@
   }
 
   .clear-history-btn:hover {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.08);
+    color: var(--mila-text-primary, #ffffff);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.08));
   }
 
   .clear-history-btn:active {
@@ -865,7 +873,7 @@
     padding: 3px;
     margin-bottom: 2px;
     border-radius: 11px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
     box-sizing: border-box;
   }
 
@@ -875,7 +883,7 @@
     border: none;
     border-radius: 8px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.44);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.44));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 12.5px;
     font-weight: 500;
@@ -888,12 +896,12 @@
   }
 
   .sort-chip-btn:hover {
-    color: rgba(255, 255, 255, 0.78);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.78));
   }
 
   .sort-chip-btn.active {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.1));
+    color: var(--mila-accent-highlight, #ffffff);
   }
 
   .sort-chip-btn:active {
@@ -907,7 +915,7 @@
     gap: 4px;
     padding: 3px;
     border-radius: 11px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
     margin-bottom: 2px;
   }
 
@@ -918,7 +926,7 @@
     width: 30px;
     height: 30px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.1));
     pointer-events: none;
     transition: transform 0.32s var(--ease-out);
   }
@@ -941,12 +949,12 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--mila-text-dim, rgba(255, 255, 255, 0.35));
     transition: color 0.2s ease, transform 0.1s ease;
   }
 
   .view-btn:hover {
-    color: rgba(255, 255, 255, 0.72);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.72));
   }
 
   .view-btn:active {
@@ -954,7 +962,7 @@
   }
 
   .view-btn.active {
-    color: #ffffff;
+    color: var(--mila-accent-highlight, #ffffff);
   }
 
   .library-views {
@@ -991,7 +999,7 @@
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
     font-size: 22px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.56);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.56));
     user-select: none;
   }
 
@@ -1095,14 +1103,14 @@
     width: 100%;
     height: 3px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.16);
+    background: var(--mila-progress-track, rgba(255, 255, 255, 0.16));
     overflow: hidden;
     pointer-events: none;
   }
 
   .progress-fill {
     height: 100%;
-    background: #ffffff;
+    background: var(--mila-progress-fill, #ffffff);
     border-radius: 999px;
   }
 

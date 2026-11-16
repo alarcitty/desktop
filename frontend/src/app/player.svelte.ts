@@ -408,7 +408,7 @@ export async function openTorrentStream(
     const episodes = info.files.map((f) => ({
       id: `${voiceId}:${f.fileIndex}`,
       ordinal: f.ordinal,
-      name: `Серия ${f.ordinal}`,
+      name: `Episode ${f.ordinal}`,
       duration: 0,
       preview: baseRelease?.episodes.find((ep) => ep.ordinal === f.ordinal)?.preview,
       opening: baseRelease?.episodes.find((ep) => ep.ordinal === f.ordinal)?.opening,

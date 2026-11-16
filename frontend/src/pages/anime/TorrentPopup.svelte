@@ -546,19 +546,19 @@
   }
 
   .esc-chip:hover {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.14);
+    color: var(--mila-text-primary, #ffffff);
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.14));
   }
 
   .torrent-magnet-form :global(.torrent-magnet-input) {
     width: 100%;
     height: 44px;
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--mila-inputs-bg, rgba(255, 255, 255, 0.08));
   }
 
   .torrent-magnet-form :global(.torrent-magnet-input:focus-within) {
-    background: rgba(255, 255, 255, 0.11);
+    background: var(--mila-inputs-bgFocus, rgba(255, 255, 255, 0.11));
   }
 
   .magnet-submit-chip {
@@ -567,11 +567,11 @@
     border: none;
     outline: none;
     border-radius: 7px;
-    background: #ffffff;
-    color: #0c0c0c;
+    background: var(--mila-accent-primary, #ffffff);
+    color: var(--mila-text-onAccent, #0c0c0c);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 12px;
-    font-weight: 400;
+    font-weight: 500;
     cursor: pointer;
     transition: opacity 0.15s ease, transform 0.1s ease;
   }
@@ -606,8 +606,8 @@
     border: none;
     outline: none;
     border-radius: 9px;
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.72);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.06));
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.72));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 12px;
     font-weight: 400;
@@ -621,13 +621,13 @@
 
   .filter-pill:hover,
   .filter-pill.is-open {
-    background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.12));
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .filter-pill.is-active {
-    background: #ffffff;
-    color: #0c0c0c;
+    background: var(--mila-accent-primary, #ffffff);
+    color: var(--mila-text-onAccent, #0c0c0c);
   }
 
   .filter-pill :global(.filter-chevron) {

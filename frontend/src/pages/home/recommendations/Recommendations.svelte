@@ -4,6 +4,7 @@
   import LayerBlur from '../../../marlakit/blur/LayerBlur.svelte';
   import { getCachedHomeFeeds, loadHomeFeeds, type HomeRecommendationItem } from '../../../api/anime';
   import { openWatch } from '../../../app/player.svelte';
+  import { t } from '../../../app/i18n.svelte';
 
   interface Props {
     creditsOpen?: boolean;
@@ -47,7 +48,7 @@
 
 <section class="recommendations-section">
   <!-- Section Title -->
-  <h2 class="section-title">You might also like</h2>
+  <h2 class="section-title">{t('home.recommendations')}</h2>
 
   <!-- Ambient Layer Blur underlay beneath posters -->
   <div class="recommendations-underlay-blur" aria-hidden="true">
@@ -87,7 +88,7 @@
     class="bottom-tab-notch"
     class:is-open={creditsOpen}
     aria-expanded={creditsOpen}
-    aria-label={creditsOpen ? 'Collapse credits' : 'Expand credits'}
+    aria-label={creditsOpen ? t('home.collapseCredits') : t('home.expandCredits')}
     onclick={() => onToggleCredits?.()}
   >
     <ChevronDown size={18} strokeWidth={2} class="tab-arrow-icon" />
@@ -99,15 +100,16 @@
     position: relative;
     width: 100%;
     height: 711px;
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
     overflow: hidden;
     box-sizing: border-box;
     contain: layout style paint;
     user-select: none;
     z-index: 1;
+    transition: background-color 360ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  /* Section Title: PP Monument Extended Black, #D4D4D4 */
+  /* Section Title: PP Monument Extended Black */
   .section-title {
     position: absolute;
     top: clamp(28px, 3.5vw, 44px);
@@ -119,13 +121,14 @@
     font-family: 'PP Monument Extended', sans-serif;
     font-size: clamp(26px, 3.2vw, 48px);
     font-weight: 900;
-    color: #D4D4D4;
+    color: var(--mila-text-heading, #D4D4D4);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1;
     z-index: 5;
     text-shadow: none;
+    transition: color 320ms ease;
   }
 
   /* Ambient Layer Blur underlay with smooth alpha gradient mask */
@@ -229,7 +232,7 @@
     background: rgba(0, 0, 0, 0.22);
   }
 
-  /* Bottom tab notch: 47x29px, #0c0c0c, rounded top corners */
+  /* Bottom tab notch: 47x29px, rounded top corners */
   .bottom-tab-notch {
     position: absolute;
     bottom: 0;
@@ -240,7 +243,7 @@
     padding: 0;
     border: none;
     outline: none;
-    background: #0c0c0c;
+    background: var(--mila-cards-notchBg, #0c0c0c);
     border-top-left-radius: 15px;
     border-top-right-radius: 15px;
     display: flex;
@@ -248,20 +251,20 @@
     justify-content: center;
     cursor: pointer;
     z-index: 5;
-    transition: opacity 0.15s ease, transform 0.15s ease;
+    transition: opacity 0.15s ease, transform 0.15s ease, background-color 360ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .bottom-tab-notch:hover {
     transform: translateX(-50%) translateY(-2px);
   }
 
-  :global(.tab-arrow-icon) {
-    color: #D0D0D0;
+  .bottom-tab-notch :global(.tab-arrow-icon) {
+    color: var(--mila-cards-notchArrow, #D0D0D0);
     transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1), color 0.16s ease;
   }
 
   .bottom-tab-notch:hover :global(.tab-arrow-icon) {
-    color: #ffffff;
+    color: var(--mila-cards-notchArrowHover, #ffffff);
   }
 
   .bottom-tab-notch.is-open :global(.tab-arrow-icon) {
