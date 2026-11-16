@@ -26,12 +26,16 @@ jobs:
         run: npm --prefix frontend ci
 
       - name: lint and check
+        env:
+          CGO_ENABLED: 0
         run: |
           npm --prefix frontend run check
           npm --prefix frontend run build
           go vet ./...
 
       - name: run go tests
+        env:
+          CGO_ENABLED: 0
         run: go test -v -count=1 ./internal/...
 
       - name: run frontend tests
