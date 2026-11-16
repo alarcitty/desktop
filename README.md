@@ -8,6 +8,7 @@
   <br /><br />
   <p><strong>Minimalist desktop anime client built with Go, Wails v2, and Svelte 5.</strong></p>
   <p>
+    <a href="https://github.com/mila-desktop/desktop/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/mila-desktop/desktop/ci.yml?branch=main&style=flat-square" alt="CI Status" /></a>
     <img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.26" />
     <img src="https://img.shields.io/badge/Wails-v2-DF0000?style=flat-square" alt="Wails v2" />
     <img src="https://img.shields.io/badge/Svelte-5-FF3E00?style=flat-square&logo=svelte&logoColor=white" alt="Svelte 5" />
@@ -97,7 +98,7 @@ The compiled executable is written to `build/bin/mila.exe`.
 
 ```sh
 # Backend unit tests
-go test -count=1 ./internal/torrent ./internal/mila ./internal/cloud
+go test -count=1 ./internal/...
 
 # Frontend typecheck & unit tests
 npm --prefix frontend run check
