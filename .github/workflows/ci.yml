@@ -28,7 +28,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
 
-      - name: Run svelte-check & Vitest
+      - name: Build & test frontend
         run: |
           npm --prefix frontend run check
+          npm --prefix frontend run build
           npm --prefix frontend test
