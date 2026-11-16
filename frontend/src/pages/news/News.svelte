@@ -11,9 +11,11 @@
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../marlakit/button/SecondButton.svelte';
+  import LikeButton from '../../marlakit/button/LikeButton.svelte';
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
   import { portal } from '../../marlakit/portal';
   import { getCachedNewsFeed, loadNewsFeed, type NewsItem } from '../../api/news';
+  import { isLiked, toggleLike } from '../../app/library.svelte';
   import { openWatch } from '../../app/player.svelte';
   import { t } from '../../app/i18n.svelte';
 
@@ -238,6 +240,21 @@
     }
   }
 
+  function toggleItemLike(item: NewsItem, e?: MouseEvent)
+  {
+    e?.stopPropagation();
+    toggleLike({
+      shikiId: item.shikiId,
+      releaseAlias: item.releaseAlias,
+      searchQueries: [item.title],
+      title: item.title,
+      description: item.excerpt,
+      poster: item.image ?? '',
+      score: item.score,
+      tags: item.hashtags.slice(0, 5)
+    });
+  }
+
   function handleWindowKeydown(e: KeyboardEvent)
   {
     if (e.key === 'Escape' && activeStory)
@@ -362,6 +379,17 @@
                 {t('news.watch')}
               </SecondButton>
             {/if}
+          {/if}
+          {#if leadItem.shikiId || leadItem.releaseAlias}
+            <LikeButton
+              variant="surface"
+              liked={isLiked({
+                shikiId: leadItem.shikiId,
+                releaseAlias: leadItem.releaseAlias,
+                title: leadItem.title
+              })}
+              onclick={(e) => toggleItemLike(leadItem, e)}
+            />
           {/if}
         </div>
       </div>

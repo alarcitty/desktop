@@ -53,6 +53,32 @@ const EPISODE_PROGRESS_KEY = 'mila.watch.episodeProgress.v1';
 const MAX_HISTORY_ENTRIES = 100;
 const MAX_EPISODE_PROGRESS_KEYS = 800;
 
+export type HistoryMutationEvent =
+  | { type: 'upsert'; entry: WatchHistoryEntry; episodeProgress?: Record<string, EpisodeProgressEntry> }
+  | { type: 'delete'; id: string }
+  | { type: 'clear' };
+
+export type HistoryMutationListener = (event: HistoryMutationEvent) => void;
+
+const historyListeners = new Set<HistoryMutationListener>();
+
+export function subscribeHistoryMutations(fn: HistoryMutationListener): () => void {
+  historyListeners.add(fn);
+  return () => {
+    historyListeners.delete(fn);
+  };
+}
+
+function emitHistoryMutation(event: HistoryMutationEvent): void {
+  for (const fn of historyListeners) {
+    try {
+      fn(event);
+    } catch {
+      // Ignore subscriber errors
+    }
+  }
+}
+
 function normalizeTitleKey(title: string): string {
   return title
     .toLowerCase()
@@ -302,14 +328,22 @@ export function recordHistoryEntry(input: RecordHistoryInput): void {
       }
       episodeProgressMap.items = nextMap;
       scheduleSaveEpisodeProgress();
+      const partialProgress: Record<string, EpisodeProgressEntry> = {};
+      for (const key of keys) {
+        partialProgress[key] = mergedEp;
+      }
+      emitHistoryMutation({ type: 'upsert', entry, episodeProgress: partialProgress });
+      return;
     }
   }
+  emitHistoryMutation({ type: 'upsert', entry });
 }
 
 export function removeHistoryEntry(id: string): void {
   const next = watchHistory.entries.filter((entry) => entry.id !== id);
   watchHistory.entries = next;
   saveHistory(next, true);
+  emitHistoryMutation({ type: 'delete', id });
 }
 
 export function resetAllEpisodeProgress(): void {
@@ -328,6 +362,79 @@ export function clearWatchHistory(): void {
   watchHistory.entries = [];
   saveHistory([], true);
   resetAllEpisodeProgress();
+  emitHistoryMutation({ type: 'clear' });
+}
+
+/** Merges server history and episode progress cleanly into local state without re-emitting mutations. */
+export function mergeCloudHistoryState(
+  remoteEntries: WatchHistoryEntry[],
+  remoteProgress: Record<string, EpisodeProgressEntry>
+): {
+  entries: WatchHistoryEntry[];
+  episodeProgress: Record<string, EpisodeProgressEntry>;
+} {
+  const merged = [...watchHistory.entries];
+  for (const remote of remoteEntries) {
+    if (!remote || typeof remote.id !== 'string' || typeof remote.title !== 'string') continue;
+    const normRemote = normalizeTitleKey(remote.title);
+    const idx = merged.findIndex(
+      (local) =>
+        local.id === remote.id ||
+        (remote.shikiId && local.shikiId === remote.shikiId) ||
+        (remote.releaseAlias && local.releaseAlias === remote.releaseAlias) ||
+        (normRemote && normalizeTitleKey(local.title) === normRemote)
+    );
+    if (idx < 0) {
+      merged.push(remote);
+      continue;
+    }
+    const local = merged[idx];
+    const remoteNewer = (remote.updatedAt ?? 0) >= (local.updatedAt ?? 0);
+    merged[idx] = {
+      ...local,
+      id: remote.id.startsWith('shiki:') ? remote.id : local.id,
+      shikiId: local.shikiId || remote.shikiId,
+      releaseAlias: local.releaseAlias || remote.releaseAlias,
+      searchQueries: local.searchQueries?.length ? local.searchQueries : remote.searchQueries,
+      title: remoteNewer ? remote.title : local.title,
+      description: local.description || remote.description,
+      poster: local.poster || remote.poster,
+      posterPosition: local.posterPosition || remote.posterPosition,
+      score: local.score || remote.score,
+      tags: local.tags.length ? local.tags : remote.tags,
+      episodeOrdinal: remoteNewer ? remote.episodeOrdinal : local.episodeOrdinal,
+      episodeIndex: remoteNewer ? remote.episodeIndex : local.episodeIndex,
+      totalEpisodes: remote.totalEpisodes ?? local.totalEpisodes,
+      currentTime: remoteNewer ? remote.currentTime : local.currentTime,
+      duration: Math.max(local.duration ?? 0, remote.duration ?? 0),
+      updatedAt: Math.max(local.updatedAt ?? 0, remote.updatedAt ?? 0)
+    };
+  }
+  merged.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  const sliced = merged.slice(0, MAX_HISTORY_ENTRIES);
+  watchHistory.entries = sliced;
+  saveHistory(sliced, true);
+
+  const mergedEp: Record<string, EpisodeProgressEntry> = { ...episodeProgressMap.items };
+  for (const [k, rp] of Object.entries(remoteProgress ?? {})) {
+    if (!rp || typeof rp.currentTime !== 'number') continue;
+    const lp = mergedEp[k];
+    if (!lp) {
+      mergedEp[k] = rp;
+      continue;
+    }
+    const remoteNewer = (rp.updatedAt ?? 0) >= (lp.updatedAt ?? 0);
+    mergedEp[k] = {
+      currentTime: remoteNewer ? rp.currentTime : lp.currentTime,
+      duration: Math.max(lp.duration ?? 0, rp.duration ?? 0),
+      watched: Boolean(lp.watched || rp.watched),
+      updatedAt: Math.max(lp.updatedAt ?? 0, rp.updatedAt ?? 0)
+    };
+  }
+  episodeProgressMap.items = mergedEp;
+  episodeProgressWriter.schedule(mergedEp);
+
+  return { entries: sliced, episodeProgress: mergedEp };
 }
 
 let enrichedHistoryArtwork = false;

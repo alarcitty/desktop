@@ -9,10 +9,12 @@
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Play from '@lucide/svelte/icons/play';
   import Bookmark from '@lucide/svelte/icons/bookmark';
+  import Check from '@lucide/svelte/icons/check';
   import Volume2 from '@lucide/svelte/icons/volume-2';
   import VolumeX from '@lucide/svelte/icons/volume-x';
   import MainButton from '../../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../../marlakit/button/SecondButton.svelte';
+  import LikeButton from '../../../marlakit/button/LikeButton.svelte';
   import MetaLine from '../../../marlakit/meta/MetaLine.svelte';
   import LayerBlur from '../../../marlakit/blur/LayerBlur.svelte';
   import {
@@ -29,6 +31,7 @@
     hasEnoughHeroPreviewBuffer
   } from './heroBuffer';
   import { t } from '../../../app/i18n.svelte';
+  import { isInWatchLater, isLiked, toggleLike, toggleWatchLater } from '../../../app/library.svelte';
   import { openWatch, player } from '../../../app/player.svelte';
   import { router } from '../../../app/router.svelte';
   import { search } from '../../../app/search.svelte';
@@ -871,14 +874,52 @@
     }
   }
 
+  const activeHeroInPlan = $derived(
+    activeHero
+      ? isInWatchLater({
+          shikiId: activeHero.shikiId,
+          releaseAlias: activeHero.releaseAlias,
+          title: activeHero.title
+        })
+      : false
+  );
+
+  const activeHeroLiked = $derived(
+    activeHero
+      ? isLiked({
+          shikiId: activeHero.shikiId,
+          releaseAlias: activeHero.releaseAlias,
+          title: activeHero.title
+        })
+      : false
+  );
+
+  function buildHeroLibraryPayload(target: HomeSpotlightItem)
+  {
+    return {
+      shikiId: target.shikiId,
+      releaseAlias: target.releaseAlias,
+      searchQueries: target.searchQueries,
+      title: target.title,
+      description: target.description,
+      poster: target.poster,
+      score: target.score,
+      tags: target.metaTags
+    };
+  }
+
   function handlePlanClick()
   {
-    window.clearTimeout(planTimer);
+    if (!activeHero) return;
     isPlanLoading = true;
-    planTimer = window.setTimeout(() =>
-    {
-      isPlanLoading = false;
-    }, 2000);
+    toggleWatchLater(buildHeroLibraryPayload(activeHero));
+    isPlanLoading = false;
+  }
+
+  function handleLikeClick()
+  {
+    if (!activeHero) return;
+    toggleLike(buildHeroLibraryPayload(activeHero));
   }
 
   function scrollBelowHero(e: MouseEvent)
@@ -982,10 +1023,20 @@
 
                 <SecondButton loading={isPlanLoading} onclick={handlePlanClick}>
                   {#snippet icon()}
-                    <Bookmark size={16} strokeWidth={2} />
+                    {#if activeHeroInPlan}
+                      <Check size={16} strokeWidth={2.2} />
+                    {:else}
+                      <Bookmark size={16} strokeWidth={2} />
+                    {/if}
                   {/snippet}
-                  {t('home.planToWatch')}
+                  {activeHeroInPlan ? t('anime.inPlanToWatch') : t('home.planToWatch')}
                 </SecondButton>
+
+                <LikeButton
+                  variant="media"
+                  liked={activeHeroLiked}
+                  onclick={handleLikeClick}
+                />
 
                 {#if videoReady && previewClip}
                   <!-- svelte-ignore a11y_no_static_element_interactions -->

@@ -3,12 +3,15 @@
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import Play from '@lucide/svelte/icons/play';
   import Bookmark from '@lucide/svelte/icons/bookmark';
+  import Check from '@lucide/svelte/icons/check';
 
   import MainButton from '../../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../../marlakit/button/SecondButton.svelte';
+  import LikeButton from '../../../marlakit/button/LikeButton.svelte';
   import LayerBlur from '../../../marlakit/blur/LayerBlur.svelte';
   import MetaLine from '../../../marlakit/meta/MetaLine.svelte';
   import { getCachedHomeFeeds, loadHomeFeeds, type HomeReleaseItem } from '../../../api/anime';
+  import { isInWatchLater, isLiked, toggleLike, toggleWatchLater } from '../../../app/library.svelte';
   import { openWatch } from '../../../app/player.svelte';
   import { t } from '../../../app/i18n.svelte';
 
@@ -72,13 +75,31 @@
     }
   }
 
+  function releaseLibraryPayload(item: HomeReleaseItem) {
+    return {
+      shikiId: item.shikiId,
+      releaseAlias: item.releaseAlias,
+      searchQueries: item.searchQueries,
+      title: item.title,
+      description: item.description,
+      poster: resolvePoster(item),
+      score: item.score,
+      tags: item.tags
+    };
+  }
+
   function handlePlanClick(e: MouseEvent) {
     e.stopPropagation();
-    window.clearTimeout(planTimer);
+    const item = releases[activeIndex];
+    if (!item) return;
     isPlanLoading = true;
-    planTimer = window.setTimeout(() => {
-      isPlanLoading = false;
-    }, 2000);
+    toggleWatchLater(releaseLibraryPayload(item));
+    isPlanLoading = false;
+  }
+
+  function handleLikeClick(e: MouseEvent, item: HomeReleaseItem) {
+    e.stopPropagation();
+    toggleLike(releaseLibraryPayload(item));
   }
 </script>
 
@@ -107,6 +128,16 @@
   <!-- Full-width 4-banner panorama strip (interactive accordion) -->
   <div class="releases-strip">
     {#each releases as item, index (item.id)}
+      {@const itemInPlan = isInWatchLater({
+        shikiId: item.shikiId,
+        releaseAlias: item.releaseAlias,
+        title: item.title
+      })}
+      {@const itemLiked = isLiked({
+        shikiId: item.shikiId,
+        releaseAlias: item.releaseAlias,
+        title: item.title
+      })}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
@@ -157,10 +188,20 @@
 
             <SecondButton loading={isPlanLoading && activeIndex === index} onclick={handlePlanClick}>
               {#snippet icon()}
-                <Bookmark size={16} strokeWidth={2} />
+                {#if itemInPlan}
+                  <Check size={16} strokeWidth={2.2} />
+                {:else}
+                  <Bookmark size={16} strokeWidth={2} />
+                {/if}
               {/snippet}
-              {t('home.planToWatch')}
+              {itemInPlan ? t('anime.inPlanToWatch') : t('home.planToWatch')}
             </SecondButton>
+
+            <LikeButton
+              variant="media"
+              liked={itemLiked}
+              onclick={(e) => handleLikeClick(e, item)}
+            />
           </div>
         </div>
       </div>
@@ -466,15 +507,17 @@
   }
 
   .card-actions :global(.marlakit-btn-main),
-  .card-actions :global(.marlakit-btn-second) {
+  .card-actions :global(.marlakit-btn-second),
+  .card-actions :global(.marlakit-like-btn) {
     opacity: 0;
-    transition: opacity 0.2s ease-out, background-color 0.15s ease, transform 0.1s ease;
+    transition: opacity 0.2s ease-out, background-color 0.15s ease, color 0.2s ease, transform 0.1s ease;
   }
 
   .card.is-active .card-actions :global(.marlakit-btn-main),
-  .card.is-active .card-actions :global(.marlakit-btn-second) {
+  .card.is-active .card-actions :global(.marlakit-btn-second),
+  .card.is-active .card-actions :global(.marlakit-like-btn) {
     opacity: 1;
-    transition: opacity 0.38s cubic-bezier(0.16, 1, 0.3, 1) 0.42s, background-color 0.15s ease, transform 0.1s ease;
+    transition: opacity 0.38s cubic-bezier(0.16, 1, 0.3, 1) 0.42s, background-color 0.15s ease, color 0.2s ease, transform 0.1s ease;
   }
 
   /* Centered bottom arrow */

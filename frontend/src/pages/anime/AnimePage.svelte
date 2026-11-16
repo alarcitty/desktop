@@ -22,6 +22,7 @@
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../marlakit/button/SecondButton.svelte';
+  import LikeButton from '../../marlakit/button/LikeButton.svelte';
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import { portal } from '../../marlakit/portal';
@@ -37,7 +38,7 @@
   } from '../../api/anime';
   import type { TorrentSearchItem } from '../../api/providers/torrent';
   import { episodeProgressMap, getEpisodeProgress } from '../../app/history.svelte';
-  import { isInWatchLater, toggleWatchLater } from '../../app/library.svelte';
+  import { isInWatchLater, isLiked, toggleLike, toggleWatchLater } from '../../app/library.svelte';
   import { encodeMilaShareLink, goBack } from '../../app/router.svelte';
   import {
     expandCustomPip,
@@ -626,6 +627,27 @@
     })
   );
 
+  const inLikes = $derived(
+    isLiked({
+      shikiId: player.shikiArt?.id ?? player.target?.shikiId,
+      releaseAlias: player.release?.alias ?? player.target?.releaseAlias,
+      title: displayTitle
+    })
+  );
+
+  function animeLibraryPayload() {
+    return {
+      shikiId: player.shikiArt?.id ?? player.target?.shikiId,
+      releaseAlias: player.release?.alias ?? player.target?.releaseAlias,
+      searchQueries: player.target?.searchQueries,
+      title: displayTitle,
+      description: fullDescription,
+      poster: posterUrl,
+      score,
+      tags: metaTags
+    };
+  }
+
   function scrollToPlayer() {
     playerSectionEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
@@ -638,17 +660,13 @@
   function handlePlanToggle() {
     if (!displayTitle) return;
     isPlanLoading = true;
-    toggleWatchLater({
-      shikiId: player.shikiArt?.id ?? player.target?.shikiId,
-      releaseAlias: player.release?.alias ?? player.target?.releaseAlias,
-      searchQueries: player.target?.searchQueries,
-      title: displayTitle,
-      description: fullDescription,
-      poster: posterUrl,
-      score,
-      tags: metaTags
-    });
+    toggleWatchLater(animeLibraryPayload());
     isPlanLoading = false;
+  }
+
+  function handleLikeToggle() {
+    if (!displayTitle) return;
+    toggleLike(animeLibraryPayload());
   }
 
   function handleWindowKeydown(e: KeyboardEvent) {
@@ -777,6 +795,8 @@
               {/snippet}
               {inLibrary ? t('anime.inPlanToWatch') : t('anime.planToWatch')}
             </SecondButton>
+
+            <LikeButton variant="surface" liked={inLikes} onclick={handleLikeToggle} />
 
             <button
               type="button"
@@ -1913,7 +1933,7 @@
     border: none;
     outline: none;
     background: transparent;
-    color: rgba(255, 255, 255, 0.56);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.56));
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1923,7 +1943,7 @@
   }
 
   .share-icon-btn:hover {
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
     transform: translateY(-1px);
   }
 

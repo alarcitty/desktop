@@ -17,17 +17,43 @@
 
 ---
 
+## Preview
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="images/hero.png" alt="Home Spotlight & Theme Accent" width="100%" />
+      <br /><sub><b>Home Spotlight</b> — Opening preview, accent theme & panorama strip</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="images/animepage.png" alt="Anime Details & Streaming" width="100%" />
+      <br /><sub><b>Anime Page</b> — Multi-season overview, Likes, Plan to Watch & cast</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="images/library.png" alt="Library & Watch History" width="100%" />
+      <br /><sub><b>Library &amp; History</b> — Likes, Watch Later, Favorites &amp; synced resume progress</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="images/news.png" alt="News & Releases Feed" width="100%" />
+      <br /><sub><b>News &amp; Releases</b> — Live episode updates and editorial feed</sub>
+    </td>
+  </tr>
+</table>
+
 ## Overview
 
-**Mila** is a native Windows desktop anime streaming application powered by a Go host backend (`Wails v2` + WebView2) and a custom `Svelte 5` interface (`marlakit`). It combines multi-provider adaptive HLS/MP4 playback, built-in torrent streaming, local caching, and optional cloud profile sync.
+**Mila** is a native Windows desktop anime streaming application powered by a Go host backend (`Wails v2` + WebView2) and a custom `Svelte 5` interface (`marlakit`). It combines multi-provider adaptive HLS/MP4 playback, built-in torrent streaming, customizable themes, multi-language localization, and optional cloud profile sync.
 
 ## Features
 
-- **Multi-Source Playback** — Unified resolution across AniLibria, Dream Cast, AnimeGO, AnimeVost, Kodik, HentaiMama, and HentaiGasm with automatic fallback and voice/source switching.
+- **Multi-Source Playback** — Unified resolution across Zoko (1080p English Dub), AniLibria, Dream Cast, AnimeGO, AnimeVost, Kodik, HentaiMama, and HentaiGasm with automatic fallback and audio/source switching.
 - **Built-in Torrent Streaming** — Concurrent search across AniLibria, Nyaa, and Sukebei with direct streaming and on-the-fly remuxing via `anacrolix/torrent`.
 - **Custom Player (`hls.js`)** — Adaptive bitrate switching, OP/ED skip markers, native OS Picture-in-Picture, and local Go stream/M3U8 proxy (`/ext/stream`).
-- **Local & Cloud Sync** — SQLite persistence paired with an optional Go cloud service (`cmd/cloud`) supporting Google OAuth and PostgreSQL storage.
-- **Responsive Native Shell** — Custom frameless window controls, L1/L2 media & metadata caching, and keyboard/mouse navigation bindings.
+- **Themes & Token System** — Built-in **Dark**, **Light** (adaptive black/white logo), and **Accent** presets backed by a unified JSON palette (`frontend/src/themes/themes.json`).
+- **Localization (`i18n`)** — Interactive setup and instant switching across **English**, **Русский**, **中文**, and **Українська** with AniList/Shikimori metadata enrichment.
+- **Cloud Profile & Library Sync** — Google OAuth sign-in syncing **Likes**, **Plan to Watch**, **Watch History**, and per-episode progress across sessions.
 
 ## Tech Stack
 
@@ -36,7 +62,7 @@
 | Desktop Shell | [Wails v2](https://wails.io/) (`v2.17.1`), WebView2 |
 | Frontend | [Svelte 5](https://svelte.dev/), TypeScript, Vite |
 | Video & Streaming | `hls.js`, HTML5 MP4 Range, Go `/ext/stream` proxy |
-| Backend & Cloud | Go `1.26`, `net/http`, SQLite (`modernc.org/sqlite`), PostgreSQL (`pgx/v5`) |
+| Backend & Cloud | Go `1.26`, `net/http`, TLS-pinned Cloud API client |
 | Torrents | [`anacrolix/torrent`](https://github.com/anacrolix/torrent) (`v1.62.0`) |
 | Tooling | `go test`, `svelte-check`, `vitest` |
 
@@ -71,7 +97,7 @@ The compiled executable is written to `build/bin/mila.exe`.
 
 ```sh
 # Backend unit tests
-go test -count=1 ./internal/torrent ./internal/mila ./internal/cloud ./cmd/cloud
+go test -count=1 ./internal/torrent ./internal/mila ./internal/cloud
 
 # Frontend typecheck & unit tests
 npm --prefix frontend run check
@@ -84,9 +110,7 @@ npm --prefix frontend test
 .
 ├── main.go                 # Wails entry point and window lifecycle
 ├── wails.json              # Wails project configuration
-├── cmd/
-│   ├── cloud/              # Cloud auth & PostgreSQL sync server
-│   └── server/             # Standalone HTTP host entry point
+├── images/                 # Showcase screenshots
 ├── internal/
 │   ├── mila/               # App bindings, stream proxy, provider extractors
 │   ├── torrent/            # Nyaa/Sukebei/AniLibria search & torrent streaming
@@ -96,7 +120,9 @@ npm --prefix frontend test
 ├── frontend/
 │   ├── src/
 │   │   ├── api/            # Providers, unified bridge & cloud API
-│   │   ├── app/            # Auth, router, bindings & state controllers
+│   │   ├── app/            # Auth, cloud sync, i18n, themes & state controllers
+│   │   ├── i18n/           # JSON locale dictionaries (en, ru, zh, uk)
+│   │   ├── themes/         # Unified JSON theme tokens & adaptive SVG logo
 │   │   ├── marlakit/       # Reusable UI kit & HLS player
 │   │   └── pages/          # Home, Anime, Library, News, Watch Together
 │   └── tests/              # Vitest test suite

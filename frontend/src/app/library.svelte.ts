@@ -17,53 +17,44 @@ export interface LibraryItem {
   updatedAt?: number;
 }
 
-const STORAGE_KEY = 'mila.library.v2';
-const LEGACY_STORAGE_KEY = 'mila.library.v1';
+export interface LibraryMutationInput {
+  shikiId?: number;
+  releaseAlias?: string;
+  searchQueries?: string[];
+  title: string;
+  description?: string;
+  poster?: string;
+  score?: number;
+  tags?: string[];
+}
 
-const DEFAULT_LIBRARY_ITEMS: LibraryItem[] = [
-  {
-    id: 'alya',
-    shikiId: 54744,
-    searchQueries: ['Tokidoki Bosotto', 'Alya Sometimes Hides Her Feelings in Russian'],
-    title: 'Alya Sometimes Hides Her Feelings in Russian',
-    description:
-      'The story centers on Alisa Mikhailovna "Alya" Kujou, a stunning and brilliant student who acts cold and distant to everyone, and her unmotivated seatmate, Masachika Kuze. To hide her true feelings of embarrassment, affection, or frustration, Alya frequently mutters sweet.',
-    poster: 'https://shikimori.io/uploads/poster/animes/54744/de6fc036f101d94a4f738be3f0415d2c.jpeg',
-    score: 7.7,
-    tags: ['2024', '12 ep', 'Comedy', 'Romance', 'School'],
-    lists: ['likes'],
-    updatedAt: 1
-  },
-  {
-    id: 'black-clover',
-    shikiId: 34572,
-    searchQueries: ['Black Clover'],
-    title: 'Black Clover',
-    description:
-      'is a popular fantasy anime about two orphans, Asta and Yuno, who grew up together and strive to become the Wizard King. In a world where magic is everything, Yuno is a prodigy born with a rare grimoire, while Asta is the only person completely devoid of magical power. Refusing to give up, Asta obtains a mysterious five-leaf clover grimoire that grants him Anti-Magic.',
-    poster: 'https://shikimori.io/uploads/poster/animes/34572/d4c5bf9cac831c03fc5ebed2676b7b10.jpeg',
-    score: 8.1,
-    tags: ['2017', '170 ep', 'Action', 'Comedy', 'Fantasy'],
-    lists: ['likes'],
-    updatedAt: 2
-  },
-  {
-    id: 'tsukimichi',
-    shikiId: 43523,
-    releaseAlias: 'tsuki-ga-michibiku-isekai-douchuu',
-    searchQueries: ['Tsuki ga Michibiku Isekai Douchuu', 'Tsukimichi: Moonlit Fantasy'],
-    title: 'Tsukimichi: Moonlit Fantasy',
-    description:
-      'follows Makoto Misumi, an ordinary high schooler summoned to another world as a hero, only to be cast away by the goddess for his lack of beauty. Stripped of his title and sent to a barren wasteland, he discovers an overwhelming power of his own and slowly gathers allies among the monsters and outcasts of the new world.',
-    poster: 'https://shikimori.io/uploads/poster/animes/43523/9f56a98052f05ad81a43452ecacf657d.jpeg',
-    score: 7.7,
-    tags: ['2021', '12 ep', 'Action', 'Adventure', 'Fantasy'],
-    lists: ['likes'],
-    updatedAt: 3
+export type LibraryMutationListener = (event: {
+  type: 'upsert' | 'delete';
+  item: LibraryItem;
+}) => void;
+
+const STORAGE_KEY = 'mila.library.v3';
+const LEGACY_KEYS = ['mila.library.v2', 'mila.library.v1'] as const;
+const LEGACY_SEEDED_IDS = new Set(['alya', 'black-clover', 'tsukimichi']);
+
+const listeners = new Set<LibraryMutationListener>();
+
+export function subscribeLibraryMutations(fn: LibraryMutationListener): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
+function emitLibraryMutation(type: 'upsert' | 'delete', item: LibraryItem): void {
+  for (const fn of listeners) {
+    try {
+      fn({ type, item });
+    } catch {
+      // Ignore subscriber errors
+    }
   }
-];
-
-const SEEDED_IDS = new Set(['alya', 'black-clover', 'tsukimichi']);
+}
 
 function isValidLibraryItem(item: unknown): item is LibraryItem {
   if (!item || typeof item !== 'object') return false;
@@ -75,7 +66,7 @@ function isValidLibraryItem(item: unknown): item is LibraryItem {
   );
 }
 
-function normalizeTitle(title: string): string {
+export function normalizeLibraryTitle(title: string): string {
   return title
     .toLowerCase()
     .replace(/[^a-z0-9а-яё]+/gi, '-')
@@ -83,41 +74,33 @@ function normalizeTitle(title: string): string {
 }
 
 function loadLibrary(): LibraryItem[] {
-  if (typeof localStorage === 'undefined') return DEFAULT_LIBRARY_ITEMS;
+  if (typeof localStorage === 'undefined') return [];
   try {
-    const rawV2 = localStorage.getItem(STORAGE_KEY);
-    if (rawV2 !== null) {
-      const parsed = JSON.parse(rawV2);
+    const rawV3 = localStorage.getItem(STORAGE_KEY);
+    if (rawV3 !== null) {
+      const parsed = JSON.parse(rawV3);
       if (Array.isArray(parsed)) {
-        return parsed.filter(isValidLibraryItem);
+        return parsed.filter(isValidLibraryItem).filter((item) => item.lists.length > 0);
       }
     }
 
-    const rawLegacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (rawLegacy !== null) {
+    for (const legacyKey of LEGACY_KEYS) {
+      const rawLegacy = localStorage.getItem(legacyKey);
+      if (rawLegacy === null) continue;
       const parsedLegacy = JSON.parse(rawLegacy);
-      if (Array.isArray(parsedLegacy)) {
-        // Strip auto-seeded watch_later/favorites from untouched seed items while preserving real user saves.
-        const migrated = parsedLegacy
-          .filter(isValidLibraryItem)
-          .map((item) => {
-            if (SEEDED_IDS.has(item.id) && (!item.updatedAt || item.updatedAt <= 3)) {
-              return {
-                ...item,
-                lists: item.lists.filter((l) => l === 'likes')
-              };
-            }
-            return item;
-          })
-          .filter((item) => item.lists.length > 0);
-        saveLibrary(migrated);
-        return migrated;
-      }
+      if (!Array.isArray(parsedLegacy)) continue;
+      // Strip untouched default stubs from older versions while preserving real user saves.
+      const migrated = parsedLegacy
+        .filter(isValidLibraryItem)
+        .filter((item) => !(LEGACY_SEEDED_IDS.has(item.id) && (!item.updatedAt || item.updatedAt <= 3)))
+        .filter((item) => item.lists.length > 0);
+      saveLibrary(migrated);
+      return migrated;
     }
 
-    return DEFAULT_LIBRARY_ITEMS;
+    return [];
   } catch {
-    return DEFAULT_LIBRARY_ITEMS;
+    return [];
   }
 }
 
@@ -134,13 +117,17 @@ export const localLibrary = $state<{ items: LibraryItem[] }>({
   items: loadLibrary()
 });
 
-function matchIndex(target: { shikiId?: number; releaseAlias?: string; title?: string }): number {
-  const normTitle = target.title ? normalizeTitle(target.title) : '';
-  return localLibrary.items.findIndex(
+function matchIndex(
+  items: LibraryItem[],
+  target: { id?: string; shikiId?: number; releaseAlias?: string; title?: string }
+): number {
+  const normTitle = target.title ? normalizeLibraryTitle(target.title) : '';
+  return items.findIndex(
     (item) =>
+      (target.id && item.id === target.id) ||
       (target.shikiId && target.shikiId > 0 && item.shikiId === target.shikiId) ||
       (target.releaseAlias && item.releaseAlias === target.releaseAlias) ||
-      (normTitle && normalizeTitle(item.title) === normTitle)
+      (normTitle && normalizeLibraryTitle(item.title) === normTitle)
   );
 }
 
@@ -149,8 +136,16 @@ export function findLibraryEntry(target: {
   releaseAlias?: string;
   title?: string;
 }): LibraryItem | undefined {
-  const idx = matchIndex(target);
+  const idx = matchIndex(localLibrary.items, target);
   return idx >= 0 ? localLibrary.items[idx] : undefined;
+}
+
+export function isInLibraryList(
+  target: { shikiId?: number; releaseAlias?: string; title?: string },
+  list: LibraryListKind
+): boolean {
+  const entry = findLibraryEntry(target);
+  return Boolean(entry?.lists.includes(list));
 }
 
 export function isInWatchLater(target: {
@@ -158,56 +153,54 @@ export function isInWatchLater(target: {
   releaseAlias?: string;
   title?: string;
 }): boolean {
-  const entry = findLibraryEntry(target);
-  return Boolean(entry?.lists.includes('watch_later'));
+  return isInLibraryList(target, 'watch_later');
 }
 
-export function toggleWatchLater(input: {
+export function isLiked(target: {
   shikiId?: number;
   releaseAlias?: string;
-  searchQueries?: string[];
-  title: string;
-  description?: string;
-  poster?: string;
-  score?: number;
-  tags?: string[];
+  title?: string;
 }): boolean {
-  const idx = matchIndex(input);
+  return isInLibraryList(target, 'likes');
+}
+
+export function toggleLibraryList(list: LibraryListKind, input: LibraryMutationInput): boolean {
+  const idx = matchIndex(localLibrary.items, input);
   if (idx >= 0) {
     const current = localLibrary.items[idx];
-    const hasWatchLater = current.lists.includes('watch_later');
-    const nextLists = hasWatchLater
-      ? current.lists.filter((l) => l !== 'watch_later')
-      : [...current.lists, 'watch_later' as const];
+    const hasList = current.lists.includes(list);
+    const nextLists = hasList
+      ? current.lists.filter((l) => l !== list)
+      : [...current.lists, list];
 
-    let nextItems: LibraryItem[];
-    if (nextLists.length === 0) {
-      nextItems = localLibrary.items.filter((_, i) => i !== idx);
-    } else {
-      const updated: LibraryItem = {
-        ...current,
-        shikiId: input.shikiId || current.shikiId,
-        releaseAlias: input.releaseAlias || current.releaseAlias,
-        searchQueries: input.searchQueries?.length ? input.searchQueries : current.searchQueries,
-        description: input.description?.trim() || current.description,
-        poster: input.poster || current.poster,
-        score: input.score && input.score > 0 ? input.score : current.score,
-        tags: input.tags?.length ? input.tags : current.tags,
-        lists: nextLists,
-        updatedAt: Date.now()
-      };
-      nextItems = localLibrary.items.map((item, i) => (i === idx ? updated : item));
-    }
+    const updated: LibraryItem = {
+      ...current,
+      shikiId: input.shikiId || current.shikiId,
+      releaseAlias: input.releaseAlias || current.releaseAlias,
+      searchQueries: input.searchQueries?.length ? input.searchQueries : current.searchQueries,
+      description: input.description?.trim() || current.description,
+      poster: input.poster || current.poster,
+      score: input.score && input.score > 0 ? input.score : current.score,
+      tags: input.tags?.length ? input.tags : current.tags,
+      lists: nextLists,
+      updatedAt: Date.now()
+    };
+
+    const nextItems =
+      nextLists.length === 0
+        ? localLibrary.items.filter((_, i) => i !== idx)
+        : localLibrary.items.map((item, i) => (i === idx ? updated : item));
 
     localLibrary.items = nextItems;
     saveLibrary(nextItems);
-    return !hasWatchLater;
+    emitLibraryMutation(nextLists.length === 0 ? 'delete' : 'upsert', updated);
+    return !hasList;
   }
 
   const newId =
     input.shikiId && input.shikiId > 0
       ? `shiki-${input.shikiId}`
-      : input.releaseAlias?.trim() || normalizeTitle(input.title) || `lib-${Date.now()}`;
+      : input.releaseAlias?.trim() || normalizeLibraryTitle(input.title) || `lib-${Date.now()}`;
 
   const created: LibraryItem = {
     id: newId,
@@ -219,22 +212,70 @@ export function toggleWatchLater(input: {
     poster: input.poster || '',
     score: input.score,
     tags: input.tags ?? [],
-    lists: ['watch_later'],
+    lists: [list],
     updatedAt: Date.now()
   };
 
   const nextItems = [created, ...localLibrary.items];
   localLibrary.items = nextItems;
   saveLibrary(nextItems);
+  emitLibraryMutation('upsert', created);
   return true;
 }
 
+export function toggleWatchLater(input: LibraryMutationInput): boolean {
+  return toggleLibraryList('watch_later', input);
+}
+
+export function toggleLike(input: LibraryMutationInput): boolean {
+  return toggleLibraryList('likes', input);
+}
+
 export function removeFromLibraryList(id: string, list: LibraryListKind): void {
-  const nextItems = localLibrary.items
-    .map((item) => (item.id === id ? { ...item, lists: item.lists.filter((l) => l !== list) } : item))
-    .filter((item) => item.lists.length > 0);
+  const existing = localLibrary.items.find((item) => item.id === id);
+  if (!existing) return;
+  const nextLists = existing.lists.filter((l) => l !== list);
+  const updated: LibraryItem = { ...existing, lists: nextLists, updatedAt: Date.now() };
+  const nextItems =
+    nextLists.length === 0
+      ? localLibrary.items.filter((item) => item.id !== id)
+      : localLibrary.items.map((item) => (item.id === id ? updated : item));
   localLibrary.items = nextItems;
   saveLibrary(nextItems);
+  emitLibraryMutation(nextLists.length === 0 ? 'delete' : 'upsert', updated);
+}
+
+/** Merges server library items into local state (without emitting cloud-write recursion). */
+export function mergeCloudLibraryItems(remoteItems: LibraryItem[]): LibraryItem[] {
+  const merged = [...localLibrary.items];
+  for (const remote of remoteItems) {
+    if (!isValidLibraryItem(remote) || remote.lists.length === 0) continue;
+    const idx = matchIndex(merged, remote);
+    if (idx < 0) {
+      merged.push(remote);
+      continue;
+    }
+    const local = merged[idx];
+    const unionLists = Array.from(new Set([...local.lists, ...remote.lists]));
+    const useRemoteLists = (remote.updatedAt ?? 0) >= (local.updatedAt ?? 0);
+    merged[idx] = {
+      ...local,
+      shikiId: local.shikiId || remote.shikiId,
+      releaseAlias: local.releaseAlias || remote.releaseAlias,
+      searchQueries: local.searchQueries?.length ? local.searchQueries : remote.searchQueries,
+      description: local.description || remote.description,
+      poster: local.poster || remote.poster,
+      posterPosition: local.posterPosition || remote.posterPosition,
+      score: local.score || remote.score,
+      tags: local.tags.length ? local.tags : remote.tags,
+      lists: useRemoteLists ? remote.lists : unionLists,
+      updatedAt: Math.max(local.updatedAt ?? 0, remote.updatedAt ?? 0)
+    };
+  }
+  merged.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  localLibrary.items = merged;
+  saveLibrary(merged);
+  return merged;
 }
 
 let enrichedArtwork = false;
@@ -249,12 +290,9 @@ export async function enrichLibraryArtwork(): Promise<void> {
     if (!shiki) return item;
     const nextTags = buildMetaTags(shiki);
     const mergedQueries = Array.from(
-      new Set([
-        ...(item.searchQueries ?? []),
-        shiki.name,
-        shiki.english,
-        shiki.russian
-      ].filter(Boolean))
+      new Set(
+        [...(item.searchQueries ?? []), shiki.name, shiki.english, shiki.russian].filter(Boolean)
+      )
     );
     return {
       ...item,

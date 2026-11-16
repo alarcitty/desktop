@@ -1,4 +1,5 @@
 import { cloudApi, type CloudUser } from '../api/cloud';
+import { startCloudUserSync, stopCloudUserSync } from './cloudSync.svelte';
 
 export interface AuthState {
   user: CloudUser | null;
@@ -28,6 +29,11 @@ export async function initAuth(): Promise<void> {
       const session = await cloudApi.getSession();
       auth.user = session?.user ?? null;
       auth.error = null;
+      if (auth.user) {
+        void startCloudUserSync();
+      } else {
+        stopCloudUserSync();
+      }
     } catch (err) {
       auth.error = err instanceof Error ? err.message : 'Failed to load session';
     } finally {
@@ -51,6 +57,7 @@ export async function loginWithGoogle(settleDelayMs = 1400): Promise<CloudUser |
     }
     auth.user = session.user;
     auth.initialized = true;
+    void startCloudUserSync();
     return session.user;
   } catch (err) {
     auth.error = err instanceof Error ? err.message : 'Google sign-in failed';
@@ -67,6 +74,7 @@ export async function logout(): Promise<void> {
   auth.loading = true;
   auth.error = null;
   try {
+    stopCloudUserSync();
     await cloudApi.logout();
     auth.user = null;
   } catch (err) {
