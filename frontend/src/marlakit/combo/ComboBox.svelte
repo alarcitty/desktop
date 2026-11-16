@@ -3,16 +3,17 @@
   import type { Snippet } from 'svelte';
   import { cubicOut } from 'svelte/easing';
   import ScrollArea from '../scroll/ScrollArea.svelte';
-  import type { ComboOption, ComboPlacement, ComboSection, ComboValue } from './types';
+  import type { ComboAnchor, ComboOption, ComboPlacement, ComboSection, ComboValue } from './types';
 
   function comboTransition(node: HTMLElement, params: { dirY: number }) {
     return {
-      duration: 170,
+      duration: 190,
       easing: cubicOut,
       css: (t: number) => {
-        const y = (1 - t) * params.dirY;
-        const s = 0.96 + 0.04 * t;
-        return `opacity: ${t}; transform: translate3d(0, ${y}px, 0) scale(${s});`;
+        const inv = 1 - t;
+        const y = inv * params.dirY;
+        const s = 0.95 + 0.05 * t;
+        return `opacity: ${t}; transform: translate3d(0, ${y.toFixed(2)}px, 0) scale(${s.toFixed(4)});`;
       }
     };
   }
@@ -26,6 +27,7 @@
     placeholder?: string;
     ariaLabel?: string;
     placement?: ComboPlacement;
+    anchor?: ComboAnchor;
     minWidth?: number;
     maxWidth?: number | null;
     maxHeight?: number | null;
@@ -49,6 +51,7 @@
     placeholder = 'Select',
     ariaLabel,
     placement = 'top-right',
+    anchor,
     minWidth = 112,
     maxWidth = null,
     maxHeight = null,
@@ -85,6 +88,27 @@
     if (label) return label;
     const found = flatOptions.find((o) => o.value === value);
     return found?.label ?? placeholder;
+  });
+
+  const resolvedTransformOrigin = $derived.by(() => {
+    if (anchor) {
+      return anchor.replace('-', ' ');
+    }
+    switch (placement) {
+      case 'top-center':
+        return 'bottom center';
+      case 'top-left':
+        return 'bottom left';
+      case 'top-right':
+        return 'bottom right';
+      case 'bottom-center':
+        return 'top center';
+      case 'bottom-left':
+        return 'top left';
+      case 'bottom-right':
+      default:
+        return 'top right';
+    }
   });
 
   function setOpen(next: boolean) {
@@ -158,6 +182,7 @@
       role="listbox"
       style:min-width="{minWidth}px"
       style:max-width={maxWidth ? `${maxWidth}px` : undefined}
+      style:transform-origin={resolvedTransformOrigin}
       transition:comboTransition={{ dirY: placement.startsWith('top') ? 6 : -6 }}
     >
       <ScrollArea maxHeight={maxHeight ?? 268}>
@@ -246,7 +271,7 @@
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     border: none;
-    box-shadow: 0 22px 52px rgba(0, 0, 0, 0.78);
+    box-shadow: none;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -272,6 +297,13 @@
     transform-origin: bottom left;
   }
 
+  .placement-top-center {
+    left: 50%;
+    bottom: 36px;
+    translate: -50% 0;
+    transform-origin: bottom center;
+  }
+
   .placement-bottom-right {
     right: 0;
     top: 36px;
@@ -282,6 +314,13 @@
     left: 0;
     top: 36px;
     transform-origin: top left;
+  }
+
+  .placement-bottom-center {
+    left: 50%;
+    top: 36px;
+    translate: -50% 0;
+    transform-origin: top center;
   }
 
   .marla-combo-section-label {

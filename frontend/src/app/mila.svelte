@@ -7,11 +7,13 @@
   import PageHost from './PageHost.svelte';
   import PlayerDock from './PlayerDock.svelte';
   import SearchPopup from '../section/search/SearchPopup.svelte';
+  import SetupScene from '../section/setup/SetupScene.svelte';
   import { bootState, initBootGate } from './boot.svelte';
   import { bindings, mountBindingsController } from './bindings.svelte';
   import { getSavedPageScroll, registerScrollBridge } from './router.svelte';
   import type { PageId } from '../pages';
 
+  let setupOpen = $state(true);
   let scrollArea = $state<ReturnType<typeof ScrollArea> | null>(null);
   let headerHidden = $state(false);
   let headerScrolled = $state(false);
@@ -75,10 +77,11 @@
 <div
   class="viewport"
   class:is-app={bindings.isApp}
+  class:is-setup={setupOpen}
   class:is-fullscreen={bindings.isWindowSharp}
   class:is-os-pip={bindings.osPipActive}
 >
-  <div class="content-layer">
+  <div class="content-layer" class:is-setup-active={setupOpen}>
     <Header hidden={headerHidden} scrolled={headerScrolled} />
     <ScrollArea bind:this={scrollArea} onscroll={handleViewportScroll}>
       <PageHost onBeforeEnter={handlePageBeforeEnter} />
@@ -89,7 +92,9 @@
   <PlayerDock />
   <SearchPopup />
 
-  {#if !bootState.ready}
+  {#if setupOpen}
+    <SetupScene ready={bootState.ready} onContinue={() => { setupOpen = false; }} />
+  {:else if !bootState.ready}
     <div
       class="app-boot-screen"
       role="status"
@@ -126,6 +131,10 @@
     border-radius: 15px;
   }
 
+  .viewport.is-setup {
+    background-color: transparent;
+  }
+
   .viewport.is-os-pip {
     min-width: 0 !important;
     min-height: 0 !important;
@@ -153,6 +162,17 @@
     flex-direction: column;
     overflow: hidden;
     background-color: #0c0c0c;
+    transition:
+      opacity 580ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 580ms cubic-bezier(0.22, 1, 0.36, 1),
+      filter 580ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .content-layer.is-setup-active {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.985);
+    filter: blur(6px);
+    pointer-events: none;
   }
 
   .content-layer > :global(.marlakit-scroll-area) > :global(.marlakit-scroll-track) {
