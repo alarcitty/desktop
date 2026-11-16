@@ -10,3 +10,4 @@ crop_*.png
 *client_secret*.json
 TASKS.md
 tasks.md
+cmd/
