@@ -8,3 +8,5 @@ crop_*.png
 .secrets/
 *.pem
 *client_secret*.json
+TASKS.md
+tasks.md
