@@ -3,7 +3,9 @@ package mila
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -11,6 +13,7 @@ import (
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"mila/internal/cloud"
 	"mila/internal/logger"
 	"mila/internal/screen"
 )
@@ -18,20 +21,37 @@ import (
 type Mila struct {
 	ctx             context.Context
 	log             *logger.Logger
+	cloud           *cloud.Client
 	isFullscreen    atomic.Bool
 	isPip           atomic.Bool
 	runtimeStarted  atomic.Bool
 	windowStatePath string
 	emitCloseEvent  func(ctx context.Context, eventName string)
 	captureGeometry func(ctx context.Context) (screen.WindowGeometry, bool)
+	openBrowser     func(ctx context.Context, url string)
 }
 
 // make_unique mila instance
 func New() *Mila {
 	statePath, _ := screen.DefaultWindowStatePath()
+	cloudClient, cloudErr := cloud.NewDefaultClient()
 	m := &Mila{
 		log:             logger.Make("mila"),
+		cloud:           cloudClient,
 		windowStatePath: statePath,
+	}
+	if cloudErr != nil {
+		m.log.Warn("cloud.init_failed", "err", cloudErr.Error())
+	} else if cloudClient != nil {
+		if sess, err := cloud.LoadSavedSession(); err == nil && sess != nil && sess.Token != "" {
+			cloudClient.SetToken(sess.Token)
+		}
+	}
+	m.openBrowser = func(ctx context.Context, url string) {
+		if ctx == nil || !m.runtimeStarted.Load() {
+			return
+		}
+		wailsRuntime.BrowserOpenURL(ctx, url)
 	}
 	m.emitCloseEvent = func(ctx context.Context, eventName string) {
 		if ctx == nil || !m.runtimeStarted.Load() {
@@ -170,13 +190,157 @@ func (m *Mila) GetContractInfo() (string, error) {
 			"mode":         "wails",
 			"apiBase":      "/api/v1",
 			"extBase":      "/ext",
-			"capabilities": []string{"anime", "shikimori", "image", "providers", "torrent", "diagnostics"},
+			"capabilities": []string{"anime", "shikimori", "image", "providers", "torrent", "diagnostics", "cloud"},
 		},
 	})
 	if err != nil {
 		return `{"error":"marshal failed"}`, err
 	}
 	return string(raw), nil
+}
+
+// CloudPing checks reachability and TLS-pinned status of the mila-cloud backend.
+func (m *Mila) CloudPing() (string, error) {
+	if m.cloud == nil {
+		return `{"error":"cloud client unavailable"}`, fmt.Errorf("cloud client unavailable")
+	}
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+
+	res, err := m.cloud.Ping(reqCtx)
+	if err != nil {
+		return `{"error":"cloud ping failed"}`, err
+	}
+	raw, err := json.Marshal(map[string]any{"data": res})
+	if err != nil {
+		return `{"error":"marshal failed"}`, err
+	}
+	return string(raw), nil
+}
+
+// CloudRequest forwards a JSON request through the desktop Go controller over pinned TLS to mila-cloud.
+func (m *Mila) CloudRequest(method, path, bodyJSON string) (string, error) {
+	if m.cloud == nil {
+		return `{"error":"cloud client unavailable"}`, fmt.Errorf("cloud client unavailable")
+	}
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	bodyBytes, err := m.cloud.DoRawJSON(reqCtx, method, path, bodyJSON)
+	if err != nil {
+		return `{"error":"cloud request failed"}`, err
+	}
+	if len(bodyBytes) == 0 {
+		return `{"data":null}`, nil
+	}
+	var parsed any
+	if err := json.Unmarshal(bodyBytes, &parsed); err != nil {
+		return `{"error":"invalid cloud json"}`, err
+	}
+	raw, err := json.Marshal(map[string]any{"data": parsed})
+	if err != nil {
+		return `{"error":"marshal failed"}`, err
+	}
+	return string(raw), nil
+}
+
+func publicSessionEnvelope(sess *cloud.CloudSession) (string, error) {
+	if sess == nil || sess.User.ID <= 0 {
+		return `{"data":null}`, nil
+	}
+	payload := map[string]any{
+		"user":       sess.User,
+		"expires_at": sess.ExpiresAt,
+	}
+	raw, err := json.Marshal(map[string]any{"data": payload})
+	if err != nil {
+		return `{"error":"marshal failed"}`, err
+	}
+	return string(raw), nil
+}
+
+// CloudLoginWithGoogle launches Google OAuth + PKCE in the system browser and exchanges the code on mila-cloud.
+func (m *Mila) CloudLoginWithGoogle() (string, error) {
+	if m.cloud == nil {
+		return `{"error":"cloud client unavailable"}`, fmt.Errorf("cloud client unavailable")
+	}
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+
+	sess, err := m.cloud.LoginWithGoogle(reqCtx, func(authURL string) {
+		if m.openBrowser != nil {
+			m.openBrowser(ctx, authURL)
+		}
+	})
+	if err != nil {
+		m.log.Warn("cloud.google_login_failed", "err", err.Error())
+		return `{"error":"google sign-in failed"}`, err
+	}
+	m.log.Info("cloud.google_login_ok", "user_id", sess.User.ID)
+	return publicSessionEnvelope(sess)
+}
+
+// CloudGetSession validates any locally saved session against mila-cloud /api/v1/auth/me.
+func (m *Mila) CloudGetSession() (string, error) {
+	saved, loadErr := cloud.LoadSavedSession()
+	if loadErr != nil || saved == nil || saved.Token == "" {
+		return `{"data":null}`, nil
+	}
+	if m.cloud == nil {
+		return publicSessionEnvelope(saved)
+	}
+	m.cloud.SetToken(saved.Token)
+
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+
+	fresh, err := m.cloud.FetchMe(reqCtx)
+	if err != nil {
+		var apiErr *cloud.APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusUnauthorized {
+			m.cloud.SetToken("")
+			_ = cloud.ClearSavedSession()
+			return `{"data":null}`, nil
+		}
+		m.log.Warn("cloud.session_verify_fallback", "err", err.Error())
+		return publicSessionEnvelope(saved)
+	}
+	return publicSessionEnvelope(fresh)
+}
+
+// CloudLogout revokes the current session on mila-cloud and clears local session storage.
+func (m *Mila) CloudLogout() (string, error) {
+	if m.cloud == nil {
+		_ = cloud.ClearSavedSession()
+		return `{"data":{"ok":true}}`, nil
+	}
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+
+	if err := m.cloud.Logout(reqCtx); err != nil {
+		m.log.Warn("cloud.logout_remote_failed", "err", err.Error())
+	}
+	return `{"data":{"ok":true}}`, nil
 }
 
 // SetFullscreen toggles true OS monitor fullscreen (covering the taskbar).

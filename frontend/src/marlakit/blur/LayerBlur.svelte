@@ -50,7 +50,7 @@
       aria-hidden="true"
     >
       {#if src}
-        <img {src} alt="" class="blur-img" decoding="async" />
+        <img {src} alt="" class="blur-img" decoding="async" referrerpolicy="no-referrer" />
       {:else}
         {@render children()}
       {/if}
@@ -76,7 +76,7 @@
     aria-hidden="true"
   >
     {#if src}
-      <img {src} alt="" class="blur-img" decoding="async" />
+      <img {src} alt="" class="blur-img" decoding="async" referrerpolicy="no-referrer" />
     {/if}
   </div>
 {/if}

@@ -205,6 +205,26 @@ export async function invokeAnimeVostPlaylist(id: number): Promise<string | null
   }
 }
 
+export async function invokeHentaiSearch(query: string): Promise<string | null> {
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.HentaiSearch !== 'function') return null;
+  try {
+    return await goMila.HentaiSearch(query);
+  } catch {
+    return null;
+  }
+}
+
+export async function invokeHentaiGetEpisodes(provider: string, target: string): Promise<string | null> {
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.HentaiGetEpisodes !== 'function') return null;
+  try {
+    return await goMila.HentaiGetEpisodes(provider, target);
+  } catch {
+    return null;
+  }
+}
+
 const bindingRegistry: BindingDescriptor[] = [
   {
     id: 'nav.back',

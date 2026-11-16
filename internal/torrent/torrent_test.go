@@ -36,6 +36,27 @@ func TestParseNyaaRSS(t *testing.T) {
 	if !strings.HasPrefix(items[0].Magnet, "magnet:?xt=urn:btih:ef3e7ad1b12bdd9fc341691d8866cd1fa8374a4b") {
 		t.Fatalf("unexpected magnet link: %s", items[0].Magnet)
 	}
+
+	sukebeiRSS := []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:nyaa="https://sukebei.nyaa.si/xmlns/nyaa">
+  <channel>
+    <item>
+      <title>[Hentai] Boku dake no Hentai Kanojo The Animation [1080p][Uncensored].mkv</title>
+      <nyaa:seeders>42</nyaa:seeders>
+      <nyaa:leechers>3</nyaa:leechers>
+      <nyaa:infoHash>A1B2C3D4E5F60718293A4B5C6D7E8F9012345678</nyaa:infoHash>
+      <nyaa:category>Art - Anime</nyaa:category>
+      <nyaa:size>640 MiB</nyaa:size>
+    </item>
+  </channel>
+</rss>`)
+	sItems, err := parseNyaaRSSWithSource(sukebeiRSS, "sukebei")
+	if err != nil {
+		t.Fatalf("parseNyaaRSSWithSource failed: %v", err)
+	}
+	if len(sItems) != 1 || sItems[0].Source != "sukebei" || sItems[0].Quality != "1080p" {
+		t.Fatalf("unexpected sukebei items: %+v", sItems)
+	}
 }
 
 func TestParseEpisodeOrdinal(t *testing.T) {

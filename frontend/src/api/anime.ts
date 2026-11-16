@@ -6,6 +6,7 @@ import type { KodikDubOption } from './providers/kodik';
 const animeGoLoader = createLazyModuleLoader(() => import('./providers/animego'));
 const animeVostLoader = createLazyModuleLoader(() => import('./providers/animevost'));
 const dreamCastLoader = createLazyModuleLoader(() => import('./providers/dreamcast'));
+const hentaiLoader = createLazyModuleLoader(() => import('./providers/hentai'));
 const kodikLoader = createLazyModuleLoader(() => import('./providers/kodik'));
 import {
   dedupeSearchQueries,
@@ -1012,6 +1013,25 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
         episodes: chosen.episodes
       };
     }
+  }
+
+  const hentaiMatch = await hentaiLoader
+    .load()
+    .then((m) => m.findHentaiMatch(providerTitles, shikiArt?.year ?? null))
+    .catch(() => null);
+  if (hentaiMatch && hentaiMatch.episodes.length > 0) {
+    return {
+      id: hentaiMatch.releaseId,
+      alias: hentaiMatch.voice.id,
+      title: shikiArt?.english || shikiArt?.name || hentaiMatch.title || target.title,
+      titleEnglish: shikiArt?.english || shikiArt?.name,
+      year: shikiArt?.year ?? hentaiMatch.year,
+      provider: hentaiMatch.provider,
+      voiceLabel: hentaiMatch.voice.label,
+      poster: shikiArt?.posterOriginal || shikiArt?.posterMain || hentaiMatch.poster,
+      banner: shikiArt?.screenshots?.[0] || hentaiMatch.poster,
+      episodes: hentaiMatch.episodes
+    };
   }
 
   throw new Error(`«${target.title}» сейчас недоступно для воспроизведения ни на одном из источников`);
@@ -2204,9 +2224,9 @@ export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption 
   const cast = rel.voiceActors?.slice(0, 3).join(', ');
   const epPart = rel.episodes.length > 0 ? `${rel.episodes.length} ep` : '';
   const kindTag =
-    provider === 'dreamcast'
+    provider === 'dreamcast' || provider === 'hentaimama'
       ? '1080p HLS'
-      : provider === 'animevost'
+      : provider === 'animevost' || provider === 'hentaigasm'
         ? 'MP4'
         : '';
   const defaultLabel =
@@ -2214,7 +2234,11 @@ export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption 
       ? 'Dream Cast'
       : provider === 'animevost'
         ? 'AnimeVost'
-        : 'AniLibria';
+        : provider === 'hentaimama'
+          ? 'HentaiMama'
+          : provider === 'hentaigasm'
+            ? 'HentaiGasm'
+            : 'AniLibria';
   const sublabel = cast || [epPart, kindTag].filter(Boolean).join(' · ') || undefined;
   return {
     id: rel.alias,
@@ -2223,7 +2247,7 @@ export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption 
     releaseAlias: provider === 'aniliberty' ? rel.alias : undefined,
     provider,
     providerId: rel.id,
-    kind: provider === 'animevost' ? 'mp4' : 'hls'
+    kind: provider === 'animevost' || provider === 'hentaigasm' ? 'mp4' : 'hls'
   };
 }
 
@@ -2348,6 +2372,32 @@ export async function resolveVoiceTrackRelease(
     };
   }
 
+  if (voice.provider === 'hentaimama' || voice.provider === 'hentaigasm') {
+    const hentaiTarget = typeof voice.sourceId === 'string' ? voice.sourceId : '';
+    const { fetchHentaiEpisodes } = await hentaiLoader.load();
+    const episodes = await fetchHentaiEpisodes(voice.provider, hentaiTarget);
+    if (episodes.length === 0) {
+      throw new Error(`${voice.label}: нет доступных серий для ${target.title}`);
+    }
+    const releaseId = Number(voice.providerId) || 900_000_001;
+    return {
+      ...(baseRelease ?? {
+        id: releaseId,
+        title: shikiArt?.english || shikiArt?.name || target.title,
+        titleEnglish: shikiArt?.english || shikiArt?.name,
+        year: shikiArt?.year,
+        poster: shikiArt?.posterOriginal || shikiArt?.posterMain,
+        banner: shikiArt?.screenshots?.[0]
+      }),
+      id: releaseId,
+      alias: voice.id,
+      provider: voice.provider,
+      voiceLabel: voice.label,
+      voiceActors: undefined,
+      episodes: mergeBaseEpisodeMetadata(episodes, baseRelease?.episodes)
+    };
+  }
+
   const resolved = await resolvePlayableRelease({
     ...target,
     releaseAlias: voice.releaseAlias || voice.id
@@ -2376,10 +2426,11 @@ export async function findVoiceOptions(
     ...(extraTitles ?? [])
   ]);
   const primaryProvider = primary.provider ?? 'aniliberty';
+  const isHentaiPrimary = primaryProvider === 'hentaimama' || primaryProvider === 'hentaigasm';
   const libSearchTerm = (primary.titleEnglish || primary.title || shikiArt?.russian || '').trim();
 
   const libPromise =
-    shikiId && libSearchTerm.length >= 2
+    !isHentaiPrimary && shikiId && libSearchTerm.length >= 2
       ? Promise.allSettled([
           fetchLibJson<LibSearchCandidate[]>(
             `/app/search/releases?query=${encodeURIComponent(libSearchTerm)}`,
@@ -2395,28 +2446,33 @@ export async function findVoiceOptions(
       : Promise.resolve(null);
 
   const dcPromise =
-    primaryProvider !== 'dreamcast'
+    !isHentaiPrimary && primaryProvider !== 'dreamcast'
       ? dreamCastLoader.load().then((m) => m.findDreamCastMatch(searchTitles, shikiArt?.year ?? primary.year ?? null))
       : Promise.resolve(null);
 
   const avPromise =
-    primaryProvider !== 'animevost'
+    !isHentaiPrimary && primaryProvider !== 'animevost'
       ? animeVostLoader.load().then((m) => m.findAnimeVostMatch(searchTitles, shikiArt?.year ?? primary.year ?? null))
       : Promise.resolve(null);
 
-  const agoPromise = animeGoLoader
-    .load()
-    .then((m) => m.findAnimeGOMatch(searchTitles, shikiArt?.year ?? primary.year ?? null));
-  const kodikPromise = kodikLoader
-    .load()
-    .then((m) => m.findKodikMatch(searchTitles, shikiArt?.year ?? primary.year ?? null, shikiId));
+  const agoPromise = !isHentaiPrimary
+    ? animeGoLoader.load().then((m) => m.findAnimeGOMatch(searchTitles, shikiArt?.year ?? primary.year ?? null))
+    : Promise.resolve(null);
+  const kodikPromise = !isHentaiPrimary
+    ? kodikLoader.load().then((m) => m.findKodikMatch(searchTitles, shikiArt?.year ?? primary.year ?? null, shikiId))
+    : Promise.resolve(null);
 
-  const [libSettled, dcSettled, avSettled, agoSettled, kodikSettled] = await Promise.allSettled([
+  const hentaiPromise = isHentaiPrimary
+    ? hentaiLoader.load().then((m) => m.findAllHentaiTracks(searchTitles, shikiArt?.year ?? primary.year ?? null))
+    : Promise.resolve([]);
+
+  const [libSettled, dcSettled, avSettled, agoSettled, kodikSettled, hentaiSettled] = await Promise.allSettled([
     libPromise,
     dcPromise,
     avPromise,
     agoPromise,
-    kodikPromise
+    kodikPromise,
+    hentaiPromise
   ]);
 
   if (libSettled.status === 'fulfilled' && libSettled.value) {
@@ -2499,6 +2555,14 @@ export async function findVoiceOptions(
       seenIds.add(dub.voice.id);
       if (studioKey) seenStudioKeys.add(studioKey);
       options.push(dub.voice);
+    }
+  }
+
+  if (hentaiSettled.status === 'fulfilled' && Array.isArray(hentaiSettled.value)) {
+    for (const track of hentaiSettled.value) {
+      if (seenIds.has(track.voice.id)) continue;
+      seenIds.add(track.voice.id);
+      options.push(track.voice);
     }
   }
 

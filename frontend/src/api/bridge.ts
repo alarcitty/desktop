@@ -35,11 +35,18 @@ export interface WailsMilaGoBindings {
   AnimeVostPlaylist?: (id: number) => Promise<string>;
   AnimeGOSearch?: (query: string) => Promise<string>;
   AnimeGOPlayer?: (animeId: number) => Promise<string>;
+  HentaiSearch?: (query: string) => Promise<string>;
+  HentaiGetEpisodes?: (provider: string, target: string) => Promise<string>;
   TorrentSearch?: (query: string, aniLibriaID: number) => Promise<string>;
   TorrentOpen?: (magnet: string) => Promise<string>;
   TorrentProbeFile?: (infoHash: string, fileIndex: number) => Promise<string>;
   GetFFmpegStatus?: () => Promise<string>;
   GetTorrentMediaBase?: () => Promise<string>;
+  CloudPing?: () => Promise<string>;
+  CloudRequest?: (method: string, path: string, bodyJSON: string) => Promise<string>;
+  CloudLoginWithGoogle?: () => Promise<string>;
+  CloudGetSession?: () => Promise<string>;
+  CloudLogout?: () => Promise<string>;
 }
 
 export interface WailsRuntimeBridge {

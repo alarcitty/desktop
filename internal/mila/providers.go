@@ -162,6 +162,12 @@ func newProviderProxyHandler(routes []providerRoute) http.Handler {
 		case "/ext/animego/player":
 			serveAnimeGOPlayer(w, r)
 			return
+		case "/ext/hentai/search":
+			serveHentaiSearch(w, r)
+			return
+		case "/ext/hentai/episodes":
+			serveHentaiEpisodes(w, r)
+			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/torrent/") {
 			serveTorrentRoute(w, r)

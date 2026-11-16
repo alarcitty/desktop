@@ -59,7 +59,7 @@ func BuildMagnetLink(infoHash string, displayName string) string {
 	return b.String()
 }
 
-// SearchTorrents queries Nyaa RSS and optional AniLibria release torrents concurrently.
+// SearchTorrents queries Nyaa RSS, Sukebei Nyaa RSS, and optional AniLibria release torrents concurrently.
 func SearchTorrents(ctx context.Context, query string, aniLibriaID int) ([]TorrentSearchResult, error) {
 	clean := strings.TrimSpace(query)
 	if clean == "" && aniLibriaID <= 0 {
@@ -67,15 +67,22 @@ func SearchTorrents(ctx context.Context, query string, aniLibriaID int) ([]Torre
 	}
 
 	var wg sync.WaitGroup
-	var nyaaRes, libRes []TorrentSearchResult
+	var nyaaRes, sukebeiRes, libRes []TorrentSearchResult
 
 	if len([]rune(clean)) >= 2 {
-		wg.Add(1)
+		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			res, err := searchNyaaRSS(ctx, "https://nyaa.si", clean)
+			res, err := searchNyaaRSS(ctx, "https://nyaa.si", clean, "1_0", "nyaa")
 			if err == nil {
 				nyaaRes = res
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			res, err := searchNyaaRSS(ctx, "https://sukebei.nyaa.si", clean, "1_1", "sukebei")
+			if err == nil {
+				sukebeiRes = res
 			}
 		}()
 	}
@@ -94,7 +101,11 @@ func SearchTorrents(ctx context.Context, query string, aniLibriaID int) ([]Torre
 	wg.Wait()
 
 	byHash := make(map[string]TorrentSearchResult)
-	for _, item := range append(libRes, nyaaRes...) {
+	combined := make([]TorrentSearchResult, 0, len(libRes)+len(nyaaRes)+len(sukebeiRes))
+	combined = append(combined, libRes...)
+	combined = append(combined, nyaaRes...)
+	combined = append(combined, sukebeiRes...)
+	for _, item := range combined {
 		hash := strings.ToLower(strings.TrimSpace(item.InfoHash))
 		if hash == "" || item.Seeders <= 0 {
 			continue
@@ -146,8 +157,11 @@ func rankSearchResult(item TorrentSearchResult) int {
 	return score
 }
 
-func searchNyaaRSS(ctx context.Context, baseURL string, query string) ([]TorrentSearchResult, error) {
-	rssURL := fmt.Sprintf("%s/?page=rss&q=%s&c=1_0", strings.TrimRight(baseURL, "/"), url.QueryEscape(query))
+func searchNyaaRSS(ctx context.Context, baseURL string, query string, category string, sourceName string) ([]TorrentSearchResult, error) {
+	if strings.TrimSpace(category) == "" {
+		category = "1_0"
+	}
+	rssURL := fmt.Sprintf("%s/?page=rss&q=%s&c=%s", strings.TrimRight(baseURL, "/"), url.QueryEscape(query), url.QueryEscape(category))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rssURL, nil)
 	if err != nil {
 		return nil, err
@@ -159,16 +173,23 @@ func searchNyaaRSS(ctx context.Context, baseURL string, query string) ([]Torrent
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("nyaa HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("%s HTTP %d", sourceName, resp.StatusCode)
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return nil, err
 	}
-	return parseNyaaRSS(raw)
+	return parseNyaaRSSWithSource(raw, sourceName)
 }
 
 func parseNyaaRSS(raw []byte) ([]TorrentSearchResult, error) {
+	return parseNyaaRSSWithSource(raw, "nyaa")
+}
+
+func parseNyaaRSSWithSource(raw []byte, sourceName string) ([]TorrentSearchResult, error) {
+	if strings.TrimSpace(sourceName) == "" {
+		sourceName = "nyaa"
+	}
 	var feed struct {
 		Channel struct {
 			Items []struct {
@@ -192,7 +213,7 @@ func parseNyaaRSS(raw []byte) ([]TorrentSearchResult, error) {
 			continue
 		}
 		out = append(out, TorrentSearchResult{
-			Source:   "nyaa",
+			Source:   sourceName,
 			Title:    strings.TrimSpace(it.Title),
 			InfoHash: hash,
 			Magnet:   BuildMagnetLink(hash, it.Title),
