@@ -18,6 +18,10 @@ export function AnimeVostSearch(arg1) {
   return window['go']['mila']['Mila']['AnimeVostSearch'](arg1);
 }
 
+export function CheckAndInstallUpdate() {
+  return window['go']['mila']['Mila']['CheckAndInstallUpdate']();
+}
+
 export function CloudGetSession() {
   return window['go']['mila']['Mila']['CloudGetSession']();
 }
@@ -42,6 +46,10 @@ export function ExportDiagnosticsLogs(arg1) {
   return window['go']['mila']['Mila']['ExportDiagnosticsLogs'](arg1);
 }
 
+export function GetAppVersion() {
+  return window['go']['mila']['Mila']['GetAppVersion']();
+}
+
 export function GetContractInfo() {
   return window['go']['mila']['Mila']['GetContractInfo']();
 }
@@ -52,6 +60,10 @@ export function GetFFmpegStatus() {
 
 export function GetTorrentMediaBase() {
   return window['go']['mila']['Mila']['GetTorrentMediaBase']();
+}
+
+export function GetUpdateStatus() {
+  return window['go']['mila']['Mila']['GetUpdateStatus']();
 }
 
 export function HentaiGetEpisodes(arg1, arg2) {

@@ -459,3 +459,41 @@ export function mountBindingsController(): () => void {
     window.removeEventListener('pagehide', onBeforeCloseFlush);
   };
 }
+
+export interface AppUpdateStatus {
+  currentVersion: string;
+  latestVersion: string;
+  hasUpdate: boolean;
+  state: 'idle' | 'checking' | 'up_to_date' | 'downloading' | 'installing' | 'error' | string;
+  progress: number;
+  releaseUrl?: string;
+  error?: string;
+}
+
+export function subscribeAppUpdateStatus(
+  handler: (status: AppUpdateStatus) => void
+): () => void {
+  const runtime = getWailsRuntime();
+  if (typeof runtime?.EventsOn !== 'function') {
+    return () => {};
+  }
+  return runtime.EventsOn('mila:update-status', (payload) => {
+    if (payload && typeof payload === 'object') {
+      handler(payload as AppUpdateStatus);
+    }
+  });
+}
+
+export async function invokeCheckAndInstallUpdate(): Promise<AppUpdateStatus | null> {
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.CheckAndInstallUpdate !== 'function') {
+    return null;
+  }
+  try {
+    const raw = await goMila.CheckAndInstallUpdate();
+    const parsed = JSON.parse(raw) as { data?: AppUpdateStatus };
+    return parsed?.data ?? null;
+  } catch {
+    return null;
+  }
+}

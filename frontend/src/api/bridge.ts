@@ -48,6 +48,9 @@ export interface WailsMilaGoBindings {
   CloudLoginWithGoogle?: () => Promise<string>;
   CloudGetSession?: () => Promise<string>;
   CloudLogout?: () => Promise<string>;
+  GetAppVersion?: () => Promise<string>;
+  GetUpdateStatus?: () => Promise<string>;
+  CheckAndInstallUpdate?: () => Promise<string>;
 }
 
 export interface WailsRuntimeBridge {

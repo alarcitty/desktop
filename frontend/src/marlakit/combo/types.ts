@@ -23,6 +23,10 @@ export interface ComboOption {
   sublabel?: string;
   disabled?: boolean;
   selected?: boolean;
+  keepOpen?: boolean;
+  children?: ComboOption[];
+  subMinWidth?: number;
+  subMaxWidth?: number;
 }
 
 export interface ComboSection {

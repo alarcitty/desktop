@@ -16,19 +16,24 @@ import (
 	"mila/internal/cloud"
 	"mila/internal/logger"
 	"mila/internal/screen"
+	"mila/internal/updater"
+	"mila/internal/version"
 )
 
 type Mila struct {
-	ctx             context.Context
-	log             *logger.Logger
-	cloud           *cloud.Client
-	isFullscreen    atomic.Bool
-	isPip           atomic.Bool
-	runtimeStarted  atomic.Bool
-	windowStatePath string
-	emitCloseEvent  func(ctx context.Context, eventName string)
-	captureGeometry func(ctx context.Context) (screen.WindowGeometry, bool)
-	openBrowser     func(ctx context.Context, url string)
+	ctx              context.Context
+	log              *logger.Logger
+	cloud            *cloud.Client
+	updater          *updater.Manager
+	isFullscreen     atomic.Bool
+	isPip            atomic.Bool
+	runtimeStarted   atomic.Bool
+	windowStatePath  string
+	emitCloseEvent   func(ctx context.Context, eventName string)
+	emitUpdateStatus func(ctx context.Context, status updater.UpdateStatus)
+	quitApp          func(ctx context.Context)
+	captureGeometry  func(ctx context.Context) (screen.WindowGeometry, bool)
+	openBrowser      func(ctx context.Context, url string)
 }
 
 // make_unique mila instance
@@ -38,6 +43,7 @@ func New() *Mila {
 	m := &Mila{
 		log:             logger.Make("mila"),
 		cloud:           cloudClient,
+		updater:         updater.NewManager(updater.Config{}),
 		windowStatePath: statePath,
 	}
 	if cloudErr != nil {
@@ -58,6 +64,18 @@ func New() *Mila {
 			return
 		}
 		wailsRuntime.EventsEmit(ctx, eventName)
+	}
+	m.emitUpdateStatus = func(ctx context.Context, status updater.UpdateStatus) {
+		if ctx == nil || !m.runtimeStarted.Load() {
+			return
+		}
+		wailsRuntime.EventsEmit(ctx, "mila:update-status", status)
+	}
+	m.quitApp = func(ctx context.Context) {
+		if ctx == nil || !m.runtimeStarted.Load() {
+			return
+		}
+		wailsRuntime.Quit(ctx)
 	}
 	m.captureGeometry = func(ctx context.Context) (screen.WindowGeometry, bool) {
 		if geom, ok := screen.CurrentWindowGeometry("MilaWindow", "Mila"); ok {
@@ -190,11 +208,64 @@ func (m *Mila) GetContractInfo() (string, error) {
 			"mode":         "wails",
 			"apiBase":      "/api/v1",
 			"extBase":      "/ext",
-			"capabilities": []string{"anime", "shikimori", "image", "providers", "torrent", "diagnostics", "cloud"},
+			"version":      version.Current(),
+			"capabilities": []string{"anime", "shikimori", "image", "providers", "torrent", "diagnostics", "cloud", "updater"},
 		},
 	})
 	if err != nil {
 		return `{"error":"marshal failed"}`, err
+	}
+	return string(raw), nil
+}
+
+// GetAppVersion returns the running desktop build version tag.
+func (m *Mila) GetAppVersion() string {
+	return version.Current()
+}
+
+// GetUpdateStatus returns the latest updater status as a `{data}` JSON envelope.
+func (m *Mila) GetUpdateStatus() (string, error) {
+	if m.updater == nil {
+		return `{"error":"updater unavailable"}`, fmt.Errorf("updater unavailable")
+	}
+	raw, err := json.Marshal(map[string]any{"data": m.updater.Status()})
+	if err != nil {
+		return `{"error":"marshal failed"}`, err
+	}
+	return string(raw), nil
+}
+
+// CheckAndInstallUpdate checks GitHub Releases, downloads newer Windows builds with progress events, and relaunches.
+func (m *Mila) CheckAndInstallUpdate() (string, error) {
+	if m.updater == nil {
+		return `{"error":"updater unavailable"}`, fmt.Errorf("updater unavailable")
+	}
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	status := m.updater.CheckAndInstall(
+		checkCtx,
+		func(st updater.UpdateStatus) {
+			if m.emitUpdateStatus != nil {
+				m.emitUpdateStatus(m.ctx, st)
+			}
+		},
+		func() {
+			if m.quitApp != nil {
+				m.quitApp(m.ctx)
+			}
+		},
+	)
+	raw, err := json.Marshal(map[string]any{"data": status})
+	if err != nil {
+		return `{"error":"marshal failed"}`, err
+	}
+	if status.State == "error" && status.Error != "" {
+		return string(raw), errors.New(status.Error)
 	}
 	return string(raw), nil
 }

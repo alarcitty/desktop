@@ -26,7 +26,9 @@
     "filters": "Filters",
     "signInGoogle": "Sign in with Google",
     "signOut": "Sign out",
-    "account": "Account"
+    "account": "Account",
+    "language": "Language",
+    "checkReleases": "Check Releases"
   },
   "home": {
     "newReleases": "New Releases",
@@ -96,6 +98,24 @@
   },
   "player": {
     "episode": "Episode {n}",
-    "uncensoredMp4": "Uncensored · MP4"
+    "uncensoredMp4": "Uncensored · MP4",
+    "settings": "Playback",
+    "reset": "Reset",
+    "brightness": "Brightness",
+    "autoNext": "Auto-Next Episode",
+    "autoSkip": "Auto-Skip OP / ED",
+    "skippedOp": "Skipped Opening",
+    "skippedEd": "Skipped Ending",
+    "voiceRu": "Russian",
+    "voiceEn": "English",
+    "voiceOrig": "Original",
+    "voiceOther": "Source",
+    "voiceMixOver": "Over Video",
+    "mixOff": "Original Stream Audio",
+    "mixSublabel": "Audio over video",
+    "mixSync": "Sync",
+    "audioTrack": "Audio Track",
+    "subtitles": "Subtitles",
+    "subtitlesOff": "Off"
   }
 }

@@ -26,7 +26,9 @@
     "filters": "Фильтры",
     "signInGoogle": "Войти через Google",
     "signOut": "Выйти",
-    "account": "Аккаунт"
+    "account": "Аккаунт",
+    "language": "Язык",
+    "checkReleases": "Check Releases"
   },
   "home": {
     "newReleases": "Новые релизы",
@@ -96,6 +98,24 @@
   },
   "player": {
     "episode": "Серия {n}",
-    "uncensoredMp4": "Без цензуры · MP4"
+    "uncensoredMp4": "Без цензуры · MP4",
+    "settings": "Плеер",
+    "reset": "Сброс",
+    "brightness": "Яркость",
+    "autoNext": "Автопереключение серий",
+    "autoSkip": "Авто-скип OP / ED",
+    "skippedOp": "Опенинг пропущен",
+    "skippedEd": "Эндинг пропущен",
+    "voiceRu": "Русские",
+    "voiceEn": "Английские",
+    "voiceOrig": "Оригинал",
+    "voiceOther": "Источник",
+    "voiceMixOver": "Поверх видео",
+    "mixOff": "Звук видеопотока",
+    "mixSublabel": "Аудио поверх видео",
+    "mixSync": "Синхрон",
+    "audioTrack": "Аудиодорожка",
+    "subtitles": "Субтитры",
+    "subtitlesOff": "Выкл"
   }
 }

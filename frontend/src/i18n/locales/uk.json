@@ -26,7 +26,9 @@
     "filters": "Фільтри",
     "signInGoogle": "Увійти через Google",
     "signOut": "Вийти",
-    "account": "Акаунт"
+    "account": "Акаунт",
+    "language": "Мова",
+    "checkReleases": "Check Releases"
   },
   "home": {
     "newReleases": "Нові релізи",
@@ -96,6 +98,24 @@
   },
   "player": {
     "episode": "Серія {n}",
-    "uncensoredMp4": "Без цензури · MP4"
+    "uncensoredMp4": "Без цензури · MP4",
+    "settings": "Плеєр",
+    "reset": "Скинути",
+    "brightness": "Яскравість",
+    "autoNext": "Автоперемикання серій",
+    "autoSkip": "Автопропуск OP / ED",
+    "skippedOp": "Опенінг пропущено",
+    "skippedEd": "Ендінг пропущено",
+    "voiceRu": "Російські",
+    "voiceEn": "Англійські",
+    "voiceOrig": "Оригінал",
+    "voiceOther": "Джерело",
+    "voiceMixOver": "Поверх відео",
+    "mixOff": "Звук відеопотоку",
+    "mixSublabel": "Аудіо поверх відео",
+    "mixSync": "Синхрон",
+    "audioTrack": "Аудіодоріжка",
+    "subtitles": "Субтитри",
+    "subtitlesOff": "Вимк"
   }
 }

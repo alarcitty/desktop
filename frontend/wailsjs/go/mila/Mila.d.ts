@@ -9,6 +9,8 @@ export function AnimeVostPlaylist(arg1:number):Promise<string>;
 
 export function AnimeVostSearch(arg1:string):Promise<string>;
 
+export function CheckAndInstallUpdate():Promise<string>;
+
 export function CloudGetSession():Promise<string>;
 
 export function CloudLoginWithGoogle():Promise<string>;
@@ -21,11 +23,15 @@ export function CloudRequest(arg1:string,arg2:string,arg3:string):Promise<string
 
 export function ExportDiagnosticsLogs(arg1:string):Promise<string>;
 
+export function GetAppVersion():Promise<string>;
+
 export function GetContractInfo():Promise<string>;
 
 export function GetFFmpegStatus():Promise<string>;
 
 export function GetTorrentMediaBase():Promise<string>;
+
+export function GetUpdateStatus():Promise<string>;
 
 export function HentaiGetEpisodes(arg1:string,arg2:string):Promise<string>;
 

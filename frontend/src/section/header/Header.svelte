@@ -5,6 +5,7 @@
   import MilaLogo from "../../themes/MilaLogo.svelte";
   import Input from "../../marlakit/input/Input.svelte";
   import SocialButton from "../../marlakit/button/SocialButton.svelte";
+  import GitButton from "../../marlakit/button/GitButton.svelte";
   import ComboBox from "../../marlakit/combo/ComboBox.svelte";
   import LayerBlur from "../../marlakit/blur/LayerBlur.svelte";
   import type { ComboOption, ComboSection } from "../../marlakit/combo/types";
@@ -12,7 +13,18 @@
   import { router, navigate } from "../../app/router.svelte";
   import { search, openSearch, setSearchAnchor } from "../../app/search.svelte";
   import { auth, initAuth, loginWithGoogle, logout } from "../../app/auth.svelte";
-  import { t } from "../../app/i18n.svelte";
+  import {
+    invokeCheckAndInstallUpdate,
+    subscribeAppUpdateStatus,
+    type AppUpdateStatus
+  } from "../../app/bindings.svelte";
+  import {
+    i18n,
+    isLocaleCode,
+    setLocale,
+    SUPPORTED_LOCALES,
+    t
+  } from "../../app/i18n.svelte";
 
   interface Props {
     hidden?: boolean;
@@ -38,9 +50,25 @@
 
   let avatarBroken = $state(false);
   let menuOpen = $state(false);
+  let updateChecking = $state(false);
+  let updateProgress = $state<number | null>(null);
 
   $effect(() => {
     void initAuth();
+  });
+
+  $effect(() => {
+    return subscribeAppUpdateStatus((status: AppUpdateStatus) => {
+      if (status.state === "downloading" || status.state === "installing") {
+        updateChecking = false;
+        updateProgress = typeof status.progress === "number" ? status.progress : 0;
+        return;
+      }
+      if (status.state === "up_to_date" || status.state === "error" || status.state === "idle") {
+        updateChecking = false;
+        updateProgress = null;
+      }
+    });
   });
 
   $effect(() => {
@@ -56,8 +84,43 @@
     void loginWithGoogle();
   }
 
+  async function handleCheckReleases() {
+    if (updateChecking || updateProgress !== null) return;
+    updateChecking = true;
+    updateProgress = null;
+    try {
+      const res = await invokeCheckAndInstallUpdate();
+      if (!res) {
+        await fetch("https://api.github.com/repos/mila-desktop/desktop/releases/latest", {
+          headers: { Accept: "application/vnd.github+json" }
+        }).catch(() => {});
+        updateChecking = false;
+        updateProgress = null;
+        return;
+      }
+      if (res.state === "downloading" || res.state === "installing") {
+        updateChecking = false;
+        updateProgress = typeof res.progress === "number" ? res.progress : 0;
+        return;
+      }
+      updateChecking = false;
+      updateProgress = null;
+    } catch {
+      updateChecking = false;
+      updateProgress = null;
+    }
+  }
+
   function handleAccountSelect(opt: ComboOption) {
-    if (opt.value === "logout") {
+    const val = String(opt.value);
+    if (val.startsWith("lang:")) {
+      const code = val.slice("lang:".length);
+      if (isLocaleCode(code)) {
+        setLocale(code);
+      }
+      return;
+    }
+    if (val === "logout") {
       menuOpen = false;
       void logout();
     }
@@ -76,8 +139,18 @@
   const userInitial = $derived(userDisplayName.slice(0, 1).toUpperCase());
   const accountSections = $derived<ComboSection[]>([
     {
+      id: "language",
+      title: t("header.language"),
+      options: SUPPORTED_LOCALES.map((loc) => ({
+        value: `lang:${loc.code}`,
+        label: loc.nativeLabel,
+        selected: i18n.locale === loc.code,
+        keepOpen: true
+      }))
+    },
+    {
       id: "account",
-      title: auth.user?.email || undefined,
+      title: auth.user?.email || t("header.account"),
       options: [{ value: "logout", label: t("header.signOut"), disabled: auth.loading }]
     }
   ]);
@@ -184,7 +257,8 @@
             bind:open={menuOpen}
             sections={accountSections}
             placement="bottom-right"
-            minWidth={190}
+            minWidth={210}
+            maxHeight={340}
             class="auth-profile"
             menuClass="auth-combo-menu"
             onselect={handleAccountSelect}
@@ -222,6 +296,16 @@
                   </span>
                 {/if}
               </button>
+            {/snippet}
+            {#snippet footer()}
+              <GitButton
+                fullWidth
+                loading={updateChecking}
+                progress={updateProgress}
+                onclick={() => void handleCheckReleases()}
+              >
+                {t("header.checkReleases")}
+              </GitButton>
             {/snippet}
           </ComboBox>
         </div>
@@ -278,11 +362,8 @@
     --wails-draggable: drag;
     user-select: none;
     z-index: 50;
-    transform: translate3d(0, 0, 0);
-    will-change: transform, opacity;
-    contain: layout style;
     transition:
-      transform 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+      top 0.34s cubic-bezier(0.22, 1, 0.36, 1),
       opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -307,7 +388,7 @@
   }
 
   .header.is-hidden {
-    transform: translate3d(0, -100%, 0);
+    top: -76px;
     opacity: 0;
     pointer-events: none;
     --wails-draggable: no-drag;

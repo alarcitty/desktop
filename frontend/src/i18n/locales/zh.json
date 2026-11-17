@@ -26,7 +26,9 @@
     "filters": "筛选",
     "signInGoogle": "通过 Google 登录",
     "signOut": "退出登录",
-    "account": "账号"
+    "account": "账号",
+    "language": "语言",
+    "checkReleases": "Check Releases"
   },
   "home": {
     "newReleases": "最新更新",
@@ -96,6 +98,24 @@
   },
   "player": {
     "episode": "第 {n} 集",
-    "uncensoredMp4": "无修版 · MP4"
+    "uncensoredMp4": "无修版 · MP4",
+    "settings": "播放设置",
+    "reset": "重置",
+    "brightness": "亮度",
+    "autoNext": "自动下一集",
+    "autoSkip": "自动跳过 OP / ED",
+    "skippedOp": "已跳过片头",
+    "skippedEd": "已跳过片尾",
+    "voiceRu": "俄语配音",
+    "voiceEn": "英语配音",
+    "voiceOrig": "原声字幕",
+    "voiceOther": "片源",
+    "voiceMixOver": "叠加音轨",
+    "mixOff": "使用原视频音轨",
+    "mixSublabel": "仅叠加音轨",
+    "mixSync": "同步",
+    "audioTrack": "音轨",
+    "subtitles": "字幕",
+    "subtitlesOff": "关闭"
   }
 }

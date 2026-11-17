@@ -26,6 +26,8 @@
   import ComboBox from '../combo/ComboBox.svelte';
   import type { ComboSection } from '../combo/types';
   import Slider from '../slider/Slider.svelte';
+  import Toggle from '../toggle/Toggle.svelte';
+  import { t } from '../../app/i18n.svelte';
   import { getLoadedHls, loadHls } from '../../app/hlsLoader';
   import { releaseVideoElementBuffers, safeStorageSet } from '../../app/lifecycle';
   import { createLazyModuleLoader } from '../../api/providers/lazy';
@@ -124,11 +126,10 @@
     class: className = ''
   }: Props = $props();
 
-  type VideoFilterPreset = 'none' | 'vivid' | 'cinema' | 'warm';
-
   interface VideoPrefs {
     brightness: number;
-    filter: VideoFilterPreset;
+    autoNext: boolean;
+    autoSkip: boolean;
   }
 
   const VOLUME_KEY = 'mila.player.volume';
@@ -139,7 +140,8 @@
 
   const DEFAULT_VIDEO_PREFS: VideoPrefs = {
     brightness: 1,
-    filter: 'none'
+    autoNext: true,
+    autoSkip: false
   };
 
   let rootEl = $state<HTMLDivElement | null>(null);
@@ -209,6 +211,8 @@
   let suppressNextVideoClick = false;
   let activeBlobRevoke: (() => void) | null = null;
   let pendingRestoreSeek: (() => void) | null = null;
+  let autoSkippedOp = false;
+  let autoSkippedEd = false;
 
   export function play(): void {
     if (videoEl && videoEl.paused) {
@@ -260,11 +264,11 @@
         typeof parsed.brightness === 'number' && Number.isFinite(parsed.brightness)
           ? Math.max(0.6, Math.min(1.4, parsed.brightness))
           : DEFAULT_VIDEO_PREFS.brightness;
-      const filter: VideoFilterPreset =
-        parsed.filter === 'vivid' || parsed.filter === 'cinema' || parsed.filter === 'warm'
-          ? parsed.filter
-          : 'none';
-      return { brightness, filter };
+      const autoNext =
+        typeof parsed.autoNext === 'boolean' ? parsed.autoNext : DEFAULT_VIDEO_PREFS.autoNext;
+      const autoSkip =
+        typeof parsed.autoSkip === 'boolean' ? parsed.autoSkip : DEFAULT_VIDEO_PREFS.autoSkip;
+      return { brightness, autoNext, autoSkip };
     } catch {
       return { ...DEFAULT_VIDEO_PREFS };
     }
@@ -307,30 +311,110 @@
     return 'HD';
   });
 
+  function classifyVoiceLanguage(v: VoiceTrackOption): 'ru' | 'en' | 'orig' {
+    const lbl = v.label.trim().toLowerCase();
+    if (
+      v.isSub ||
+      lbl.startsWith('original') ||
+      lbl.startsWith('sub ') ||
+      lbl.startsWith('sub·') ||
+      lbl.includes('eng sub') ||
+      lbl.includes('субтит')
+    ) {
+      return 'orig';
+    }
+    if (v.provider === 'zoko' || /\benglish\b/.test(lbl)) {
+      return 'en';
+    }
+    return 'ru';
+  }
+
   const voiceComboSections = $derived.by<ComboSection[]>(() => {
     const out: ComboSection[] = [];
     const activeId = selectedVoiceId || voices[0]?.id;
+    const activeVoice = voices.find((v) => v.id === activeId);
+    const activeLang = activeVoice ? classifyVoiceLanguage(activeVoice) : null;
 
     if (voices.length > 0) {
-      out.push({
-        id: 'voiceover',
-        options: voices.map((v) => ({
-          value: `voice:${v.id}`,
-          label: v.label,
-          sublabel: v.sublabel,
-          selected: activeId === v.id
-        }))
+      const ruVoices: VoiceTrackOption[] = [];
+      const enVoices: VoiceTrackOption[] = [];
+      const origVoices: VoiceTrackOption[] = [];
+
+      for (const v of voices) {
+        const lang = classifyVoiceLanguage(v);
+        if (lang === 'en') {
+          enVoices.push(v);
+        } else if (lang === 'orig') {
+          origVoices.push(v);
+        } else {
+          ruVoices.push(v);
+        }
+      }
+
+      const toVoiceOption = (v: VoiceTrackOption) => ({
+        value: `voice:${v.id}`,
+        label: v.label,
+        sublabel: v.sublabel,
+        selected: activeId === v.id
       });
+
+      const sourceOptions = [];
+      if (ruVoices.length > 0) {
+        sourceOptions.push({
+          value: 'cat:ru',
+          label: t('player.voiceRu'),
+          selected: activeLang === 'ru',
+          subMinWidth: 210,
+          subMaxWidth: 276,
+          children: ruVoices.map(toVoiceOption)
+        });
+      }
+      if (enVoices.length > 0) {
+        sourceOptions.push({
+          value: 'cat:en',
+          label: t('player.voiceEn'),
+          selected: activeLang === 'en',
+          subMinWidth: 204,
+          subMaxWidth: 276,
+          children: enVoices.map(toVoiceOption)
+        });
+      }
+      if (origVoices.length > 0) {
+        sourceOptions.push({
+          value: 'cat:orig',
+          label: t('player.voiceOrig'),
+          selected: activeLang === 'orig',
+          subMinWidth: 204,
+          subMaxWidth: 276,
+          children: origVoices.map(toVoiceOption)
+        });
+      }
+
+      if (sourceOptions.length > 0) {
+        out.push({
+          id: 'sources',
+          options: sourceOptions
+        });
+      }
     }
+
+    const overlayOptions = [];
     if (onselectdubvoice && voices.length > 1) {
-      const dubCandidates = voices.filter((v) => !v.isSub && v.id !== activeId && v.provider !== 'torrent');
+      const dubCandidates = voices
+        .filter((v) => !v.isSub && v.id !== activeId && v.provider !== 'torrent')
+        .sort((a, b) => {
+          const aLang = classifyVoiceLanguage(a) === 'ru' ? 0 : 1;
+          const bLang = classifyVoiceLanguage(b) === 'ru' ? 0 : 1;
+          return aLang - bLang;
+        });
+
       if (dubCandidates.length > 0 || dubAudio) {
-        const dubOptions = [
+        const dubChildren = [
           ...(dubAudio
             ? [
                 {
                   value: 'dub:none',
-                  label: 'Original Stream Audio',
+                  label: t('player.mixOff'),
                   selected: false
                 }
               ]
@@ -338,34 +422,45 @@
           ...dubCandidates.map((v) => ({
             value: `dub:${v.id}`,
             label: v.label,
-            sublabel: 'Audio only over video',
+            sublabel: t('player.mixSublabel'),
             selected: dubVoiceId === v.id
           }))
         ];
-        out.push({
-          id: 'dubpair',
-          title: 'Mix RU Audio',
-          options: dubOptions
+        overlayOptions.push({
+          value: 'cat:mix',
+          label: t('player.voiceMixOver'),
+          selected: Boolean(dubAudio),
+          subMinWidth: 210,
+          subMaxWidth: 276,
+          children: dubChildren
         });
       }
     }
+
     if (audioTracks.length > 1) {
-      out.push({
-        id: 'audio',
-        title: 'Audio Track',
-        options: audioTracks.map((t) => ({
-          value: `audio:${t.index}`,
-          label: t.label,
-          selected: activeAudioTrack === t.index
+      overlayOptions.push({
+        value: 'cat:audio',
+        label: t('player.audioTrack'),
+        selected: activeAudioTrack >= 0,
+        subMinWidth: 184,
+        subMaxWidth: 260,
+        children: audioTracks.map((tr) => ({
+          value: `audio:${tr.index}`,
+          label: tr.label,
+          selected: activeAudioTrack === tr.index
         }))
       });
     }
+
     if (subtitleTracks.length > 0) {
-      out.push({
-        id: 'subtitles',
-        title: 'Subtitles',
-        options: [
-          { value: 'sub:-1', label: 'Off', selected: activeSubtitleTrack === -1 },
+      overlayOptions.push({
+        value: 'cat:sub',
+        label: t('player.subtitles'),
+        selected: activeSubtitleTrack >= 0,
+        subMinWidth: 184,
+        subMaxWidth: 260,
+        children: [
+          { value: 'sub:-1', label: t('player.subtitlesOff'), selected: activeSubtitleTrack === -1 },
           ...subtitleTracks.map((s) => ({
             value: `sub:${s.index}`,
             label: s.label,
@@ -374,6 +469,14 @@
         ]
       });
     }
+
+    if (overlayOptions.length > 0) {
+      out.push({
+        id: 'tracks',
+        options: overlayOptions
+      });
+    }
+
     return out;
   });
 
@@ -442,17 +545,7 @@
     return { left, width: right - left };
   });
 
-  const videoFilterCss = $derived.by(() => {
-    const parts = [`brightness(${videoPrefs.brightness.toFixed(2)})`];
-    if (videoPrefs.filter === 'vivid') {
-      parts.push('contrast(1.08)', 'saturate(1.18)');
-    } else if (videoPrefs.filter === 'cinema') {
-      parts.push('contrast(1.12)', 'saturate(0.92)');
-    } else if (videoPrefs.filter === 'warm') {
-      parts.push('sepia(0.14)', 'saturate(1.08)');
-    }
-    return parts.join(' ');
-  });
+  const videoFilterCss = $derived(`brightness(${videoPrefs.brightness.toFixed(2)})`);
 
   function showOsd(text: string, kind: 'volume' | 'mute' | 'seek' | 'speed' | 'play' | 'info' = 'info') {
     if (isPip && !isFullscreen) return;
@@ -737,6 +830,8 @@
     remuxStreamOptions = {};
     mp4Variants = [];
     playing = false;
+    autoSkippedOp = false;
+    autoSkippedEd = false;
     currentTime = 0;
     duration = 0;
     bufferedEnd = 0;
@@ -1995,6 +2090,37 @@
         currentTime = now;
         const tot = remuxTotalDuration > 0 ? remuxTotalDuration : videoEl.duration || duration || 0;
         ontimeprogress?.(now, tot, false);
+
+        if (videoPrefs.autoSkip && playing) {
+          if (
+            !autoSkippedOp &&
+            opening?.start != null &&
+            opening?.stop != null &&
+            opening.stop > opening.start + 1 &&
+            now >= opening.start &&
+            now < opening.stop - 1.5
+          ) {
+            autoSkippedOp = true;
+            seekTo(opening.stop);
+            showOsd(t('player.skippedOp'), 'seek');
+          } else if (
+            !autoSkippedEd &&
+            ending?.start != null &&
+            ending?.stop != null &&
+            ending.stop > ending.start + 1 &&
+            now >= ending.start &&
+            now < ending.stop - 1.5
+          ) {
+            autoSkippedEd = true;
+            if (videoPrefs.autoNext && hasNext && onnext && tot > 0 && ending.stop >= tot - 3) {
+              showOsd(t('player.skippedEd'), 'seek');
+              onnext();
+            } else {
+              seekTo(tot > 0 ? Math.min(ending.stop, Math.max(0, tot - 0.35)) : ending.stop);
+              showOsd(t('player.skippedEd'), 'seek');
+            }
+          }
+        }
       }
     }}
     ondurationchange={() => {
@@ -2014,6 +2140,9 @@
       if (videoEl) {
         const tot = remuxTotalDuration > 0 ? remuxTotalDuration : videoEl.duration || duration || 0;
         ontimeprogress?.(tot || streamTimeNow(), tot, true);
+      }
+      if (videoPrefs.autoNext && hasNext && onnext) {
+        onnext();
       }
       onended?.();
     }}
@@ -2325,9 +2454,9 @@
               label={activeVoiceLabel || 'Audio'}
               ariaLabel="Voiceover and audio track"
               placement="top-right"
-              minWidth={210}
-              maxWidth={276}
-              maxHeight={300}
+              minWidth={168}
+              maxWidth={210}
+              maxHeight={280}
               ontoggle={(isOpen) => {
                 activeMenu = isOpen ? 'voice' : 'none';
                 scheduleHideControls();
@@ -2340,7 +2469,7 @@
                   if (found) selectVoice(found);
                 } else if (raw.startsWith('dub:')) {
                   const dubId = raw.slice('dub:'.length);
-                  if (dubId === 'none') {
+                  if (dubId === 'none' || dubId === dubVoiceId) {
                     onselectdubvoice?.(null);
                   } else {
                     const found = voices.find((v) => v.id === dubId);
@@ -2359,6 +2488,37 @@
             >
               {#snippet icon()}
                 <AudioLines size={14} strokeWidth={1.9} />
+              {/snippet}
+              {#snippet subFooter(parentOpt)}
+                {#if parentOpt.value === 'cat:mix' && dubAudio && onduboffsetchange}
+                  <div class="mix-sync-bar" role="group" aria-label={t('player.mixSync')}>
+                    <span class="mix-sync-label">{t('player.mixSync')}</span>
+                    <div class="mix-sync-controls">
+                      <button
+                        type="button"
+                        class="mix-sync-btn"
+                        onclick={() => onduboffsetchange(Number((dubOffsetSec - 0.5).toFixed(1)))}
+                      >
+                        -0.5s
+                      </button>
+                      <button
+                        type="button"
+                        class="mix-sync-val"
+                        onclick={() => onduboffsetchange(0)}
+                        title="Reset sync offset"
+                      >
+                        {dubOffsetSec > 0 ? `+${dubOffsetSec.toFixed(1)}s` : `${dubOffsetSec.toFixed(1)}s`}
+                      </button>
+                      <button
+                        type="button"
+                        class="mix-sync-btn"
+                        onclick={() => onduboffsetchange(Number((dubOffsetSec + 0.5).toFixed(1)))}
+                      >
+                        +0.5s
+                      </button>
+                    </div>
+                  </div>
+                {/if}
               {/snippet}
             </ComboBox>
           {/if}
@@ -2401,15 +2561,15 @@
             </ComboBox>
           {/if}
 
-          <!-- Display settings -->
+          <!-- Playback settings -->
           <div class="appearance-wrap">
             <button
               type="button"
               class="icon-btn"
               class:is-active={activeMenu === 'appearance'}
-              aria-label="Video display settings"
+              aria-label={t('player.settings')}
               aria-expanded={activeMenu === 'appearance'}
-              title="Display"
+              title={t('player.settings')}
               onclick={() => {
                 activeMenu = activeMenu === 'appearance' ? 'none' : 'appearance';
                 scheduleHideControls();
@@ -2427,48 +2587,47 @@
                 transition:fly={{ y: 6, duration: 170, easing: cubicOut }}
               >
                 <div class="ap-head">
-                  <span class="ap-title">Display</span>
+                  <span class="ap-title">{t('player.settings')}</span>
                   <button
                     type="button"
                     class="ap-reset"
                     onclick={() => saveVideoPrefs({ ...DEFAULT_VIDEO_PREFS })}
                   >
-                    Reset
+                    {t('player.reset')}
                   </button>
                 </div>
 
-                <div class="ap-group">
-                  <span class="ap-label">Filter</span>
-                  <div class="ap-seg ap-seg-4">
-                    {#each [
-                      { id: 'none', label: 'Normal' },
-                      { id: 'vivid', label: 'Vivid' },
-                      { id: 'cinema', label: 'Cinema' },
-                      { id: 'warm', label: 'Warm' }
-                    ] as const as opt (opt.id)}
-                      <button
-                        type="button"
-                        class="ap-seg-btn"
-                        class:is-active={videoPrefs.filter === opt.id}
-                        onclick={() => saveVideoPrefs({ ...videoPrefs, filter: opt.id })}
-                      >
-                        {opt.label}
-                      </button>
-                    {/each}
-                  </div>
+                <div class="ap-toggles">
+                  <label class="ap-toggle-row">
+                    <span class="ap-toggle-label">{t('player.autoNext')}</span>
+                    <Toggle
+                      checked={videoPrefs.autoNext}
+                      ariaLabel={t('player.autoNext')}
+                      onchange={(checked) => saveVideoPrefs({ ...videoPrefs, autoNext: checked })}
+                    />
+                  </label>
+                  <label class="ap-toggle-row">
+                    <span class="ap-toggle-label">{t('player.autoSkip')}</span>
+                    <Toggle
+                      checked={videoPrefs.autoSkip}
+                      ariaLabel={t('player.autoSkip')}
+                      onchange={(checked) => saveVideoPrefs({ ...videoPrefs, autoSkip: checked })}
+                    />
+                  </label>
                 </div>
 
                 <div class="ap-group ap-slider-group">
                   <div class="ap-label-row">
-                    <span class="ap-label">Brightness</span>
+                    <span class="ap-label">{t('player.brightness')}</span>
                     <span class="ap-value">{Math.round(videoPrefs.brightness * 100)}%</span>
                   </div>
                   <Slider
+                    class="ap-brightness-slider"
                     value={videoPrefs.brightness}
                     min={0.6}
                     max={1.4}
                     step={0.05}
-                    ariaLabel="Video brightness"
+                    ariaLabel={t('player.brightness')}
                     onchange={(val) => saveVideoPrefs({ ...videoPrefs, brightness: val })}
                   />
                 </div>
@@ -3121,20 +3280,20 @@
     position: absolute;
     right: 0;
     bottom: 36px;
-    width: 272px;
-    padding: 14px;
-    border-radius: 14px;
-    background: rgba(14, 14, 17, 0.96);
+    width: 242px;
+    padding: 13px 14px;
+    border-radius: 15px;
+    background: var(--mila-popup-comboBg, rgba(10, 10, 10, 0.9));
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     border: none;
-    box-shadow: 0 22px 52px rgba(0, 0, 0, 0.78);
+    box-shadow: var(--mila-popup-shadow, 0 22px 52px rgba(0, 0, 0, 0.78));
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
     transform-origin: bottom right;
     z-index: 40;
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
   }
 
@@ -3147,31 +3306,59 @@
 
   .ap-title {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
     letter-spacing: -0.01em;
+    line-height: 1;
   }
 
   .ap-reset {
-    height: 24px;
-    padding: 0 10px;
+    height: auto;
+    padding: 0;
     border: none;
     outline: none;
-    border-radius: 7px;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.56);
+    background: transparent;
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.44));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 11.5px;
-    font-weight: 400;
+    font-size: 12px;
+    font-weight: 500;
     line-height: 1;
     cursor: pointer;
-    transition: background-color 0.15s ease, color 0.15s ease;
+    transition: color 0.15s ease;
   }
 
   .ap-reset:hover {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.14);
+    color: var(--mila-text-primary, #ffffff);
+  }
+
+  .ap-toggles {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .ap-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 28px;
+    padding: 3px 0;
+    cursor: pointer;
+  }
+
+  .ap-toggle-label {
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--mila-popup-itemText, rgba(255, 255, 255, 0.78));
+    user-select: none;
+    transition: color 0.14s ease;
+  }
+
+  .ap-toggle-row:hover .ap-toggle-label {
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .ap-group {
@@ -3181,7 +3368,32 @@
   }
 
   .ap-slider-group {
-    gap: 4px;
+    gap: 6px;
+    padding: 2px 0 0;
+  }
+
+  .ap-slider-group :global(.ap-brightness-slider) {
+    height: 18px;
+  }
+
+  .ap-slider-group :global(.ap-brightness-slider .marla-slider-rail) {
+    height: 6px;
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.08));
+  }
+
+  .ap-slider-group :global(.ap-brightness-slider:hover:not(.is-disabled) .marla-slider-rail),
+  .ap-slider-group :global(.ap-brightness-slider:focus-visible:not(.is-disabled) .marla-slider-rail),
+  .ap-slider-group :global(.ap-brightness-slider.is-dragging .marla-slider-rail) {
+    height: 6px;
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.12));
+  }
+
+  .ap-slider-group :global(.ap-brightness-slider .marla-slider-fill) {
+    background: var(--mila-toggle-trackOn, var(--mila-accent-primary, #ffffff));
+  }
+
+  .ap-slider-group :global(.ap-brightness-slider .marla-slider-thumb) {
+    display: none;
   }
 
   .ap-label-row {
@@ -3192,62 +3404,68 @@
   }
 
   .ap-label {
-    font-size: 11.5px;
-    font-weight: 400;
-    letter-spacing: 0.02em;
-    color: rgba(255, 255, 255, 0.44);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--mila-popup-itemText, rgba(255, 255, 255, 0.78));
     user-select: none;
   }
 
   .ap-value {
-    font-size: 11.5px;
-    font-weight: 400;
-    color: rgba(255, 255, 255, 0.78);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.78));
     font-variant-numeric: tabular-nums;
     user-select: none;
   }
 
-  .ap-seg {
-    display: grid;
-    gap: 3px;
-    padding: 3px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.05);
+  .mix-sync-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 4px 8px 2px;
+    padding: 4px 8px;
+    border-radius: 9px;
+    background: var(--mila-popup-itemBg, rgba(255, 255, 255, 0.06));
   }
 
-  .ap-seg-4 {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .mix-sync-label {
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--mila-popup-comboSectionText, rgba(255, 255, 255, 0.2));
+    user-select: none;
   }
 
-  .ap-seg-btn {
-    height: 28px;
-    padding: 0 6px;
+  .mix-sync-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .mix-sync-btn,
+  .mix-sync-val {
+    height: 24px;
+    padding: 0 7px;
     border: none;
     outline: none;
     border-radius: 7px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.62);
+    color: var(--mila-popup-itemText, rgba(255, 255, 255, 0.78));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12px;
-    font-weight: 400;
-    white-space: nowrap;
+    font-size: 11.5px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
     cursor: pointer;
-    transition: background-color 0.15s var(--ease-out, ease), color 0.15s ease, transform 0.1s ease;
+    transition: background-color 0.14s ease, color 0.14s ease;
   }
 
-  .ap-seg-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.92);
-  }
-
-  .ap-seg-btn:active {
-    transform: scale(0.96);
-  }
-
-  .ap-seg-btn.is-active {
-    background: rgba(255, 255, 255, 0.14);
-    color: #ffffff;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  .mix-sync-btn:hover,
+  .mix-sync-val:hover {
+    background: var(--mila-popup-itemHover, rgba(255, 255, 255, 0.11));
+    color: var(--mila-text-primary, #ffffff);
   }
 
   .ffmpeg-status {
