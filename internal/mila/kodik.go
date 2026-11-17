@@ -64,6 +64,9 @@ var (
 	kodikResolveMu    sync.RWMutex
 	kodikResolveCache = make(map[string]kodikResolveCacheEntry)
 
+	agoEpEmbedMu    sync.RWMutex
+	agoEpEmbedCache = make(map[string]string)
+
 	reKodikVarDomain   = regexp.MustCompile(`var\s+domain\s*=\s*["']([^"']*)["']`)
 	reKodikVarDSign    = regexp.MustCompile(`var\s+d_sign\s*=\s*["']([^"']+)["']`)
 	reKodikVarPD       = regexp.MustCompile(`var\s+pd\s*=\s*["']([^"']*)["']`)
@@ -73,6 +76,7 @@ var (
 	reKodikInfoType    = regexp.MustCompile(`(?:vInfo\.type|var\s+type)\s*=\s*["']([^"']+)["']`)
 	reKodikInfoHash    = regexp.MustCompile(`(?:vInfo\.hash|var\s+hash)\s*=\s*["']([^"']+)["']`)
 	reKodikInfoID      = regexp.MustCompile(`(?:vInfo\.id|var\s+id)\s*=\s*["']([^"']+)["']`)
+	reAttrPTranslation = regexp.MustCompile(`data-ptranslation="([^"]+)"`)
 	reKodikScriptSrc   = regexp.MustCompile(`src\s*=\s*["']([^"']*app\.player[^"']*\.js(?:\?[^"']*)?)["']`)
 	reKodikAjaxAtob    = regexp.MustCompile(`\$\.ajax\(\s*\{[^}]*type:\s*["']POST["'][^}]*url:\s*atob\(\s*["']([A-Za-z0-9+/=]+)["']\s*\)`)
 	reKodikAjaxLiteral = regexp.MustCompile(`\$\.ajax\(\s*\{[^}]*type:\s*["']POST["'][^}]*url:\s*["'](/[a-zA-Z0-9_-]{2,24})["']`)
@@ -207,8 +211,16 @@ func resolveAnimeGOKodikMaster(ctx context.Context, animeID int, episodeID int, 
 }
 
 func fetchAnimeGOKodikEmbedForEpisode(ctx context.Context, baseURL string, episodeID int, translationID string) (string, error) {
+	cacheKey := fmt.Sprintf("%d:%s", episodeID, translationID)
+	agoEpEmbedMu.RLock()
+	if cached, ok := agoEpEmbedCache[cacheKey]; ok && cached != "" {
+		agoEpEmbedMu.RUnlock()
+		return cached, nil
+	}
+	agoEpEmbedMu.RUnlock()
+
 	base := strings.TrimRight(baseURL, "/")
-	raw, status, err := fetchTextWithHeaders(ctx, fmt.Sprintf("%s/player/%d", base, episodeID), map[string]string{
+	raw, status, err := fetchTextWithHeaders(ctx, fmt.Sprintf("%s/player/videos/%d", base, episodeID), map[string]string{
 		"User-Agent":       defaultBrowserUA,
 		"X-Requested-With": "XMLHttpRequest",
 		"Referer":          base + "/",
@@ -234,14 +246,25 @@ func fetchAnimeGOKodikEmbedForEpisode(ctx context.Context, baseURL string, episo
 			continue
 		}
 		trMatch := reAttrTranslationID.FindStringSubmatch(btn)
-		if len(trMatch) < 2 || strings.TrimSpace(trMatch[1]) != translationID {
+		pTrMatch := reAttrPTranslation.FindStringSubmatch(btn)
+		matched := false
+		if len(trMatch) > 1 && strings.TrimSpace(trMatch[1]) == translationID {
+			matched = true
+		} else if len(pTrMatch) > 1 && strings.TrimSpace(pTrMatch[1]) == translationID {
+			matched = true
+		}
+		if !matched {
 			continue
 		}
 		playerMatch := reAttrPlayer.FindStringSubmatch(btn)
 		if len(playerMatch) < 2 {
 			continue
 		}
-		return normalizeEmbedURL(playerMatch[1]), nil
+		res := normalizeEmbedURL(playerMatch[1])
+		agoEpEmbedMu.Lock()
+		agoEpEmbedCache[cacheKey] = res
+		agoEpEmbedMu.Unlock()
+		return res, nil
 	}
 	return "", errors.New("matching kodik translation not found on episode")
 }

@@ -925,7 +925,7 @@ function scoreReleaseCandidate(
 
   const candIsSpecial = candTitles.some((t) => SPECIAL_TITLE_RE.test(t));
   const targetIsSpecial = targetTitles.some((t) => SPECIAL_TITLE_RE.test(t));
-  if (candIsSpecial && !targetIsSpecial) {
+  if (candIsSpecial !== targetIsSpecial) {
     return -1;
   }
 

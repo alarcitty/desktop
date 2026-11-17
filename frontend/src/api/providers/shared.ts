@@ -1,5 +1,5 @@
 export const SPECIAL_TITLE_RE =
-  /(?:^|[^\p{L}\p{N}])(special|сп[еэ]шл|спецвыпуск|ova|recap)(?:$|[^\p{L}\p{N}])/iu;
+  /(?:^|[^\p{L}\p{N}])(special(?:s)?|сп[еэ]ш[еэ]?л(?:ы)?|спецвыпуск(?:и)?|ova|ова|ona|она|recap|рекап)(?:$|[^\p{L}\p{N}])/iu;
 
 const TITLE_STOP_WORDS = new Set([
   'the',
@@ -109,7 +109,7 @@ export function scoreTitleSimilarity(
 
   const candIsSpecial = cleanCand.some((t) => SPECIAL_TITLE_RE.test(t));
   const targetIsSpecial = cleanTarget.some((t) => SPECIAL_TITLE_RE.test(t));
-  if (candIsSpecial && !targetIsSpecial) {
+  if (candIsSpecial !== targetIsSpecial) {
     return -1;
   }
 

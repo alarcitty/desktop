@@ -93,7 +93,7 @@ func TestParseKodikEmbedHTMLAndAnimeGOEpisodeFetch(t *testing.T) {
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/player/1619" {
+		if r.URL.Path == "/player/videos/1619" {
 			_, _ = w.Write([]byte(`{"status":"success","data":{"content":"<button type=\"button\" data-anime-player-target=\"provider\" data-player=\"//kodikplayer.com/seria/723282/f1f30aa/720p\" data-provider-slug=\"kodik\" data-translation-id=\"1\" data-translation-title=\"AniDUB\"></button>"}}`))
 			return
 		}

@@ -310,10 +310,13 @@ export async function findKodikMatch(
     const candidates = await searchYaniAnime(q);
     for (const cand of candidates) {
       if (!cand?.anime_id) continue;
-      if (shikiId && cand.remote_ids?.shikimori_id === shikiId) {
-        bestItem = cand;
-        bestScore = 100_000;
-        break;
+      if (shikiId && cand.remote_ids?.shikimori_id) {
+        if (cand.remote_ids.shikimori_id === shikiId) {
+          bestItem = cand;
+          bestScore = 100_000;
+          break;
+        }
+        continue;
       }
       const titleList = cand.title ? [cand.title] : [];
       const score = scoreTitleSimilarity(titleList, targetTitles, cand.year ?? null, targetYear);
