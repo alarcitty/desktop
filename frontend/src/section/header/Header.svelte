@@ -15,6 +15,7 @@
   import { auth, initAuth, loginWithGoogle, logout } from "../../app/auth.svelte";
   import {
     invokeCheckAndInstallUpdate,
+    invokeGetUpdateStatus,
     subscribeAppUpdateStatus,
     type AppUpdateStatus
   } from "../../app/bindings.svelte";
@@ -58,17 +59,30 @@
   });
 
   $effect(() => {
-    return subscribeAppUpdateStatus((status: AppUpdateStatus) => {
+    const applyStatus = (status: AppUpdateStatus | null) => {
+      if (!status) return;
       if (status.state === "downloading" || status.state === "installing") {
         updateChecking = false;
-        updateProgress = typeof status.progress === "number" ? status.progress : 0;
+        const pct = typeof status.progress === "number" ? status.progress : 0;
+        updateProgress = updateProgress !== null ? Math.max(updateProgress, pct) : pct;
         return;
       }
       if (status.state === "up_to_date" || status.state === "error" || status.state === "idle") {
         updateChecking = false;
         updateProgress = null;
       }
-    });
+    };
+
+    const unsub = subscribeAppUpdateStatus(applyStatus);
+    const pollId = window.setInterval(() => {
+      if (!updateChecking && updateProgress === null) return;
+      void invokeGetUpdateStatus().then(applyStatus);
+    }, 180);
+
+    return () => {
+      unsub();
+      window.clearInterval(pollId);
+    };
   });
 
   $effect(() => {

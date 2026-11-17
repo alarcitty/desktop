@@ -497,3 +497,17 @@ export async function invokeCheckAndInstallUpdate(): Promise<AppUpdateStatus | n
     return null;
   }
 }
+
+export async function invokeGetUpdateStatus(): Promise<AppUpdateStatus | null> {
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.GetUpdateStatus !== 'function') {
+    return null;
+  }
+  try {
+    const raw = await goMila.GetUpdateStatus();
+    const parsed = JSON.parse(raw) as { data?: AppUpdateStatus };
+    return parsed?.data ?? null;
+  } catch {
+    return null;
+  }
+}

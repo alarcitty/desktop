@@ -202,6 +202,7 @@
   }
 
   .btn-progress-track {
+    display: block;
     width: 100%;
     height: 5px;
     border-radius: 999px;
@@ -210,10 +211,13 @@
   }
 
   .btn-progress-fill {
+    display: block;
     height: 100%;
+    min-width: 5px;
     border-radius: 999px;
     background: currentColor;
-    transition: width 160ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: width;
   }
 
   @keyframes marlakit-spin {
