@@ -41,6 +41,7 @@ const PIP_CORNER_STORAGE_KEY = 'mila.player.pipCorner';
 const DUB_OFFSET_STORAGE_PREFIX = 'mila.player.dubOffset:';
 
 const MAX_TORRENT_RELEASE_CACHE = 20;
+const MAX_VOICE_RELEASE_CACHE = 24;
 
 const dubOffsetWriter = createDebouncedStorageWriter<{ key: string; value: string }>(
   250,
@@ -140,6 +141,7 @@ let playControlCallback: (() => void) | null = null;
 let pauseControlCallback: (() => void) | null = null;
 const failedVoiceIds = new Set<string>();
 const torrentReleaseCache = new Map<string, PlayableRelease>();
+const voiceReleaseCache = new Map<string, PlayableRelease>();
 
 function syncPlayerHistory(currentTime?: number, duration?: number): void {
   const rel = player.release;
@@ -291,6 +293,7 @@ async function loadTargetIntoPlayer(
     player.release = rel;
     player.title = player.shikiArt?.english || player.shikiArt?.name || rel.title || target.title;
     player.selectedVoiceId = rel.alias;
+    setBoundedMapEntry(voiceReleaseCache, rel.alias, rel, MAX_VOICE_RELEASE_CACHE);
     if (!opts?.keepVoices || player.voices.length === 0) {
       player.voices = [buildPrimaryVoiceOption(rel)];
       const extraTitles = [target.title, ...(target.searchQueries ?? [])];
@@ -354,12 +357,17 @@ export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Pr
   player.autoplay = player.isPlaying || player.autoplay;
 
   try {
-    const cachedTorrent = voice.provider === 'torrent' ? torrentReleaseCache.get(voice.id) : undefined;
+    const cachedRelease =
+      voice.provider === 'torrent'
+        ? torrentReleaseCache.get(voice.id)
+        : voiceReleaseCache.get(voice.id);
     const nextRel =
-      cachedTorrent ?? (await resolveVoiceTrackRelease(voice, baseRelease, baseTarget));
+      cachedRelease ?? (await resolveVoiceTrackRelease(voice, baseRelease, baseTarget));
     if (token !== activeRequestToken) return;
+    setBoundedMapEntry(voiceReleaseCache, voice.id, nextRel, MAX_VOICE_RELEASE_CACHE);
+    setBoundedMapEntry(voiceReleaseCache, nextRel.alias, nextRel, MAX_VOICE_RELEASE_CACHE);
     player.release = nextRel;
-    player.selectedVoiceId = nextRel.alias;
+    player.selectedVoiceId = voice.id;
     if (player.dubVoiceId === voice.id) {
       player.dubVoiceId = '';
       player.dubRelease = null;
@@ -370,7 +378,11 @@ export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Pr
     player.episodeIndex = applyPreservedEpisode(nextRel, prevOrdinal, prevIndex);
   } catch (err) {
     if (token !== activeRequestToken) return;
-    player.error = err instanceof Error ? err.message : 'Failed to switch voiceover';
+    if (baseRelease && baseRelease.episodes.length > 0) {
+      player.release = baseRelease;
+    } else {
+      player.error = err instanceof Error ? err.message : 'Failed to switch voiceover';
+    }
   } finally {
     if (token === activeRequestToken) {
       player.loading = false;

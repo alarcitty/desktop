@@ -14,7 +14,18 @@
   import './theme.svelte';
   import type { PageId } from '../pages';
 
-  let setupOpen = $state(true);
+  const SETUP_COMPLETED_KEY = 'mila.setup.completed';
+
+  function isSetupCompleted(): boolean {
+    if (typeof window === 'undefined') return true;
+    try {
+      return window.localStorage.getItem(SETUP_COMPLETED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  let setupOpen = $state(!isSetupCompleted());
   let scrollArea = $state<ReturnType<typeof ScrollArea> | null>(null);
   let headerHidden = $state(false);
   let headerScrolled = $state(false);
@@ -94,7 +105,17 @@
   <SearchPopup />
 
   {#if setupOpen}
-    <SetupScene ready={bootState.ready} onContinue={() => { setupOpen = false; }} />
+    <SetupScene
+      ready={bootState.ready}
+      onContinue={() => {
+        try {
+          window.localStorage.setItem(SETUP_COMPLETED_KEY, '1');
+        } catch {
+          // Ignore storage quota / restricted context errors
+        }
+        setupOpen = false;
+      }}
+    />
   {:else if !bootState.ready}
     <div
       class="app-boot-screen"

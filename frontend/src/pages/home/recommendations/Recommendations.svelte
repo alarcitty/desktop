@@ -255,7 +255,7 @@
   }
 
   .bottom-tab-notch:hover {
-    transform: translateX(-50%) translateY(-2px);
+    transform: translateX(-50%);
   }
 
   .bottom-tab-notch :global(.tab-arrow-icon) {

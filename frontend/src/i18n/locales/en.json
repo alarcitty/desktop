@@ -2,6 +2,7 @@
   "setup": {
     "welcome": "Welcome",
     "continue": "Continue",
+    "skip": "Skip",
     "chooseLanguage": "Choose your language",
     "chooseLanguageSub": "Select the language used across the interface and catalog.",
     "chooseTheme": "Choose your theme",

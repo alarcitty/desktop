@@ -185,6 +185,8 @@ export interface PlayableRelease {
   provider?: 'aniliberty' | 'dreamcast' | 'animevost' | 'animego' | 'kodik' | string;
   voiceLabel?: string;
   voiceActors?: string[];
+  primarySourceId?: number | string;
+  primaryIsSub?: boolean;
   poster?: string;
   banner?: string;
   episodes: PlayableEpisode[];
@@ -1098,6 +1100,8 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
         year: shikiArt?.year ?? agoMatch.year,
         provider: 'animego',
         voiceLabel: chosen.voice.label,
+        primarySourceId: chosen.voice.sourceId,
+        primaryIsSub: chosen.voice.isSub,
         poster: shikiArt?.posterOriginal || shikiArt?.posterMain || agoMatch.poster,
         banner: shikiArt?.screenshots?.[0] || agoMatch.poster,
         episodes: chosen.episodes
@@ -1141,6 +1145,8 @@ export async function resolvePlayableRelease(target: WatchTarget): Promise<Playa
         year: shikiArt?.year ?? kodikMatch.year,
         provider: 'kodik',
         voiceLabel: chosen.voice.label,
+        primarySourceId: chosen.voice.sourceId,
+        primaryIsSub: chosen.voice.isSub,
         poster: shikiArt?.posterOriginal || shikiArt?.posterMain || kodikMatch.poster,
         banner: shikiArt?.screenshots?.[0] || kodikMatch.poster,
         episodes: chosen.episodes
@@ -2413,6 +2419,8 @@ export function buildPrimaryVoiceOption(rel: PlayableRelease): VoiceTrackOption 
     releaseAlias: provider === 'aniliberty' ? rel.alias : undefined,
     provider,
     providerId: rel.id,
+    sourceId: rel.primarySourceId,
+    isSub: rel.primaryIsSub,
     kind: provider === 'animevost' || provider === 'hentaigasm' ? 'mp4' : 'hls'
   };
 }

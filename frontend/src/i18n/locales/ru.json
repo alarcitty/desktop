@@ -2,6 +2,7 @@
   "setup": {
     "welcome": "Добро пожаловать",
     "continue": "Продолжить",
+    "skip": "Пропустить",
     "chooseLanguage": "Выберите язык",
     "chooseLanguageSub": "Язык интерфейса и каталога в приложении.",
     "chooseTheme": "Выберите тему",

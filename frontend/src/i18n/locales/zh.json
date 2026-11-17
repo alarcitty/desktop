@@ -2,6 +2,7 @@
   "setup": {
     "welcome": "欢迎使用",
     "continue": "继续",
+    "skip": "跳过",
     "chooseLanguage": "选择语言",
     "chooseLanguageSub": "选择界面和目录显示的语言。",
     "chooseTheme": "选择主题",

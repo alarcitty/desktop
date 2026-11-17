@@ -286,8 +286,6 @@
 <div
   class="marlakit-scroll-area {className}"
   style:max-height={maxHeight ? `${maxHeight}px` : undefined}
-  onmouseenter={() => { if (thumbHeight > 0) isVisible = true; }}
-  onmouseleave={() => { if (!isDragging) isVisible = false; }}
   role="region"
   aria-label="Scrollable content"
 >
@@ -316,6 +314,15 @@
       bind:this={trackRef}
       class="marlakit-scroll-track"
       class:visible={isVisible || isDragging}
+      onmouseenter={() => { if (thumbHeight > 0) isVisible = true; }}
+      onmouseleave={() => {
+        if (!isDragging) {
+          clearTimeout(hideTimer);
+          hideTimer = window.setTimeout(() => {
+            isVisible = false;
+          }, 500);
+        }
+      }}
       onclick={handleTrackClick}
     >
       <div
@@ -362,25 +369,29 @@
   .marlakit-scroll-track {
     position: absolute;
     top: 10px;
-    right: 6px;
+    right: 5px;
     bottom: 10px;
     width: 8px;
     background: transparent;
     border-radius: 999px;
     opacity: 0;
-    transition: opacity 0.25s ease, width 0.15s ease;
-    pointer-events: none;
+    transition: opacity 0.3s ease, width 0.15s ease;
+    pointer-events: auto;
     z-index: 50;
     --wails-draggable: no-drag;
   }
 
   .marlakit-scroll-track.visible {
-    opacity: 1;
-    pointer-events: auto;
+    opacity: 0.48;
+  }
+
+  .marlakit-scroll-track:hover,
+  .marlakit-scroll-track:has(.dragging) {
+    opacity: 0.92;
   }
 
   .marlakit-scroll-thumb {
-    width: 5px;
+    width: 3px;
     margin-left: auto;
     background: var(--mila-app-scrollbarThumb, rgba(255, 255, 255, 0.22));
     border-radius: 999px;
@@ -393,6 +404,6 @@
   .marlakit-scroll-track:hover .marlakit-scroll-thumb,
   .marlakit-scroll-thumb.dragging {
     background: var(--mila-app-scrollbarThumbHover, rgba(255, 255, 255, 0.45));
-    width: 6px;
+    width: 5px;
   }
 </style>

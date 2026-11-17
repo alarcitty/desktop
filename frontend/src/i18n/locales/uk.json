@@ -2,6 +2,7 @@
   "setup": {
     "welcome": "Вітаємо",
     "continue": "Продовжити",
+    "skip": "Пропустити",
     "chooseLanguage": "Оберіть мову",
     "chooseLanguageSub": "Оберіть мову інтерфейсу та каталогу.",
     "chooseTheme": "Оберіть тему",

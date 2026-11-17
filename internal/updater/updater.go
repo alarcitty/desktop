@@ -265,7 +265,7 @@ func (m *Manager) CheckAndInstall(
 		LatestVersion:  rel.TagName,
 		HasUpdate:      true,
 		State:          "downloading",
-		Progress:       0,
+		Progress:       2,
 		ReleaseURL:     rel.HTMLURL,
 	}
 	m.setStatus(initialDownload, onProgress)

@@ -703,22 +703,28 @@
   }
 
   .torrent-body {
-    margin-right: -8px;
     min-height: 0;
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
   }
 
-  .torrent-body :global(.marlakit-scroll) {
+  .torrent-body :global(.marlakit-scroll-area),
+  .torrent-body :global(.marlakit-scroll-viewport) {
     max-height: min(340px, calc(100vh - 250px)) !important;
+  }
+
+  .torrent-body :global(.marlakit-scroll-track) {
+    top: 4px;
+    bottom: 4px;
+    right: 2px;
   }
 
   .torrent-list {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding-right: 10px;
+    padding-right: 12px;
   }
 
   .torrent-row {

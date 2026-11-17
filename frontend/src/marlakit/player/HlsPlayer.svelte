@@ -855,6 +855,21 @@
     };
 
     const handleNativeError = () => {
+      if (playbackMode === 'mp4' && activeLevelIndex + 1 < mp4Variants.length) {
+        const nextIdx = activeLevelIndex + 1;
+        const nextVariant = mp4Variants[nextIdx];
+        if (nextVariant) {
+          activeLevelIndex = nextIdx;
+          selectedLevel = nextIdx;
+          buffering = true;
+          video.src = nextVariant.url;
+          video.load();
+          if (shouldAutoplay) {
+            void video.play().catch(() => {});
+          }
+          return;
+        }
+      }
       buffering = false;
       errorText = 'Playback error: failed to load video stream';
       onerror?.(errorText);
