@@ -24,6 +24,8 @@ func main() {
 		_ = logger.CloseDefaultSink()
 	}()
 
+	_ = screen.SetAppUserModelID("com.mila.app")
+
 	log := logger.Make("boot")
 	m := mila.New()
 
@@ -32,7 +34,7 @@ func main() {
 	log.Info("window.geometry", "size", fmt.Sprintf("%dx%d", width, height), "radius", 15)
 
 	err := wails.Run(&options.App{
-		Title:     "mila",
+		Title:     "Mila",
 		Width:     width,
 		Height:    height,
 		MinWidth:  858,
@@ -50,7 +52,7 @@ func main() {
 			m,
 		},
 		Windows: &windows.Options{
-			WindowClassName:                   "milaWindow",
+			WindowClassName:                   "MilaWindow",
 			WebviewIsTransparent:              true,
 			WindowIsTranslucent:               true, // enables WS_EX_NOREDIRECTIONBITMAP and true alpha
 			DisableFramelessWindowDecorations: true, // removes DWM black rectangular frame

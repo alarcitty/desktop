@@ -60,7 +60,7 @@ func New() *Mila {
 		wailsRuntime.EventsEmit(ctx, eventName)
 	}
 	m.captureGeometry = func(ctx context.Context) (screen.WindowGeometry, bool) {
-		if geom, ok := screen.CurrentWindowGeometry("milaWindow", "mila"); ok {
+		if geom, ok := screen.CurrentWindowGeometry("MilaWindow", "Mila"); ok {
 			return geom, true
 		}
 		if ctx == nil || !m.runtimeStarted.Load() {
@@ -351,11 +351,11 @@ func (m *Mila) SetFullscreen(fullscreen bool) {
 	m.isFullscreen.Store(fullscreen)
 	if fullscreen {
 		wailsRuntime.WindowFullscreen(m.ctx)
-		screen.SetWindowFullscreen("milaWindow", "mila", true)
+		screen.SetWindowFullscreen("MilaWindow", "Mila", true)
 	} else {
-		screen.SetWindowFullscreen("milaWindow", "mila", false)
+		screen.SetWindowFullscreen("MilaWindow", "Mila", false)
 		wailsRuntime.WindowUnfullscreen(m.ctx)
-		screen.ClearWindowBlur("milaWindow", "mila")
+		screen.ClearWindowBlur("MilaWindow", "Mila")
 	}
 }
 
@@ -364,7 +364,7 @@ func (m *Mila) SetFullscreenFocus(focused bool) {
 	if m.ctx == nil || !m.isFullscreen.Load() || m.isPip.Load() {
 		return
 	}
-	screen.SetWindowTopmost("milaWindow", "mila", focused)
+	screen.SetWindowTopmost("MilaWindow", "Mila", focused)
 }
 
 // SetPipMode transforms the native desktop window into an Always-On-Top rounded 16:9 Picture-in-Picture window over all OS apps.
@@ -382,13 +382,13 @@ func (m *Mila) SetPipMode(pip bool) {
 		}
 		wailsRuntime.WindowSetMinSize(m.ctx, 320, 180)
 		wailsRuntime.WindowSetAlwaysOnTop(m.ctx, true)
-		screen.SetWindowPip("milaWindow", "mila", true)
+		screen.SetWindowPip("MilaWindow", "Mila", true)
 		return
 	}
 
 	m.isPip.Store(false)
 	wailsRuntime.WindowSetAlwaysOnTop(m.ctx, false)
-	screen.SetWindowPip("milaWindow", "mila", false)
+	screen.SetWindowPip("MilaWindow", "Mila", false)
 	wailsRuntime.WindowSetMinSize(m.ctx, 858, 651)
 }
 
@@ -397,5 +397,5 @@ func (m *Mila) StartPipDrag() {
 	if m.ctx == nil || !m.isPip.Load() {
 		return
 	}
-	screen.StartWindowDrag("milaWindow", "mila")
+	screen.StartWindowDrag("MilaWindow", "Mila")
 }

@@ -41,3 +41,8 @@ func StartWindowDrag(className, title string) bool {
 func CurrentWindowGeometry(className, title string) (WindowGeometry, bool) {
 	return WindowGeometry{}, false
 }
+
+// SetAppUserModelID sets explicit AppUserModelID on Windows (no-op on non-windows).
+func SetAppUserModelID(id string) bool {
+	return true
+}

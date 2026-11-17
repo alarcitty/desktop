@@ -55,14 +55,16 @@ jobs:
         run: wails build -platform windows/amd64 -nsis -ldflags "-s -w -extldflags '-static'"
 
       - name: package portable zip
-        run: Compress-Archive -Path build/bin/mila.exe -DestinationPath "build/bin/mila-windows-amd64-${{ github.ref_name }}.zip"
+        run: |
+          $exe = Get-ChildItem -Path build/bin -Filter "*.exe" | Where-Object { $_.Name -notmatch "installer" } | Select-Object -First 1
+          Compress-Archive -Path $exe.FullName -DestinationPath "build/bin/Mila-windows-amd64-${{ github.ref_name }}.zip"
 
       - name: publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $files = Get-ChildItem -Path build/bin -File | Select-Object -ExpandProperty FullName
-          gh release create ${{ github.ref_name }} $files --generate-notes --title "mila ${{ github.ref_name }}" 2>$null
+          gh release create ${{ github.ref_name }} $files --generate-notes --title "Mila ${{ github.ref_name }}" 2>$null
           if ($LASTEXITCODE -ne 0) {
             gh release upload ${{ github.ref_name }} $files --clobber
           }

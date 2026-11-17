@@ -99,26 +99,28 @@ type iTaskbarList2 struct {
 }
 
 var (
-	user32                        = syscall.NewLazyDLL("user32.dll")
-	ole32                         = syscall.NewLazyDLL("ole32.dll")
-	dwmapi                        = syscall.NewLazyDLL("dwmapi.dll")
-	getSystemMetrics              = user32.NewProc("GetSystemMetrics")
-	systemParametersInfo          = user32.NewProc("SystemParametersInfoW")
-	findWindowW                   = user32.NewProc("FindWindowW")
-	setWindowCompositionAttribute = user32.NewProc("SetWindowCompositionAttribute")
-	getWindowLongW                = user32.NewProc("GetWindowLongW")
-	setWindowLongW                = user32.NewProc("SetWindowLongW")
-	monitorFromWindow             = user32.NewProc("MonitorFromWindow")
-	getMonitorInfoW               = user32.NewProc("GetMonitorInfoW")
-	getWindowRect                 = user32.NewProc("GetWindowRect")
-	setWindowPos                  = user32.NewProc("SetWindowPos")
-	setForegroundWindow           = user32.NewProc("SetForegroundWindow")
-	releaseCapture                = user32.NewProc("ReleaseCapture")
-	postMessageW                  = user32.NewProc("PostMessageW")
-	coInitializeEx                = ole32.NewProc("CoInitializeEx")
-	coUninitialize                = ole32.NewProc("CoUninitialize")
-	coCreateInstance              = ole32.NewProc("CoCreateInstance")
-	dwmSetWindowAttribute         = dwmapi.NewProc("DwmSetWindowAttribute")
+	user32                                  = syscall.NewLazyDLL("user32.dll")
+	ole32                                   = syscall.NewLazyDLL("ole32.dll")
+	dwmapi                                  = syscall.NewLazyDLL("dwmapi.dll")
+	shell32                                 = syscall.NewLazyDLL("shell32.dll")
+	getSystemMetrics                        = user32.NewProc("GetSystemMetrics")
+	systemParametersInfo                    = user32.NewProc("SystemParametersInfoW")
+	findWindowW                             = user32.NewProc("FindWindowW")
+	setWindowCompositionAttribute           = user32.NewProc("SetWindowCompositionAttribute")
+	getWindowLongW                          = user32.NewProc("GetWindowLongW")
+	setWindowLongW                          = user32.NewProc("SetWindowLongW")
+	monitorFromWindow                       = user32.NewProc("MonitorFromWindow")
+	getMonitorInfoW                         = user32.NewProc("GetMonitorInfoW")
+	getWindowRect                           = user32.NewProc("GetWindowRect")
+	setWindowPos                            = user32.NewProc("SetWindowPos")
+	setForegroundWindow                     = user32.NewProc("SetForegroundWindow")
+	releaseCapture                          = user32.NewProc("ReleaseCapture")
+	postMessageW                            = user32.NewProc("PostMessageW")
+	coInitializeEx                          = ole32.NewProc("CoInitializeEx")
+	coUninitialize                          = ole32.NewProc("CoUninitialize")
+	coCreateInstance                        = ole32.NewProc("CoCreateInstance")
+	dwmSetWindowAttribute                   = dwmapi.NewProc("DwmSetWindowAttribute")
+	setCurrentProcessExplicitAppUserModelID = shell32.NewProc("SetCurrentProcessExplicitAppUserModelID")
 
 	clsidTaskbarList = guid{
 		data1: 0x56FDF344,
@@ -167,22 +169,47 @@ func ThreeQuarterSize() (int, int) {
 }
 
 func findAppWindow(className, title string) uintptr {
-	var classPtr, titlePtr *uint16
-	if className != "" {
-		classPtr, _ = syscall.UTF16PtrFromString(className)
-	}
-	if title != "" {
-		titlePtr, _ = syscall.UTF16PtrFromString(title)
+	candidates := []struct {
+		class string
+		title string
+	}{
+		{className, title},
+		{"MilaWindow", "Mila"},
+		{"milaWindow", "mila"},
+		{"", "Mila"},
+		{"", "mila"},
 	}
 
-	hwnd, _, _ := findWindowW.Call(
-		uintptr(unsafe.Pointer(classPtr)),
-		uintptr(unsafe.Pointer(titlePtr)),
-	)
-	if hwnd == 0 && titlePtr != nil {
-		hwnd, _, _ = findWindowW.Call(0, uintptr(unsafe.Pointer(titlePtr)))
+	for _, c := range candidates {
+		var classPtr, titlePtr *uint16
+		if c.class != "" {
+			classPtr, _ = syscall.UTF16PtrFromString(c.class)
+		}
+		if c.title != "" {
+			titlePtr, _ = syscall.UTF16PtrFromString(c.title)
+		}
+		hwnd, _, _ := findWindowW.Call(
+			uintptr(unsafe.Pointer(classPtr)),
+			uintptr(unsafe.Pointer(titlePtr)),
+		)
+		if hwnd != 0 {
+			return hwnd
+		}
 	}
-	return hwnd
+	return 0
+}
+
+// SetAppUserModelID sets the process-level AppUserModelID so Windows taskbar groups and identifies the app correctly.
+func SetAppUserModelID(id string) bool {
+	if id == "" {
+		return false
+	}
+	ptr, err := syscall.UTF16PtrFromString(id)
+	if err != nil {
+		return false
+	}
+	r, _, _ := setCurrentProcessExplicitAppUserModelID.Call(uintptr(unsafe.Pointer(ptr)))
+	return r == 0
 }
 
 func setWindowCornerPreference(hwnd uintptr, preference uint32) {
