@@ -484,6 +484,20 @@ export function subscribeAppUpdateStatus(
   });
 }
 
+/** Reads the running desktop build version tag; returns an empty string in browser dev mode. */
+export async function invokeGetAppVersion(): Promise<string> {
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.GetAppVersion !== 'function') {
+    return '';
+  }
+  try {
+    const raw = await goMila.GetAppVersion();
+    return typeof raw === 'string' ? raw.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
 export async function invokeCheckAndInstallUpdate(): Promise<AppUpdateStatus | null> {
   const goMila = getWailsMilaBindings();
   if (typeof goMila?.CheckAndInstallUpdate !== 'function') {

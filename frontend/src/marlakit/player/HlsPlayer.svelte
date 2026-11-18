@@ -1527,6 +1527,10 @@
     });
   }
 
+  export function seek(seconds: number): void {
+    seekTo(seconds);
+  }
+
   function seekTo(seconds: number) {
     if (!videoEl || !Number.isFinite(duration) || duration <= 0) return;
     const clamped = Math.max(0, Math.min(duration, seconds));

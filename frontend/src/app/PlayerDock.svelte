@@ -16,6 +16,7 @@
     prevEpisode,
     player,
     registerPlayerPauseControl,
+    registerPlayerSeekControl,
     reportPlaybackProgress,
     selectDubVoice,
     setDubAudioOffset,
@@ -267,6 +268,13 @@
   }
 
   let activeDragCleanup: (() => void) | null = null;
+
+  onMount(() => {
+    registerPlayerSeekControl((seconds) => hlsPlayerRef?.seek(seconds));
+    return () => {
+      registerPlayerSeekControl(null);
+    };
+  });
 
   onMount(() => {
     registerPlayerPauseControl(

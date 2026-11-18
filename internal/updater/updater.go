@@ -2,6 +2,8 @@ package updater
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,8 +19,9 @@ import (
 )
 
 const (
-	DefaultLatestReleaseURL = "https://api.github.com/repos/mila-desktop/desktop/releases/latest"
-	DefaultMinAssetBytes    = 1024 * 1024 // 1 MiB safety guard against HTML error responses
+	DefaultLatestReleaseURL  = "https://api.github.com/repos/mila-desktop/desktop/releases/latest"
+	DefaultMinAssetBytes     = 1024 * 1024 // 1 MiB safety guard against HTML error responses
+	DefaultChecksumAssetName = "SHA256SUMS.txt"
 )
 
 // ReleaseAsset describes a downloadable file attached to a GitHub release.
@@ -260,6 +263,21 @@ func (m *Manager) CheckAndInstall(
 		return errStatus
 	}
 
+	expectedSHA, sumErr := m.releaseAssetChecksum(ctx, rel, *asset)
+	if sumErr != nil {
+		releaseActive()
+		errStatus := UpdateStatus{
+			CurrentVersion: curVer,
+			LatestVersion:  rel.TagName,
+			HasUpdate:      true,
+			State:          "error",
+			ReleaseURL:     rel.HTMLURL,
+			Error:          sumErr.Error(),
+		}
+		m.setStatus(errStatus, onProgress)
+		return errStatus
+	}
+
 	initialDownload := UpdateStatus{
 		CurrentVersion: curVer,
 		LatestVersion:  rel.TagName,
@@ -276,7 +294,7 @@ func (m *Manager) CheckAndInstall(
 		dlCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
-		stagedPath, dlErr := m.downloadAsset(dlCtx, *asset, rel.TagName, func(pct float64) {
+		stagedPath, dlErr := m.downloadAsset(dlCtx, *asset, rel.TagName, expectedSHA, func(pct float64) {
 			m.setStatus(UpdateStatus{
 				CurrentVersion: curVer,
 				LatestVersion:  rel.TagName,
@@ -333,6 +351,7 @@ func (m *Manager) downloadAsset(
 	ctx context.Context,
 	asset ReleaseAsset,
 	tag string,
+	expectedSHA256 string,
 	onPct func(float64),
 ) (string, error) {
 	// Use a client without a short request timeout for large binary downloads.
@@ -377,6 +396,7 @@ func (m *Manager) downloadAsset(
 		}
 	}()
 
+	hasher := sha256.New()
 	buf := make([]byte, 64*1024)
 	var written int64
 	lastEmit := time.Now().Add(-time.Second)
@@ -386,6 +406,9 @@ func (m *Manager) downloadAsset(
 		if n > 0 {
 			if _, writeErr := out.Write(buf[:n]); writeErr != nil {
 				return "", writeErr
+			}
+			if _, hashErr := hasher.Write(buf[:n]); hashErr != nil {
+				return "", hashErr
 			}
 			written += int64(n)
 			if onPct != nil && time.Since(lastEmit) >= 60*time.Millisecond {
@@ -420,6 +443,15 @@ func (m *Manager) downloadAsset(
 		return "", err
 	}
 
+	expected := strings.ToLower(strings.TrimSpace(expectedSHA256))
+	if len(expected) != sha256.Size*2 {
+		return "", errors.New("update integrity check failed: release has no sha256 checksum for this asset")
+	}
+	actual := hex.EncodeToString(hasher.Sum(nil))
+	if actual != expected {
+		return "", fmt.Errorf("update integrity check failed: expected sha256 %s, got %s", expected, actual)
+	}
+
 	if onPct != nil {
 		onPct(100)
 	}
@@ -442,6 +474,93 @@ func computeProgress(written, total int64) float64 {
 	mb := float64(written) / (1024 * 1024)
 	pct := 90 * (mb / (mb + 12))
 	return pct
+}
+
+// releaseAssetChecksum downloads the release's SHA256SUMS.txt manifest and returns the pinned hash for asset.
+func (m *Manager) releaseAssetChecksum(ctx context.Context, rel *GitHubRelease, asset ReleaseAsset) (string, error) {
+	var manifestURL string
+	for _, candidate := range rel.Assets {
+		if candidate.BrowserDownloadURL == "" {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(candidate.Name), DefaultChecksumAssetName) {
+			manifestURL = candidate.BrowserDownloadURL
+			break
+		}
+	}
+	if manifestURL == "" {
+		return "", fmt.Errorf("update integrity check failed: release %s has no %s manifest", rel.TagName, DefaultChecksumAssetName)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Mila-Desktop/"+m.cfg.CurrentVersion())
+
+	resp, err := m.cfg.HTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("checksum manifest download failed with HTTP %d", resp.StatusCode)
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
+	if err != nil {
+		return "", err
+	}
+
+	sums, err := parseChecksumManifest(string(raw))
+	if err != nil {
+		return "", err
+	}
+
+	name := strings.TrimSpace(asset.Name)
+	expected, ok := sums[name]
+	if !ok {
+		return "", fmt.Errorf("update integrity check failed: %s is not listed in %s", name, DefaultChecksumAssetName)
+	}
+	return expected, nil
+}
+
+// parseChecksumManifest accepts `<sha256>  <filename>` lines as produced by sha256sum or Get-FileHash.
+// Binary-mode entries prefixed with `*` and comment lines are tolerated.
+func parseChecksumManifest(raw string) (map[string]string, error) {
+	sums := make(map[string]string)
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		name := strings.TrimPrefix(fields[len(fields)-1], "*")
+		if name == "" {
+			continue
+		}
+
+		hash := strings.ToLower(fields[0])
+		if len(hash) != sha256.Size*2 {
+			return nil, fmt.Errorf("checksum manifest contains an invalid sha256 for %s", name)
+		}
+		if _, err := hex.DecodeString(hash); err != nil {
+			return nil, fmt.Errorf("checksum manifest contains an invalid sha256 for %s", name)
+		}
+
+		sums[name] = hash
+	}
+
+	if len(sums) == 0 {
+		return nil, errors.New("checksum manifest is empty or malformed")
+	}
+	return sums, nil
 }
 
 func verifyPEExecutableHeader(path string) error {

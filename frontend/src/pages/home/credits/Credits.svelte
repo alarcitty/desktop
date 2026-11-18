@@ -1,7 +1,9 @@
 <script lang="ts">
   import { navigate } from '../../../app/router.svelte';
   import { openSearch } from '../../../app/search.svelte';
+  import { onMount } from 'svelte';
   import { t } from '../../../app/i18n.svelte';
+  import { invokeGetAppVersion } from '../../../app/bindings.svelte';
 
   interface Props {
     open: boolean;
@@ -11,6 +13,7 @@
     label: string;
     href?: string;
     action?: () => void;
+    muted?: boolean;
   }
 
   interface CreditGroup {
@@ -22,6 +25,13 @@
 
   let drawerEl = $state<HTMLElement | null>(null);
   let revealRaf = 0;
+  let appVersion = $state('');
+
+  onMount(() => {
+    void invokeGetAppVersion().then((value) => {
+      appVersion = value;
+    });
+  });
 
   function scrollToSection(selector: string) {
     const vp = drawerEl?.closest('.marlakit-scroll-viewport') as HTMLElement | null;
@@ -94,7 +104,8 @@
           // Replace with project links when ready
           { label: 'Telegram', href: 'https://t.me' },
           { label: 'Discord', href: 'https://discord.com' },
-          { label: 'GitHub', href: 'https://github.com' }
+          { label: 'GitHub', href: 'https://github.com' },
+          ...(appVersion ? [{ label: `Mila ${appVersion}`, muted: true }] : [])
         ]
       }
     ]
@@ -180,7 +191,7 @@
                           {item.label}
                         </button>
                       {:else}
-                        <span class="credits-label">{item.label}</span>
+                        <span class="credits-label" class:is-muted={item.muted}>{item.label}</span>
                       {/if}
                     </li>
                   {/each}
@@ -304,6 +315,11 @@
   .credits-label {
     color: var(--mila-text-secondary, rgba(255, 255, 255, 0.78));
     user-select: none;
+  }
+
+  .credits-label.is-muted {
+    font-size: 12px;
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.3));
   }
 
   @media (max-width: 960px) {

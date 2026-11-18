@@ -61,6 +61,16 @@ jobs:
           $exe = Get-ChildItem -Path build/bin -Filter "*.exe" | Where-Object { $_.Name -notmatch "installer" } | Select-Object -First 1
           Compress-Archive -Path $exe.FullName -DestinationPath "build/bin/Mila-windows-amd64-${{ github.ref_name }}.zip"
 
+      - name: generate checksums
+        run: |
+          $files = Get-ChildItem -Path build/bin -File | Where-Object { $_.Extension -in '.exe', '.zip' }
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $file.FullName).Hash.ToLower()
+            "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -Path build/bin/SHA256SUMS.txt -Encoding ascii
+          Get-Content build/bin/SHA256SUMS.txt
+
       - name: publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

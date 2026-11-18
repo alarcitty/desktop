@@ -21,6 +21,13 @@ import type { TorrentSearchItem } from '../api/providers/torrent';
 const torrentLoader = createLazyModuleLoader(() => import('../api/providers/torrent'));
 import type { VoiceTrackOption } from '../marlakit/player/types';
 import { flushHistoryPersistence, recordHistoryEntry } from './history.svelte';
+import { t } from './i18n.svelte';
+import {
+  installMediaSessionHandlers,
+  setMediaSessionPlaybackState,
+  updateNowPlaying,
+  updateNowPlayingPosition
+} from './mediaSession';
 import {
   createDebouncedStorageWriter,
   registerBeforeCloseFlush,
@@ -139,9 +146,19 @@ let lastHistorySyncMs = 0;
 let voiceDiscoveryPromise: Promise<VoiceTrackOption[]> | null = null;
 let playControlCallback: (() => void) | null = null;
 let pauseControlCallback: (() => void) | null = null;
+let seekControlCallback: ((seconds: number) => void) | null = null;
 const failedVoiceIds = new Set<string>();
 const torrentReleaseCache = new Map<string, PlayableRelease>();
 const voiceReleaseCache = new Map<string, PlayableRelease>();
+
+// OS media keys / lock-screen controls are wired once per session; handlers stay dumb.
+installMediaSessionHandlers({
+  play: () => playControlCallback?.(),
+  pause: () => pauseControlCallback?.(),
+  next: () => nextEpisode(),
+  previous: () => prevEpisode(),
+  seek: (seconds) => seekControlCallback?.(seconds)
+});
 
 function syncPlayerHistory(currentTime?: number, duration?: number): void {
   const rel = player.release;
@@ -180,9 +197,32 @@ export function reportPlaybackProgress(currentTime: number, duration: number, fo
   if (!force && now - lastHistorySyncMs < 3000) return;
   lastHistorySyncMs = now;
   syncPlayerHistory(currentTime, duration);
+  syncNowPlaying();
+  updateNowPlayingPosition(currentTime, duration);
   if (force) {
     flushHistoryPersistence();
   }
+}
+
+function syncNowPlaying(): void {
+  const rel = player.release;
+  const art = player.shikiArt;
+  const title = art?.english || art?.name || rel?.title || player.title || player.target?.title || '';
+  if (!rel || !title) {
+    updateNowPlaying(null);
+    return;
+  }
+
+  const ep = rel.episodes[player.episodeIndex];
+  const episodeOrdinal = ep?.ordinal ?? player.episodeIndex + 1;
+  const releaseTitle = rel.title?.trim() || '';
+
+  updateNowPlaying({
+    title,
+    artist: t('player.episode', { n: episodeOrdinal }),
+    album: releaseTitle && releaseTitle !== title ? releaseTitle : undefined,
+    artwork: art?.posterOriginal || art?.posterMain || rel.poster || ''
+  });
 }
 
 function applyPreservedEpisode(
@@ -278,6 +318,7 @@ async function loadTargetIntoPlayer(
         const art = map.get(target.shikiId!);
         if (art) {
           player.shikiArt = art;
+          syncNowPlaying();
           refreshAnimeExtras(art.id);
           if (player.release) {
             syncPlayerHistory();
@@ -694,6 +735,7 @@ export function selectEpisode(index: number): void {
   player.autoplay = true;
   player.pipDismissed = false;
   player.episodeIndex = index;
+  syncNowPlaying();
   const ep = player.release.episodes[index];
   if (isSameEpisode) {
     playControlCallback?.();
@@ -725,6 +767,7 @@ export function nextEpisode(): void {
     player.autoplay = true;
     player.pipDismissed = false;
     player.episodeIndex += 1;
+    syncNowPlaying();
     const ep = player.release.episodes[player.episodeIndex];
     if (router.current === 'anime') {
       updateCurrentRouteParams({
@@ -750,8 +793,13 @@ export function registerPlayerPauseControl(
   playControlCallback = playFn ?? null;
 }
 
+export function registerPlayerSeekControl(fn: ((seconds: number) => void) | null): void {
+  seekControlCallback = fn;
+}
+
 export function setPlayerPlaying(playing: boolean): void {
   player.isPlaying = playing;
+  setMediaSessionPlaybackState(playing ? 'playing' : 'paused');
   if (playing) {
     player.pipDismissed = false;
   }
@@ -830,4 +878,5 @@ export function resetPlayer(): void {
   player.pipMode = false;
   player.pipManual = false;
   player.pipDismissed = false;
+  updateNowPlaying(null);
 }
