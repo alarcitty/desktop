@@ -7,17 +7,13 @@
     ArrowLeft,
     ArrowUp,
     ArrowDown,
-    Check,
     Clock,
-    Copy,
-    Crown,
     EyeOff,
     HardDriveDownload,
     LayoutGrid,
     LayoutList,
     ListOrdered,
     LogOut,
-    MessageSquare,
     PanelRight,
     PictureInPicture2,
     RefreshCw,
@@ -27,7 +23,6 @@
   } from 'lucide';
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
-  import SecondButton from '../../marlakit/button/SecondButton.svelte';
   import EpisodeThumb from '../anime/EpisodeThumb.svelte';
   import TorrentPopup from '../anime/TorrentPopup.svelte';
   import type { TorrentSearchItem } from '../../api/providers/torrent';
@@ -43,7 +38,8 @@
     player,
     retryWatch,
     selectEpisode,
-    setInlinePlayerStage
+    setInlinePlayerStage,
+    setWatchTogetherChatControl
   } from '../../app/player.svelte';
   import {
     leaveWatchRoom,
@@ -78,9 +74,11 @@
   }
 
   let viewportW = $state(typeof window !== 'undefined' ? window.innerWidth : 1440);
+  let theaterFrameEl = $state<HTMLDivElement | null>(null);
   let playerSectionEl = $state<HTMLElement | null>(null);
   let inlineStageEl = $state<HTMLDivElement | null>(null);
   let chatFeedEl = $state<HTMLDivElement | null>(null);
+  let floatPanelEl = $state<HTMLElement | null>(null);
 
   let chatOpen = $state(true);
   let chatPinned = $state(readSavedChatPinned());
@@ -89,10 +87,17 @@
   let resizeStartX = 0;
   let resizeStartW = 320;
 
+  // Floating chat position offset relative to default top-right anchor
+  let floatOffset = $state<{ x: number; y: number } | null>(null);
+  let draggingFloat = $state(false);
+  let dragStartMouseX = 0;
+  let dragStartMouseY = 0;
+  let dragStartX = 0;
+  let dragStartY = 0;
+
   let chatDraft = $state('');
   let chatSending = $state(false);
   let lastSeenChatCount = $state(0);
-  let codeCopied = $state(false);
   let brokenAvatars = $state<Record<string, boolean>>({});
 
   let epViewMode = $state<'grid' | 'list'>(readSavedViewMode(EP_VIEW_MODE_KEY, 'grid'));
@@ -125,6 +130,13 @@
       activeRoom?.media?.title ||
       'Anime'
   );
+  const roomHeadingTitle = $derived(activeRoom?.title || displayTitle);
+  const showAnimeInSubtitle = $derived(
+    Boolean(
+      displayTitle &&
+        displayTitle.trim().toLowerCase() !== roomHeadingTitle.trim().toLowerCase()
+    )
+  );
   const posterUrl = $derived(
     player.shikiArt?.posterOriginal ||
       player.shikiArt?.posterMain ||
@@ -148,6 +160,19 @@
     setInlinePlayerStage(inlineStageEl);
     return () => {
       setInlinePlayerStage(null);
+    };
+  });
+
+  $effect(() => {
+    setWatchTogetherChatControl({
+      open: chatOpen,
+      unread: unreadCount,
+      toggle: () => {
+        chatOpen = !chatOpen;
+      }
+    });
+    return () => {
+      setWatchTogetherChatControl(null);
     };
   });
 
@@ -232,6 +257,9 @@
 
   function toggleChatPinned() {
     chatPinned = !chatPinned;
+    if (!chatPinned) {
+      floatOffset = null;
+    }
     if (typeof localStorage !== 'undefined') {
       try {
         localStorage.setItem(WT_CHAT_PINNED_KEY, chatPinned ? '1' : '0');
@@ -269,6 +297,48 @@
     }
   }
 
+  function handleFloatDragStart(e: PointerEvent) {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('button, input')) return;
+    if (!floatPanelEl || !theaterFrameEl) return;
+    e.preventDefault();
+
+    const frameRect = theaterFrameEl.getBoundingClientRect();
+    const panelRect = floatPanelEl.getBoundingClientRect();
+    const curX = floatOffset?.x ?? panelRect.left - frameRect.left;
+    const curY = floatOffset?.y ?? panelRect.top - frameRect.top;
+
+    floatOffset = { x: curX, y: curY };
+    draggingFloat = true;
+    dragStartMouseX = e.clientX;
+    dragStartMouseY = e.clientY;
+    dragStartX = curX;
+    dragStartY = curY;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function handleFloatDragMove(e: PointerEvent) {
+    if (!draggingFloat || !theaterFrameEl || !floatPanelEl) return;
+    const frameRect = theaterFrameEl.getBoundingClientRect();
+    const panelRect = floatPanelEl.getBoundingClientRect();
+    const maxX = Math.max(8, frameRect.width - panelRect.width - 8);
+    const maxY = Math.max(8, frameRect.height - panelRect.height - 8);
+    const nx = Math.max(8, Math.min(maxX, dragStartX + (e.clientX - dragStartMouseX)));
+    const ny = Math.max(8, Math.min(maxY, dragStartY + (e.clientY - dragStartMouseY)));
+    floatOffset = { x: nx, y: ny };
+  }
+
+  function handleFloatDragEnd(e: PointerEvent) {
+    if (!draggingFloat) return;
+    draggingFloat = false;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+  }
+
   async function handleSendChat(e?: Event) {
     e?.preventDefault();
     const text = chatDraft.trim();
@@ -294,19 +364,6 @@
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     return `${hh}:${mm}`;
-  }
-
-  async function copyRoomCode() {
-    if (!activeRoom?.room_code) return;
-    try {
-      await navigator.clipboard.writeText(activeRoom.room_code);
-      codeCopied = true;
-      window.setTimeout(() => {
-        codeCopied = false;
-      }, 1500);
-    } catch {
-      // ignore
-    }
   }
 
   async function handleLeaveRoom() {
@@ -515,32 +572,15 @@
     bind:this={playerSectionEl}
     aria-label="Watch Together video theater"
   >
-    <!-- data-player-fs-root ensures fullscreen includes BOTH the video player and the split-screen / floating chat -->
+    <!-- data-player-fs-root ensures fullscreen includes BOTH the video player and split-screen / floating chat -->
     <div
+      bind:this={theaterFrameEl}
       class="wt-theater-frame"
       class:is-split-chat={chatOpen && chatPinned}
       data-player-fs-root
     >
       <div class="wt-video-stage">
         <div class="wt-top-drag" aria-hidden="true"></div>
-
-        <!-- Floating top-right chat toggle button when chat is closed (or floating toggle) -->
-        {#if !chatOpen}
-          <button
-            type="button"
-            class="wt-chat-open-fab"
-            aria-label="Open room chat"
-            title="Open room chat"
-            onclick={() => (chatOpen = true)}
-            in:revealBlur={{ duration: 200, scale: 0.94, blur: 6 }}
-          >
-            <MorphIcon icon={MessageSquare} size={15} strokeWidth={1.9} />
-            <span>Chat</span>
-            {#if unreadCount > 0}
-              <span class="wt-chat-unread">{unreadCount}</span>
-            {/if}
-          </button>
-        {/if}
 
         {#if player.loading}
           <div class="stage-state">
@@ -569,13 +609,20 @@
           class:is-hidden={!currentEpisode || player.loading || Boolean(player.error) || player.pipMode}
         ></div>
 
-        <!-- Floating mode chat (inside video stage so it works in fullscreen too) -->
+        <!-- Floating draggable chat window (inside video stage so it works in fullscreen too) -->
         {#if chatOpen && !chatPinned}
           <aside
+            bind:this={floatPanelEl}
             class="wt-chat-panel is-floating"
+            class:is-dragging-float={draggingFloat}
             style:width="{chatWidthPx}px"
-            in:revealBlur={{ duration: 220, y: 6, scale: 0.97, blur: 8 }}
-            out:revealBlur={{ duration: 160, y: 4, scale: 0.97, blur: 6 }}
+            style:left={floatOffset ? `${floatOffset.x}px` : undefined}
+            style:top={floatOffset ? `${floatOffset.y}px` : undefined}
+            style:right={floatOffset ? 'auto' : '14px'}
+            style:bottom={floatOffset ? 'auto' : '66px'}
+            style:height={floatOffset ? 'min(420px, 68%)' : undefined}
+            in:revealBlur={{ duration: 240, y: 8, scale: 0.96, blur: 8 }}
+            out:revealBlur={{ duration: 180, y: 6, scale: 0.97, blur: 6 }}
           >
             <!-- Left resize edge for floating chat -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -587,7 +634,15 @@
               onpointercancel={handleResizePointerUp}
             ></div>
 
-            <div class="wt-chat-head">
+            <!-- Draggable header bar -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="wt-chat-head is-draggable"
+              onpointerdown={handleFloatDragStart}
+              onpointermove={handleFloatDragMove}
+              onpointerup={handleFloatDragEnd}
+              onpointercancel={handleFloatDragEnd}
+            >
               <span class="wt-chat-title">{activeRoom?.title || 'Room'} chat</span>
 
               <div class="wt-chat-head-right">
@@ -595,7 +650,7 @@
                   {#each (activeRoom?.members ?? []).slice(0, 5) as m, idx (m.public_id)}
                     <div
                       class="wt-chat-av-circle"
-                      style:z-index={10 - idx}
+                      style:z-index={idx + 1}
                       title="@{m.username}"
                     >
                       {#if m.avatar_url && !brokenAvatars[m.public_id]}
@@ -641,10 +696,25 @@
               {:else}
                 {#each chatMessages as msg (msg.id)}
                   {#if msg.kind === 'system'}
-                    <div class="wt-msg-system">{msg.text}</div>
+                    <div
+                      class="wt-msg-system"
+                      in:revealBlur={{ duration: 220, y: 4, scale: 0.96, blur: 5 }}
+                    >
+                      {msg.text}
+                    </div>
                   {:else}
                     {@const isMine = msg.sender_public_id === myPublicId}
-                    <div class="wt-msg-item" class:is-mine={isMine}>
+                    <div
+                      class="wt-msg-item"
+                      class:is-mine={isMine}
+                      in:revealBlur={{
+                        duration: 260,
+                        x: isMine ? 16 : -16,
+                        y: 4,
+                        scale: 0.9,
+                        blur: 6
+                      }}
+                    >
                       {#if isMine}
                         <div class="wt-bubble-mine">
                           <span class="wt-bubble-text">{msg.text}</span>
@@ -696,138 +766,156 @@
         {/if}
       </div>
 
-      <!-- Static Split-Screen Resizable Chat on the Right (Android split-screen style) -->
-      {#if chatOpen && chatPinned}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- Smoothly Animated Split-Screen Resizable Chat on the Right -->
+      {#if chatPinned}
         <div
-          class="wt-split-resizer"
+          class="wt-split-shell"
+          class:is-open={chatOpen}
           class:is-dragging={resizingChat}
-          title="Drag to resize chat"
-          onpointerdown={handleResizePointerDown}
-          onpointermove={handleResizePointerMove}
-          onpointerup={handleResizePointerUp}
-          onpointercancel={handleResizePointerUp}
+          style:width={chatOpen ? `${chatWidthPx}px` : '0px'}
+          aria-hidden={!chatOpen}
         >
-          <span class="wt-resizer-grip"></span>
-        </div>
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="wt-split-resizer"
+            class:is-dragging={resizingChat}
+            title="Drag to resize chat"
+            onpointerdown={handleResizePointerDown}
+            onpointermove={handleResizePointerMove}
+            onpointerup={handleResizePointerUp}
+            onpointercancel={handleResizePointerUp}
+          >
+            <span class="wt-resizer-grip"></span>
+          </div>
 
-        <aside
-          class="wt-chat-panel is-split"
-          style:width="{chatWidthPx}px"
-          in:revealBlur={{ duration: 220, x: 10, blur: 8 }}
-          out:revealBlur={{ duration: 160, x: 10, blur: 6 }}
-        >
-          <div class="wt-chat-head">
-            <span class="wt-chat-title">{activeRoom?.title || 'Room'} chat</span>
+          <aside class="wt-chat-panel is-split">
+            <div class="wt-chat-head">
+              <span class="wt-chat-title">{activeRoom?.title || 'Room'} chat</span>
 
-            <div class="wt-chat-head-right">
-              <div class="wt-chat-avatars" aria-label="Room members">
-                {#each (activeRoom?.members ?? []).slice(0, 5) as m, idx (m.public_id)}
-                  <div
-                    class="wt-chat-av-circle"
-                    style:z-index={10 - idx}
-                    title="@{m.username}"
-                  >
-                    {#if m.avatar_url && !brokenAvatars[m.public_id]}
-                      <img
-                        src={m.avatar_url}
-                        alt={m.username}
-                        referrerpolicy="no-referrer"
-                        onerror={() => {
-                          brokenAvatars = { ...brokenAvatars, [m.public_id]: true };
-                        }}
-                      />
-                    {:else}
-                      <span>{(m.name || m.username || 'U').slice(0, 1).toUpperCase()}</span>
-                    {/if}
-                  </div>
-                {/each}
+              <div class="wt-chat-head-right">
+                <div class="wt-chat-avatars" aria-label="Room members">
+                  {#each (activeRoom?.members ?? []).slice(0, 5) as m, idx (m.public_id)}
+                    <div
+                      class="wt-chat-av-circle"
+                      style:z-index={idx + 1}
+                      title="@{m.username}"
+                    >
+                      {#if m.avatar_url && !brokenAvatars[m.public_id]}
+                        <img
+                          src={m.avatar_url}
+                          alt={m.username}
+                          referrerpolicy="no-referrer"
+                          onerror={() => {
+                            brokenAvatars = { ...brokenAvatars, [m.public_id]: true };
+                          }}
+                        />
+                      {:else}
+                        <span>{(m.name || m.username || 'U').slice(0, 1).toUpperCase()}</span>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+
+                <button
+                  type="button"
+                  class="wt-chat-icon-btn"
+                  title="Undock to floating chat"
+                  aria-label="Undock to floating chat"
+                  onclick={toggleChatPinned}
+                >
+                  <MorphIcon icon={PictureInPicture2} size={14} strokeWidth={1.8} />
+                </button>
+                <button
+                  type="button"
+                  class="wt-chat-icon-btn"
+                  title="Close chat"
+                  aria-label="Close chat"
+                  onclick={() => (chatOpen = false)}
+                >
+                  <MorphIcon icon={X} size={15} strokeWidth={1.8} />
+                </button>
               </div>
-
-              <button
-                type="button"
-                class="wt-chat-icon-btn"
-                title="Undock to floating chat"
-                aria-label="Undock to floating chat"
-                onclick={toggleChatPinned}
-              >
-                <MorphIcon icon={PictureInPicture2} size={14} strokeWidth={1.8} />
-              </button>
-              <button
-                type="button"
-                class="wt-chat-icon-btn"
-                title="Close chat"
-                aria-label="Close chat"
-                onclick={() => (chatOpen = false)}
-              >
-                <MorphIcon icon={X} size={15} strokeWidth={1.8} />
-              </button>
             </div>
-          </div>
 
-          <div class="wt-chat-feed" bind:this={chatFeedEl}>
-            {#if chatMessages.length === 0}
-              <div class="wt-chat-empty">Say something to the room…</div>
-            {:else}
-              {#each chatMessages as msg (msg.id)}
-                {#if msg.kind === 'system'}
-                  <div class="wt-msg-system">{msg.text}</div>
-                {:else}
-                  {@const isMine = msg.sender_public_id === myPublicId}
-                  <div class="wt-msg-item" class:is-mine={isMine}>
-                    {#if isMine}
-                      <div class="wt-bubble-mine">
-                        <span class="wt-bubble-text">{msg.text}</span>
-                      </div>
-                    {:else}
-                      <div class="wt-bubble-other">
-                        <div class="wt-bubble-av" title="@{msg.sender_username}">
-                          {#if msg.avatar_url && !brokenAvatars[`msg-${msg.id}`]}
-                            <img
-                              src={msg.avatar_url}
-                              alt={msg.sender_username}
-                              referrerpolicy="no-referrer"
-                              onerror={() => {
-                                brokenAvatars = { ...brokenAvatars, [`msg-${msg.id}`]: true };
-                              }}
-                            />
-                          {:else}
-                            <span>{(msg.sender_name || msg.sender_username || 'U').slice(0, 1).toUpperCase()}</span>
-                          {/if}
+            <div class="wt-chat-feed" bind:this={chatFeedEl}>
+              {#if chatMessages.length === 0}
+                <div class="wt-chat-empty">Say something to the room…</div>
+              {:else}
+                {#each chatMessages as msg (msg.id)}
+                  {#if msg.kind === 'system'}
+                    <div
+                      class="wt-msg-system"
+                      in:revealBlur={{ duration: 220, y: 4, scale: 0.96, blur: 5 }}
+                    >
+                      {msg.text}
+                    </div>
+                  {:else}
+                    {@const isMine = msg.sender_public_id === myPublicId}
+                    <div
+                      class="wt-msg-item"
+                      class:is-mine={isMine}
+                      in:revealBlur={{
+                        duration: 260,
+                        x: isMine ? 16 : -16,
+                        y: 4,
+                        scale: 0.9,
+                        blur: 6
+                      }}
+                    >
+                      {#if isMine}
+                        <div class="wt-bubble-mine">
+                          <span class="wt-bubble-text">{msg.text}</span>
                         </div>
-                        <span class="wt-bubble-text">{msg.text}</span>
-                      </div>
-                    {/if}
-                    <span class="wt-msg-time">{formatChatTime(msg.created_at_ms)}</span>
-                  </div>
-                {/if}
-              {/each}
-            {/if}
-          </div>
+                      {:else}
+                        <div class="wt-bubble-other">
+                          <div class="wt-bubble-av" title="@{msg.sender_username}">
+                            {#if msg.avatar_url && !brokenAvatars[`msg-${msg.id}`]}
+                              <img
+                                src={msg.avatar_url}
+                                alt={msg.sender_username}
+                                referrerpolicy="no-referrer"
+                                onerror={() => {
+                                  brokenAvatars = { ...brokenAvatars, [`msg-${msg.id}`]: true };
+                                }}
+                              />
+                            {:else}
+                              <span>{(msg.sender_name || msg.sender_username || 'U').slice(0, 1).toUpperCase()}</span>
+                            {/if}
+                          </div>
+                          <span class="wt-bubble-text">{msg.text}</span>
+                        </div>
+                      {/if}
+                      <span class="wt-msg-time">{formatChatTime(msg.created_at_ms)}</span>
+                    </div>
+                  {/if}
+                {/each}
+              {/if}
+            </div>
 
-          <form class="wt-chat-form" onsubmit={handleSendChat}>
-            <input
-              type="text"
-              class="wt-chat-input"
-              bind:value={chatDraft}
-              placeholder="Message…"
-              maxlength={400}
-            />
-            <button
-              type="submit"
-              class="wt-chat-send"
-              disabled={!chatDraft.trim() || chatSending}
-              aria-label="Send message"
-            >
-              <MorphIcon icon={Send} size={13} strokeWidth={2} />
-            </button>
-          </form>
-        </aside>
+            <form class="wt-chat-form" onsubmit={handleSendChat}>
+              <input
+                type="text"
+                class="wt-chat-input"
+                bind:value={chatDraft}
+                placeholder="Message…"
+                maxlength={400}
+              />
+              <button
+                type="submit"
+                class="wt-chat-send"
+                disabled={!chatDraft.trim() || chatSending}
+                aria-label="Send message"
+              >
+                <MorphIcon icon={Send} size={13} strokeWidth={2} />
+              </button>
+            </form>
+          </aside>
+        </div>
       {/if}
     </div>
   </section>
 
-  <!-- Below-player Watch Together Room Bar & Episode Browser -->
+  <!-- Below-player Watch Together Room Strip & Episode Browser -->
   <div class="wt-player-body">
     <div class="wt-room-strip">
       <div class="wt-room-strip-left">
@@ -843,35 +931,24 @@
 
         <div class="wt-room-titles">
           <div class="wt-room-heading-line">
-            <h1 class="wt-room-main-title">{activeRoom?.title || displayTitle}</h1>
-            {#if activeRoom?.room_code}
-              <button
-                type="button"
-                class="wt-code-inline"
-                title="Copy room code"
-                onclick={copyRoomCode}
-              >
-                <span>#{activeRoom.room_code}</span>
-                {#if codeCopied}
-                  <MorphIcon icon={Check} size={11} strokeWidth={2.3} />
-                {:else}
-                  <MorphIcon icon={Copy} size={11} strokeWidth={1.8} />
-                {/if}
-              </button>
-            {/if}
+            <h1 class="wt-room-main-title">{roomHeadingTitle}</h1>
             <span class="wt-seat-inline">
               {activeRoom?.members.length ?? 1}/{activeRoom?.max_members ?? 7}
             </span>
           </div>
 
           <div class="wt-room-sub-line">
-            <span class="wt-anime-sub">{displayTitle}</span>
-            {#if currentEpisode}
+            {#if showAnimeInSubtitle}
+              <span class="wt-anime-sub">{displayTitle}</span>
               <span class="wt-dot">·</span>
+            {/if}
+            {#if currentEpisode}
               <span class="wt-ep-sub">Episode {currentEpisode.ordinal}</span>
             {/if}
             {#if activeRoom}
-              <span class="wt-dot">·</span>
+              {#if currentEpisode}
+                <span class="wt-dot">·</span>
+              {/if}
               <span class="wt-mode-sub">
                 {activeRoom.control_mode === 'everyone' ? 'Everyone controls' : 'Host only'}
               </span>
@@ -881,19 +958,10 @@
       </div>
 
       <div class="wt-room-strip-right">
-        <button
-          type="button"
-          class="wt-strip-action"
-          onclick={() => (chatOpen = !chatOpen)}
-        >
-          <MorphIcon icon={MessageSquare} size={14} strokeWidth={1.9} />
-          <span>{chatOpen ? 'Hide chat' : 'Open chat'}</span>
-        </button>
-
         {#if canControlPlayback}
           <button
             type="button"
-            class="wt-strip-action"
+            class="wt-strip-pill"
             onclick={() => openSearch()}
           >
             <MorphIcon icon={Search} size={14} strokeWidth={1.9} />
@@ -904,7 +972,7 @@
         {#if activeRoom}
           <button
             type="button"
-            class="wt-strip-action is-danger"
+            class="wt-strip-pill is-danger"
             onclick={() => void handleLeaveRoom()}
           >
             <MorphIcon icon={LogOut} size={14} strokeWidth={1.9} />
@@ -1127,7 +1195,7 @@
     overflow: hidden;
   }
 
-  /* When fullscreen is triggered on HlsPlayer inside data-player-fs-root, the entire theater (video + chat) fills 100vw x 100vh! */
+  /* When fullscreen is triggered inside data-player-fs-root, BOTH video and chat stay inside fullscreen! */
   .wt-theater-frame:fullscreen,
   :global(.wt-theater-frame.is-fs-active) {
     position: fixed !important;
@@ -1136,7 +1204,7 @@
     height: 100vh !important;
     max-height: none !important;
     z-index: 99999 !important;
-    background: #070709 !important;
+    background: var(--mila-app-canvas, #0c0c0c) !important;
   }
 
   .wt-video-stage {
@@ -1173,56 +1241,39 @@
     pointer-events: none;
   }
 
-  .wt-chat-open-fab {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    z-index: 30;
-    height: 32px;
-    padding: 0 12px;
-    border-radius: 999px;
-    border: none;
-    background: rgba(16, 16, 19, 0.78);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    color: rgba(255, 255, 255, 0.88);
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 11.5px;
-    font-weight: 700;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-    --wails-draggable: no-drag;
+  /* Smooth animated split-screen chat container */
+  .wt-split-shell {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    height: 100%;
+    overflow: hidden;
+    opacity: 0;
+    filter: blur(8px);
+    pointer-events: none;
+    background: var(--mila-app-canvas, #0c0c0c);
     transition:
-      background 0.16s ease,
-      color 0.16s ease;
+      width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+      filter 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  .wt-chat-open-fab:hover {
-    background: rgba(24, 24, 28, 0.92);
-    color: #ffffff;
+  .wt-split-shell.is-open {
+    opacity: 1;
+    filter: blur(0px);
+    pointer-events: auto;
   }
 
-  .wt-chat-unread {
-    min-width: 16px;
-    height: 16px;
-    padding: 0 5px;
-    border-radius: 999px;
-    background: #ffffff;
-    color: #0c0c0e;
-    font-size: 10px;
-    font-weight: 800;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+  .wt-split-shell.is-dragging {
+    transition: none;
   }
 
   /* Split-screen draggable divider handle */
   .wt-split-resizer {
     position: relative;
     width: 10px;
-    margin: 0 -4px;
+    margin-right: -4px;
     z-index: 25;
     cursor: col-resize;
     display: flex;
@@ -1235,9 +1286,9 @@
 
   .wt-resizer-grip {
     width: 3px;
-    height: 38px;
+    height: 36px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.1);
     transition:
       background 0.16s ease,
       height 0.16s ease;
@@ -1245,36 +1296,36 @@
 
   .wt-split-resizer:hover .wt-resizer-grip,
   .wt-split-resizer.is-dragging .wt-resizer-grip {
-    height: 56px;
-    background: rgba(255, 255, 255, 0.42);
+    height: 54px;
+    background: rgba(255, 255, 255, 0.4);
   }
 
-  /* Chat Panel (Split-Screen or Floating) */
+  /* Chat Panel — exact same canvas background when docked, blurred glass when floating */
   .wt-chat-panel {
     display: flex;
     flex-direction: column;
-    background: #0c0c0e;
     color: #ffffff;
     box-sizing: border-box;
     flex-shrink: 0;
     user-select: none;
+    font-family: 'Medeo Sans', system-ui, sans-serif;
     --wails-draggable: no-drag;
   }
 
   .wt-chat-panel.is-split {
+    flex: 1 1 0;
+    min-width: 0;
     height: 100%;
-    padding: 10px 10px 10px 8px;
+    padding: 12px 14px 10px 8px;
+    background: var(--mila-app-canvas, #0c0c0c);
   }
 
   .wt-chat-panel.is-floating {
     position: absolute;
-    top: 14px;
-    right: 14px;
-    bottom: 66px;
     z-index: 35;
-    padding: 10px;
+    padding: 12px 14px 10px;
     border-radius: 16px;
-    background: rgba(14, 14, 17, 0.86);
+    background: rgba(14, 14, 17, 0.82);
     backdrop-filter: blur(26px) saturate(140%);
     -webkit-backdrop-filter: blur(26px) saturate(140%);
     box-shadow: 0 22px 56px rgba(0, 0, 0, 0.68);
@@ -1282,8 +1333,8 @@
 
   .wt-float-resizer {
     position: absolute;
-    top: 12px;
-    bottom: 12px;
+    top: 14px;
+    bottom: 14px;
     left: -4px;
     width: 8px;
     cursor: col-resize;
@@ -1295,14 +1346,23 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 2px 4px 8px;
+    padding: 2px 2px 10px;
     flex-shrink: 0;
+  }
+
+  .wt-chat-head.is-draggable {
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .wt-chat-panel.is-dragging-float .wt-chat-head.is-draggable {
+    cursor: grabbing;
   }
 
   .wt-chat-title {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 12.5px;
-    font-weight: 800;
+    font-size: 13px;
+    font-weight: 700;
     letter-spacing: -0.015em;
     color: rgba(255, 255, 255, 0.9);
     white-space: nowrap;
@@ -1317,7 +1377,7 @@
     flex-shrink: 0;
   }
 
-  /* Overlapping member avatars like media_1795039071518_3232e598.png */
+  /* Overlapping member avatars with genuine TRANSPARENT cutout gap (no black border!) */
   .wt-chat-avatars {
     display: inline-flex;
     align-items: center;
@@ -1329,9 +1389,9 @@
     height: 24px;
     border-radius: 50%;
     overflow: hidden;
-    background: #1a1a1e;
-    border: 2px solid #0c0c0e;
-    margin-left: -7px;
+    background: rgba(255, 255, 255, 0.08);
+    border: none;
+    margin-left: -6px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1344,6 +1404,11 @@
 
   .wt-chat-av-circle:first-child {
     margin-left: 0;
+  }
+
+  .wt-chat-av-circle:not(:first-child) {
+    -webkit-mask-image: radial-gradient(circle 14px at -6px 50%, transparent 99%, #000 100%);
+    mask-image: radial-gradient(circle 14px at -6px 50%, transparent 99%, #000 100%);
   }
 
   .wt-chat-av-circle img {
@@ -1370,12 +1435,12 @@
     color: #ffffff;
   }
 
-  /* Chat Feed & Bubbles matching media_1795039284977_ca390929.png */
+  /* Simpler Mila-native Chat Feed & Bubbles */
   .wt-chat-feed {
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 2px;
+    padding: 2px 2px 6px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -1389,16 +1454,16 @@
   .wt-chat-empty {
     margin: auto 0;
     text-align: center;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-family: 'Medeo Sans', system-ui, sans-serif;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.28);
+    color: rgba(255, 255, 255, 0.24);
   }
 
   .wt-msg-system {
     align-self: center;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 10.5px;
-    color: rgba(255, 255, 255, 0.28);
+    font-family: 'Medeo Sans', system-ui, sans-serif;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.26);
     padding: 2px 6px;
   }
 
@@ -1406,8 +1471,8 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 2px;
-    max-width: 88%;
+    gap: 3px;
+    max-width: 86%;
   }
 
   .wt-msg-item.is-mine {
@@ -1415,31 +1480,31 @@
     align-items: flex-end;
   }
 
-  /* Incoming message: dark pill with nested avatar on the left */
+  /* Incoming message: subtle Mila dark glass pill with compact left avatar */
   .wt-bubble-other {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 12px 4px 4px;
-    border-radius: 18px;
-    background: #1a1a1d;
-    color: rgba(255, 255, 255, 0.92);
+    padding: 5px 12px 5px 5px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.055);
+    color: rgba(255, 255, 255, 0.88);
     max-width: 100%;
     box-sizing: border-box;
   }
 
   .wt-bubble-av {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
     overflow: hidden;
-    background: #27272c;
+    background: rgba(255, 255, 255, 0.09);
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 10px;
+    font-size: 9.5px;
     font-weight: 700;
     color: #ffffff;
   }
@@ -1450,46 +1515,46 @@
     object-fit: cover;
   }
 
-  /* Own message: clean white pill with dark text */
+  /* Own message: cohesive Mila softly elevated translucent glass pill */
   .wt-bubble-mine {
     display: inline-flex;
     align-items: center;
-    padding: 6px 13px;
-    border-radius: 18px;
-    background: #f2f2f5;
-    color: #0c0c0e;
+    padding: 7px 12px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.13);
+    color: #ffffff;
     max-width: 100%;
     box-sizing: border-box;
   }
 
   .wt-bubble-text {
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-family: 'Medeo Sans', system-ui, sans-serif;
     font-size: 12.5px;
-    font-weight: 500;
-    line-height: 1.35;
+    font-weight: 400;
+    line-height: 1.38;
     word-break: break-word;
     user-select: text;
   }
 
   .wt-msg-time {
     align-self: flex-end;
-    padding-right: 4px;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    padding: 0 4px;
+    font-family: 'Medeo Sans', system-ui, sans-serif;
     font-size: 9.5px;
-    color: rgba(255, 255, 255, 0.28);
+    color: rgba(255, 255, 255, 0.25);
     line-height: 1;
   }
 
-  /* Compact chat input bar */
+  /* Transparent, background-free chat input bar */
   .wt-chat-form {
     display: flex;
     align-items: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 4px 0 11px;
+    gap: 8px;
+    height: 34px;
+    padding: 0 2px;
     margin-top: 6px;
-    border-radius: 999px;
-    background: #161619;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: transparent;
     flex-shrink: 0;
   }
 
@@ -1500,17 +1565,17 @@
     outline: none;
     background: transparent;
     color: #ffffff;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12px;
+    font-family: 'Medeo Sans', system-ui, sans-serif;
+    font-size: 12.5px;
   }
 
   .wt-chat-input::placeholder {
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.28);
   }
 
   .wt-chat-send {
-    width: 24px;
-    height: 24px;
+    width: 26px;
+    height: 26px;
     padding: 0;
     border: none;
     border-radius: 50%;
@@ -1526,7 +1591,7 @@
   }
 
   .wt-chat-send:disabled {
-    opacity: 0.25;
+    opacity: 0.24;
     cursor: default;
   }
 
@@ -1536,7 +1601,7 @@
 
   /* Below-theater Room Strip & Episodes */
   .wt-player-body {
-    padding: clamp(14px, 1.8vw, 20px) var(--page-pad-x) var(--page-pad-x) var(--page-pad-x);
+    padding: clamp(14px, 1.8vw, 22px) var(--page-pad-x) var(--page-pad-x) var(--page-pad-x);
     display: flex;
     flex-direction: column;
     gap: clamp(20px, 2.4vw, 28px);
@@ -1560,53 +1625,39 @@
   .wt-room-titles {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
     min-width: 0;
   }
 
   .wt-room-heading-line {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     min-width: 0;
   }
 
   .wt-room-main-title {
     margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(18px, 1.9vw, 22px);
+    font-size: clamp(18px, 1.9vw, 24px);
     font-weight: 800;
     letter-spacing: -0.02em;
+    line-height: 1.08;
     color: #ffffff;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .wt-code-inline {
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.36);
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 12px;
-    font-weight: 700;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    cursor: pointer;
-    transition: color 0.16s ease;
-  }
-
-  .wt-code-inline:hover {
-    color: rgba(255, 255, 255, 0.82);
-  }
-
   .wt-seat-inline {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 12.5px;
+    font-size: clamp(12.5px, 1.05vw, 15px);
     font-weight: 700;
+    line-height: 1;
     color: rgba(255, 255, 255, 0.34);
+    display: inline-flex;
+    align-items: center;
+    transform: translateY(1px);
   }
 
   .wt-room-sub-line {
@@ -1614,12 +1665,12 @@
     align-items: center;
     gap: 6px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12.5px;
+    font-size: clamp(12px, 0.95vw, 13px);
     color: rgba(255, 255, 255, 0.46);
   }
 
   .wt-anime-sub {
-    color: rgba(255, 255, 255, 0.76);
+    color: rgba(255, 255, 255, 0.78);
     font-weight: 600;
   }
 
@@ -1630,34 +1681,44 @@
   .wt-room-strip-right {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 10px;
   }
 
-  .wt-strip-action {
-    padding: 0;
+  .wt-strip-pill {
+    height: clamp(32px, 2.6vw, 36px);
+    padding: 0 clamp(12px, 1.1vw, 15px);
     border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.56);
+    outline: none;
+    border-radius: 10px;
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.055));
+    color: rgba(255, 255, 255, 0.78);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: clamp(12.5px, 0.95vw, 13.5px);
+    font-weight: 500;
+    line-height: 1;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    gap: 7px;
     cursor: pointer;
-    transition: color 0.16s ease;
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease;
   }
 
-  .wt-strip-action:hover {
+  .wt-strip-pill:hover {
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.11));
     color: #ffffff;
   }
 
-  .wt-strip-action.is-danger {
-    color: rgba(255, 122, 122, 0.78);
+  .wt-strip-pill.is-danger {
+    background: rgba(255, 92, 92, 0.12);
+    color: rgba(255, 144, 144, 0.92);
   }
 
-  .wt-strip-action.is-danger:hover {
-    color: #ff7a7a;
+  .wt-strip-pill.is-danger:hover {
+    background: rgba(255, 92, 92, 0.22);
+    color: #ffd2d2;
   }
 
   .episodes-back-btn {

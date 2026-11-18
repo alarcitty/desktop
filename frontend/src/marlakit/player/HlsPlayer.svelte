@@ -17,6 +17,7 @@
     SkipForward,
     AudioLines,
     FastForward,
+    MessageSquare,
     RotateCcw,
     ArrowRightLeft,
     ArrowUpLeft,
@@ -74,6 +75,9 @@
     hasFallback?: boolean;
     isPip?: boolean;
     keyboardEnabled?: boolean;
+    chatOpen?: boolean;
+    chatUnread?: number;
+    ontogglechat?: () => void;
     onprev?: () => void;
     onnext?: () => void;
     onended?: () => void;
@@ -112,6 +116,9 @@
     hasFallback = false,
     isPip = false,
     keyboardEnabled = true,
+    chatOpen = false,
+    chatUnread = 0,
+    ontogglechat,
     onprev,
     onnext,
     onended,
@@ -2760,6 +2767,25 @@
           </div>
         {/if}
 
+        {#if ontogglechat && (!isPip || isFullscreen)}
+          <button
+            type="button"
+            class="icon-btn"
+            class:is-active={chatOpen}
+            aria-label={chatOpen ? 'Hide chat' : 'Open chat'}
+            title={chatOpen ? 'Hide chat' : 'Open chat'}
+            onclick={() => {
+              ontogglechat?.();
+              scheduleHideControls();
+            }}
+          >
+            <MorphIcon icon={MessageSquare} size={17} strokeWidth={1.85} />
+            {#if !chatOpen && chatUnread > 0}
+              <span class="chat-unread-dot" aria-hidden="true"></span>
+            {/if}
+          </button>
+        {/if}
+
         <button
           type="button"
           class="icon-btn"
@@ -3408,6 +3434,22 @@
     position: relative;
     display: inline-flex;
     align-items: center;
+  }
+
+  .icon-btn {
+    position: relative;
+  }
+
+  .chat-unread-dot {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 0 0 2px rgba(7, 7, 7, 0.85);
+    pointer-events: none;
   }
 
   .appearance-popover {

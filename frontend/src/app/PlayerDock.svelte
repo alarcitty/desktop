@@ -419,7 +419,16 @@
         {hasNext}
         hasFallback={player.voices.some((v) => v.id !== player.selectedVoiceId)}
         isPip={isPipVisible}
-        keyboardEnabled={Boolean((router.current === 'player' && !player.pipMode) || isPipVisible)}
+        keyboardEnabled={Boolean(
+          ((router.current === 'player' || router.current === 'watch-together-player') &&
+            !player.pipMode) ||
+            isPipVisible
+        )}
+        chatOpen={player.wtChatOpen}
+        chatUnread={player.wtChatUnread}
+        ontogglechat={router.current === 'watch-together-player'
+          ? (player.wtChatToggle ?? undefined)
+          : undefined}
         onprev={prevEpisode}
         onnext={nextEpisode}
         ontimeprogress={(sec, dur, force) => reportPlaybackProgress(sec, dur, force)}

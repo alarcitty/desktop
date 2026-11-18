@@ -115,6 +115,9 @@ export const player = $state<{
   extras: AnimePageExtras | null;
   extrasLoading: boolean;
   inlineStageEl: HTMLElement | null;
+  wtChatOpen: boolean;
+  wtChatUnread: number;
+  wtChatToggle: (() => void) | null;
 }>({
   loading: false,
   error: '',
@@ -138,7 +141,10 @@ export const player = $state<{
   pipCorner: readSavedPipCorner(),
   extras: null,
   extrasLoading: false,
-  inlineStageEl: null
+  inlineStageEl: null,
+  wtChatOpen: true,
+  wtChatUnread: 0,
+  wtChatToggle: null
 });
 
 let activeRequestToken = 0;
@@ -898,6 +904,19 @@ export function nextEpisode(): void {
 
 export function setInlinePlayerStage(el: HTMLElement | null): void {
   player.inlineStageEl = el;
+}
+
+export function setWatchTogetherChatControl(
+  ctrl: { open: boolean; unread: number; toggle: () => void } | null
+): void {
+  if (!ctrl) {
+    player.wtChatToggle = null;
+    player.wtChatUnread = 0;
+    return;
+  }
+  player.wtChatOpen = ctrl.open;
+  player.wtChatUnread = ctrl.unread;
+  player.wtChatToggle = ctrl.toggle;
 }
 
 export function registerPlayerPauseControl(

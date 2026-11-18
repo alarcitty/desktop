@@ -303,9 +303,9 @@
     height: 26px;
     border-radius: 50%;
     overflow: hidden;
-    background: #1c1c20;
-    border: 2px solid #121215;
-    margin-left: -8px;
+    background: rgba(255, 255, 255, 0.08);
+    border: none;
+    margin-left: -7px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -318,6 +318,11 @@
 
   .wt-stack-circle:first-child {
     margin-left: 0;
+  }
+
+  .wt-stack-circle:not(:first-child) {
+    -webkit-mask-image: radial-gradient(circle 15px at -6px 50%, transparent 99%, #000 100%);
+    mask-image: radial-gradient(circle 15px at -6px 50%, transparent 99%, #000 100%);
   }
 
   .wt-stack-circle img {

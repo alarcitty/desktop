@@ -1,22 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { cubicOut } from 'svelte/easing';
   import { MorphIcon } from 'morphicons/svelte';
   import {
-    Check,
     Clock,
-    Copy,
     Crown,
     Globe,
     Lock,
     LogOut,
     Pencil,
-    Play,
     Shield,
     Star,
     User,
     UserPlus,
-    Users,
-    X
+    Users
   } from 'lucide';
 
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
@@ -50,7 +47,6 @@
 
   let editingTitle = $state(false);
   let titleInput = $state('');
-  let codeCopied = $state(false);
   let busy = $state(false);
   let brokenAvatars = $state<Record<string, boolean>>({});
 
@@ -96,14 +92,8 @@
         art?.posterOriginal ||
         art?.posterMain ||
         '';
-      const backdrop =
-        draftMatch?.backdrop ||
-        art?.screenshots?.[0] ||
-        poster;
-      const description =
-        draftMatch?.description ||
-        art?.description ||
-        '';
+      const backdrop = draftMatch?.backdrop || art?.screenshots?.[0] || poster;
+      const description = draftMatch?.description || art?.description || '';
       return {
         title: activeRoom.media.title,
         description,
@@ -153,12 +143,8 @@
           player.release?.poster ||
           '';
         const backdrop =
-          player.shikiArt?.screenshots?.[0] ||
-          player.release?.banner ||
-          poster;
-        const description =
-          player.shikiArt?.description ||
-          '';
+          player.shikiArt?.screenshots?.[0] || player.release?.banner || poster;
+        const description = player.shikiArt?.description || '';
         return {
           title,
           description,
@@ -477,8 +463,8 @@
 
     ctxMenu = {
       kind: 'friend',
-      x: Math.max(16, rect.left - 196),
-      y: Math.max(16, Math.min(window.innerHeight - 160, rect.top - 8)),
+      x: Math.max(16, rect.left - 210),
+      y: Math.max(16, Math.min(window.innerHeight - 170, rect.top - 8)),
       id: friend.public_id,
       name: friend.name,
       username: friend.username,
@@ -502,7 +488,7 @@
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       ctxMenu = {
         kind: 'slot-invited',
-        x: Math.max(16, Math.min(window.innerWidth - 210, rect.right - 188)),
+        x: Math.max(16, Math.min(window.innerWidth - 216, rect.right - 196)),
         y: rect.bottom + 8,
         id: slot.id,
         name: slot.name,
@@ -518,7 +504,7 @@
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       ctxMenu = {
         kind: 'slot-member',
-        x: Math.max(16, Math.min(window.innerWidth - 210, rect.right - 188)),
+        x: Math.max(16, Math.min(window.innerWidth - 216, rect.right - 196)),
         y: rect.bottom + 8,
         id: slot.id,
         name: slot.name,
@@ -529,6 +515,20 @@
         alreadyInvited: false
       };
     }
+  }
+
+  function ctxTransition(_node: Element) {
+    return {
+      duration: 210,
+      easing: cubicOut,
+      css: (t: number) => {
+        const inv = 1 - t;
+        const scale = 0.94 + t * 0.06;
+        const y = inv * -6;
+        const blur = inv * 6;
+        return `opacity: ${t}; transform: translate3d(0, ${y}px, 0) scale(${scale}); filter: blur(${blur}px);`;
+      }
+    };
   }
 
   async function handleCtxInvite(targetId: string) {
@@ -584,19 +584,6 @@
     ctxMenu = null;
     await kickWatchRoomMember(targetId).catch(() => {});
   }
-
-  async function copyRoomCode() {
-    if (!activeRoom?.room_code) return;
-    try {
-      await navigator.clipboard.writeText(activeRoom.room_code);
-      codeCopied = true;
-      window.setTimeout(() => {
-        codeCopied = false;
-      }, 1600);
-    } catch {
-      // ignore
-    }
-  }
 </script>
 
 <svelte:window
@@ -636,7 +623,7 @@
   {/if}
 
   <div class="wt-canvas">
-    <!-- TOP BAR: Create room / Room + Name + pencil + 1/9 + #CODE on the left, Member/Invite circles on the right -->
+    <!-- TOP BAR: Create room / Room + Name + pencil + seat count on left, Member/Invite circles on right -->
     <header class="wt-top-bar">
       <div class="wt-heading-group">
         <h1 class="wt-main-heading">
@@ -670,31 +657,17 @@
           >
             <span class="wt-room-name">{displayRoomName}</span>
             {#if !activeRoom || isHost}
-              <MorphIcon icon={Pencil} size={15} strokeWidth={1.7} class="wt-pencil-icon" />
+              <span class="wt-pencil-wrap">
+                <MorphIcon icon={Pencil} size={15} strokeWidth={1.8} class="wt-pencil-icon" />
+              </span>
             {/if}
           </button>
         {/if}
 
         <span class="wt-seat-counter">{occupiedCount}/{currentMaxMembers}</span>
-
-        {#if activeRoom?.room_code}
-          <button
-            type="button"
-            class="wt-code-chip"
-            onclick={copyRoomCode}
-            title="Copy room code"
-          >
-            <span>#{activeRoom.room_code}</span>
-            {#if codeCopied}
-              <MorphIcon icon={Check} size={11} strokeWidth={2.4} />
-            {:else}
-              <MorphIcon icon={Copy} size={11} strokeWidth={1.8} />
-            {/if}
-          </button>
-        {/if}
       </div>
 
-      <!-- Top-right lobby member & pending invite slots -->
+      <!-- Top-right lobby member & pending invite slots (right-click ONLY on joined/pending) -->
       <div class="wt-slots-row" aria-label="Room seats">
         {#each slotCircles as slot (slot.key)}
           <div
@@ -714,13 +687,6 @@
                   : slot.kind === 'invited'
                     ? `Pending: @${slot.username} (right-click to cancel)`
                     : 'Empty seat'}
-              onclick={(e) => {
-                if (slot.kind === 'empty') {
-                  openFriendsPopup();
-                } else if (slot.kind === 'invited' || (slot.kind === 'member' && isHost)) {
-                  openSlotContextMenu(e, slot);
-                }
-              }}
               oncontextmenu={(e) => openSlotContextMenu(e, slot)}
             >
               {#if slot.kind === 'empty'}
@@ -758,12 +724,12 @@
       </div>
     </header>
 
-    <!-- CENTER STAGE: Choose Anime prompt OR Selected Anime Typography -->
-    <div class="wt-center-stage">
+    <!-- CENTER STAGE: Hero-like Anime Title + Description (lowered nicely above bottom controls) OR Choose Anime prompt -->
+    <div class="wt-center-stage" class:has-anime={Boolean(selectedAnime)}>
       {#if selectedAnime}
         <div
           class="wt-anime-showcase"
-          in:revealBlur={{ duration: 280, y: 8, scale: 0.99, blur: 8 }}
+          in:revealBlur={{ duration: 280, y: 10, scale: 0.99, blur: 8 }}
         >
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -779,7 +745,7 @@
             <div class="wt-anime-meta">
               {#if selectedAnime.score && selectedAnime.score > 0}
                 <span class="wt-meta-score">
-                  <MorphIcon icon={Star} size={12} fill="currentColor" strokeWidth={0} />
+                  <MorphIcon icon={Star} size={13} fill="currentColor" strokeWidth={0} />
                   {selectedAnime.score.toFixed(1)}
                 </span>
               {/if}
@@ -813,7 +779,7 @@
       {/if}
     </div>
 
-    <!-- BOTTOM BAR: Create / Continue / Leave room + ComboBox Settings triggers -->
+    <!-- BOTTOM BAR: Create / Continue / Leave room + ComboBox Settings pills -->
     <footer class="wt-bottom-bar">
       <div class="wt-bottom-left">
         {#if !activeRoom || !watchTogetherState.roomStarted}
@@ -837,7 +803,7 @@
 
           <button
             type="button"
-            class="wt-setting-trigger is-danger"
+            class="wt-setting-pill is-danger"
             onclick={() => void leaveWatchRoom()}
           >
             <MorphIcon icon={LogOut} size={14} strokeWidth={2} />
@@ -852,13 +818,13 @@
             options={visibilityOptions}
             value={currentVisibility}
             placement="top-left"
-            minWidth={184}
+            minWidth={188}
             onselect={(opt) => void selectVisibility(opt.value as RoomVisibility)}
           >
             {#snippet trigger({ toggle })}
               <button
                 type="button"
-                class="wt-setting-trigger"
+                class="wt-setting-pill"
                 disabled={Boolean(activeRoom && !isHost)}
                 onclick={toggle}
                 title="Room visibility"
@@ -869,7 +835,7 @@
                     : currentVisibility === 'private'
                       ? Lock
                       : Users}
-                  size={13}
+                  size={14}
                   strokeWidth={1.9}
                 />
                 <span>
@@ -889,18 +855,18 @@
             options={controlOptions}
             value={currentControlMode}
             placement="top-left"
-            minWidth={210}
+            minWidth={214}
             onselect={(opt) => void selectControlMode(opt.value as RoomControlMode)}
           >
             {#snippet trigger({ toggle })}
               <button
                 type="button"
-                class="wt-setting-trigger"
+                class="wt-setting-pill"
                 disabled={Boolean(activeRoom && !isHost)}
                 onclick={toggle}
                 title="Playback control permission"
               >
-                <MorphIcon icon={Shield} size={13} strokeWidth={1.9} />
+                <MorphIcon icon={Shield} size={14} strokeWidth={1.9} />
                 <span>
                   {currentControlMode === 'everyone' ? 'Everyone controls' : 'Host only'}
                 </span>
@@ -914,14 +880,14 @@
             options={seatsOptions}
             value={currentMaxMembers}
             placement="top-left"
-            minWidth={136}
+            minWidth={140}
             maxHeight={240}
             onselect={(opt) => void selectMaxMembers(Number(opt.value))}
           >
             {#snippet trigger({ toggle })}
               <button
                 type="button"
-                class="wt-setting-trigger"
+                class="wt-setting-pill"
                 disabled={Boolean(activeRoom && !isHost)}
                 onclick={toggle}
                 title="Maximum seats"
@@ -934,7 +900,7 @@
       </div>
     </footer>
 
-    <!-- RIGHT-SIDE VERTICAL FRIENDS RAIL (flush bottom-right, no clipping frame, brightness hover, right-click ComboBox) -->
+    <!-- RIGHT-SIDE VERTICAL FRIENDS RAIL (flush bottom-right, right-click ONLY opens ComboBox, left-click does nothing) -->
     <aside class="wt-friends-rail" aria-label="Friends">
       <button
         type="button"
@@ -965,7 +931,6 @@
             class="wt-rail-avatar-btn"
             class:is-offline={friend.status === 'offline'}
             class:is-selected={isInvited || inCurrentRoom}
-            onclick={(e) => openFriendContextMenu(e, friend)}
             oncontextmenu={(e) => openFriendContextMenu(e, friend)}
             title="@{friend.username} (right-click for options)"
           >
@@ -997,86 +962,100 @@
   </div>
 </div>
 
-<!-- Right-click ComboBox Context Menu for Friends & Room Slots -->
+<!-- Right-click Marlakit ComboBox-identical Context Menu -->
 {#if ctxMenu}
   {@const menu = ctxMenu}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     use:portal
-    class="wt-ctx-popover"
+    class="wt-kit-combo-layer"
     style:left="{menu.x}px"
     style:top="{menu.y}px"
     onclick={(e) => e.stopPropagation()}
     oncontextmenu={(e) => e.preventDefault()}
-    in:revealBlur={{ duration: 180, y: 4, scale: 0.96, blur: 8 }}
+    transition:ctxTransition
   >
-    <div class="wt-ctx-header">
-      <div class="wt-ctx-user-row">
-        <span class="wt-ctx-name">{menu.name}</span>
-        <span
-          class="wt-ctx-status-dot"
-          class:is-online={menu.statusKind === 'online'}
-          class:is-room={menu.statusKind === 'in_room'}
-          class:is-pending={menu.statusKind === 'pending'}
-        ></span>
+    <div class="wt-kit-combo-popover" role="listbox">
+      <div class="wt-kit-combo-section-label">
+        <span class="wt-kit-combo-user-line">
+          <span>{menu.name} · @{menu.username}</span>
+          <span
+            class="wt-kit-status-dot"
+            class:is-online={menu.statusKind === 'online'}
+            class:is-room={menu.statusKind === 'in_room'}
+            class:is-pending={menu.statusKind === 'pending'}
+          ></span>
+        </span>
+        <span class="wt-kit-combo-sub-line">{menu.statusLabel}</span>
       </div>
-      <span class="wt-ctx-sub">@{menu.username} · {menu.statusLabel}</span>
-    </div>
 
-    <div class="wt-ctx-list">
-      {#if menu.kind === 'friend'}
-        {#if menu.alreadyInvited}
+      <div class="wt-kit-combo-list">
+        {#if menu.kind === 'friend'}
+          {#if menu.alreadyInvited}
+            <button
+              type="button"
+              role="option"
+              aria-selected={false}
+              class="wt-kit-combo-item is-danger"
+              onclick={() => void handleCtxCancelInvite(menu.id)}
+            >
+              <span class="wt-kit-combo-label">Cancel invite</span>
+            </button>
+          {:else}
+            <button
+              type="button"
+              role="option"
+              aria-selected={false}
+              class="wt-kit-combo-item"
+              onclick={() => void handleCtxInvite(menu.id)}
+            >
+              <span class="wt-kit-combo-label">Invite</span>
+            </button>
+          {/if}
+
+          {#if menu.canJoinRoom}
+            <button
+              type="button"
+              role="option"
+              aria-selected={false}
+              class="wt-kit-combo-item"
+              onclick={() => void handleCtxJoinFriend(menu.id)}
+            >
+              <span class="wt-kit-combo-label">Join room</span>
+            </button>
+          {/if}
+        {:else if menu.kind === 'slot-invited'}
           <button
             type="button"
-            class="wt-ctx-item is-danger"
+            role="option"
+            aria-selected={false}
+            class="wt-kit-combo-item is-danger"
             onclick={() => void handleCtxCancelInvite(menu.id)}
           >
-            Cancel invite
+            <span class="wt-kit-combo-label">Cancel</span>
           </button>
-        {:else}
+        {:else if menu.kind === 'slot-member'}
           <button
             type="button"
-            class="wt-ctx-item"
-            onclick={() => void handleCtxInvite(menu.id)}
+            role="option"
+            aria-selected={false}
+            class="wt-kit-combo-item"
+            onclick={() => void handleCtxTransferHost(menu.id)}
           >
-            Invite
+            <span class="wt-kit-combo-label">Transfer host</span>
           </button>
-        {/if}
-
-        {#if menu.canJoinRoom}
           <button
             type="button"
-            class="wt-ctx-item"
-            onclick={() => void handleCtxJoinFriend(menu.id)}
+            role="option"
+            aria-selected={false}
+            class="wt-kit-combo-item is-danger"
+            onclick={() => void handleCtxKickMember(menu.id)}
           >
-            Join room
+            <span class="wt-kit-combo-label">Kick</span>
           </button>
         {/if}
-      {:else if menu.kind === 'slot-invited'}
-        <button
-          type="button"
-          class="wt-ctx-item is-danger"
-          onclick={() => void handleCtxCancelInvite(menu.id)}
-        >
-          Cancel
-        </button>
-      {:else if menu.kind === 'slot-member'}
-        <button
-          type="button"
-          class="wt-ctx-item"
-          onclick={() => void handleCtxTransferHost(menu.id)}
-        >
-          Transfer host
-        </button>
-        <button
-          type="button"
-          class="wt-ctx-item is-danger"
-          onclick={() => void handleCtxKickMember(menu.id)}
-        >
-          Kick
-        </button>
-      {/if}
+      </div>
     </div>
   </div>
 {/if}
@@ -1109,7 +1088,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    opacity: 0.34;
+    opacity: 0.36;
     filter: saturate(1.08) contrast(1.04);
     transform: scale(1.02);
   }
@@ -1128,8 +1107,8 @@
         180deg,
         #0c0c0c 0%,
         rgba(12, 12, 12, 0.72) 15%,
-        rgba(12, 12, 12, 0.25) 48%,
-        rgba(12, 12, 12, 0.76) 84%,
+        rgba(12, 12, 12, 0.24) 48%,
+        rgba(12, 12, 12, 0.78) 84%,
         #0c0c0c 100%
       ),
       radial-gradient(
@@ -1145,26 +1124,28 @@
     z-index: 1;
     width: 100%;
     height: 100%;
-    padding: calc(var(--header-height, 48px) + 18px) var(--page-pad-x) 24px;
+    padding: calc(var(--header-height, 48px) + clamp(14px, 2vh, 24px)) var(--page-pad-x)
+      clamp(20px, 2.8vh, 30px);
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
   }
 
-  /* TOP BAR */
+  /* TOP BAR — responsive adaptive alignment */
   .wt-top-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 20px;
     flex-wrap: wrap;
+    min-height: 40px;
   }
 
   .wt-heading-group {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 14px;
+    gap: clamp(10px, 1.1vw, 15px);
     flex-wrap: wrap;
     min-width: 0;
   }
@@ -1172,17 +1153,19 @@
   .wt-main-heading {
     margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(26px, 2.8vw, 35px);
+    font-size: clamp(24px, 2.5vw, 34px);
     font-weight: 800;
     letter-spacing: -0.03em;
-    line-height: 1;
+    line-height: 1.05;
     color: #ffffff;
+    display: inline-flex;
+    align-items: center;
   }
 
   .wt-name-trigger {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 9px;
     padding: 0;
     border: none;
     background: transparent;
@@ -1192,27 +1175,31 @@
   }
 
   .wt-name-trigger:hover {
-    color: rgba(255, 255, 255, 0.64);
+    color: rgba(255, 255, 255, 0.68);
   }
 
   .wt-room-name {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(24px, 2.5vw, 32px);
+    font-size: clamp(22px, 2.3vw, 32px);
     font-weight: 800;
     letter-spacing: -0.025em;
-    line-height: 1;
-    max-width: 340px;
+    line-height: 1.05;
+    max-width: min(360px, 38vw);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .wt-name-trigger :global(.wt-pencil-icon) {
-    opacity: 0.56;
+  .wt-pencil-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transform: translateY(2px);
+    opacity: 0.52;
     transition: opacity 0.18s ease;
   }
 
-  .wt-name-trigger:hover :global(.wt-pencil-icon) {
+  .wt-name-trigger:hover .wt-pencil-wrap {
     opacity: 1;
   }
 
@@ -1229,42 +1216,23 @@
     background: transparent;
     color: #ffffff;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(22px, 2.3vw, 30px);
+    font-size: clamp(22px, 2.3vw, 32px);
     font-weight: 800;
     letter-spacing: -0.025em;
-    padding: 0 2px 2px;
+    line-height: 1.05;
+    padding: 0 2px;
   }
 
   .wt-seat-counter {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 15px;
+    font-size: clamp(13.5px, 1.15vw, 17px);
     font-weight: 700;
     line-height: 1;
     color: rgba(255, 255, 255, 0.28);
     letter-spacing: -0.01em;
     display: inline-flex;
     align-items: center;
-  }
-
-  .wt-code-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.34);
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 700;
-    line-height: 1;
-    letter-spacing: 0.02em;
-    cursor: pointer;
-    transition: color 0.18s ease;
-  }
-
-  .wt-code-chip:hover {
-    color: rgba(255, 255, 255, 0.85);
+    transform: translateY(2px);
   }
 
   /* Top-right member & empty slot circles */
@@ -1285,26 +1253,31 @@
     border-radius: 50%;
     padding: 0;
     border: none;
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.26);
+    background: rgba(255, 255, 255, 0.055);
+    color: rgba(255, 255, 255, 0.28);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
+    cursor: default;
     transition:
       filter 0.18s ease,
       background-color 0.18s ease,
       color 0.18s ease;
   }
 
+  .wt-slot-circle.is-invited,
+  .wt-slot-circle.is-member {
+    cursor: context-menu;
+  }
+
   .wt-slot-circle:hover {
-    filter: brightness(1.15);
-    background: rgba(255, 255, 255, 0.09);
-    color: rgba(255, 255, 255, 0.55);
+    filter: brightness(1.14);
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.6);
   }
 
   .wt-slot-circle.is-invited {
-    opacity: 0.58;
+    opacity: 0.62;
   }
 
   .wt-slot-img {
@@ -1352,7 +1325,7 @@
     color: rgba(255, 255, 255, 0.78);
   }
 
-  /* CENTER STAGE */
+  /* CENTER STAGE — positioned lower (Hero-style!) when an anime is selected */
   .wt-center-stage {
     position: relative;
     flex: 1 1 auto;
@@ -1360,6 +1333,11 @@
     align-items: center;
     min-height: 0;
     padding-right: 68px;
+  }
+
+  .wt-center-stage.has-anime {
+    align-items: flex-end;
+    padding-bottom: clamp(26px, 4.2vh, 48px);
   }
 
   .wt-choose-prompt {
@@ -1399,23 +1377,22 @@
     color: rgba(255, 255, 255, 0.14);
   }
 
-  /* Selected Anime Showcase */
+  /* Hero-matched Anime Showcase (title + meta + large description) */
   .wt-anime-showcase {
-    max-width: min(860px, 78vw);
+    max-width: min(920px, 78vw);
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 12px;
   }
 
   .wt-anime-title {
     margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(34px, 4.4vw, 56px);
-    font-weight: 900;
-    line-height: 1.05;
-    letter-spacing: -0.03em;
-    color: rgba(255, 255, 255, 0.9);
+    font-size: clamp(32px, 4.1vw, 60px);
+    font-weight: 700;
+    line-height: 1.06;
+    letter-spacing: -0.02em;
+    color: #ffffff;
     cursor: pointer;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -1426,17 +1403,18 @@
   }
 
   .wt-anime-title:hover {
-    color: #ffffff;
+    color: rgba(255, 255, 255, 0.86);
   }
 
   .wt-anime-meta {
+    margin-top: 10px;
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
     flex-wrap: wrap;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
-    color: rgba(255, 255, 255, 0.56);
+    font-size: clamp(13px, 1.05vw, 15px);
+    color: rgba(255, 255, 255, 0.62);
   }
 
   .wt-meta-score {
@@ -1452,17 +1430,18 @@
   }
 
   .wt-meta-ep {
-    color: rgba(255, 255, 255, 0.85);
+    color: rgba(255, 255, 255, 0.9);
     font-weight: 600;
   }
 
   .wt-anime-desc {
-    margin: 0;
-    max-width: 650px;
+    margin: 12px 0 0 0;
+    max-width: 760px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: clamp(13px, 1.1vw, 14.5px);
-    line-height: 1.5;
-    color: rgba(255, 255, 255, 0.44);
+    font-size: clamp(15px, 1.38vw, 18.5px);
+    font-weight: 400;
+    line-height: 1.38;
+    color: #8f8f94;
     display: -webkit-box;
     -webkit-line-clamp: 4;
     line-clamp: 4;
@@ -1470,7 +1449,7 @@
     overflow: hidden;
   }
 
-  /* BOTTOM BAR */
+  /* BOTTOM BAR — pill backgrounds + generous gaps + true vertical alignment across all window sizes */
   .wt-bottom-bar {
     display: flex;
     align-items: center;
@@ -1482,26 +1461,26 @@
   .wt-bottom-left {
     display: flex;
     align-items: center;
-    gap: 18px;
+    gap: clamp(14px, 1.5vw, 22px);
     flex-wrap: wrap;
   }
 
   .wt-create-cta {
+    height: clamp(34px, 3vw, 40px);
     padding: 0;
     border: none;
     background: transparent;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(26px, 2.6vw, 34px);
+    font-size: clamp(24px, 2.4vw, 32px);
     font-weight: 800;
     letter-spacing: -0.03em;
     line-height: 1;
-    color: rgba(255, 255, 255, 0.88);
+    color: rgba(255, 255, 255, 0.9);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
-    transition:
-      color 0.18s ease,
-      transform 0.16s ease;
+    transform: translateY(-1px);
+    transition: color 0.18s ease;
   }
 
   .wt-create-cta:hover:not(:disabled) {
@@ -1516,50 +1495,57 @@
   .wt-inline-settings {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 10px;
     flex-wrap: wrap;
   }
 
-  /* Borderless, background-free setting triggers aligned with Create / Leave room */
-  .wt-setting-trigger {
-    height: 32px;
-    padding: 0 2px;
+  .wt-setting-pill {
+    height: clamp(32px, 2.6vw, 36px);
+    padding: 0 clamp(12px, 1.1vw, 15px);
     border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.56);
+    outline: none;
+    border-radius: 10px;
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.055));
+    color: rgba(255, 255, 255, 0.78);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: clamp(12.5px, 0.95vw, 13.5px);
+    font-weight: 500;
     line-height: 1;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    gap: 7px;
     cursor: pointer;
-    transition: color 0.18s ease;
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease;
   }
 
-  .wt-setting-trigger:hover:not(:disabled) {
+  .wt-setting-pill:hover:not(:disabled) {
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.11));
     color: #ffffff;
   }
 
-  .wt-setting-trigger:disabled {
+  .wt-setting-pill:disabled {
     opacity: 0.45;
     cursor: default;
   }
 
-  .wt-setting-trigger.is-danger {
-    color: rgba(255, 132, 132, 0.82);
+  .wt-setting-pill.is-danger {
+    background: rgba(255, 92, 92, 0.12);
+    color: rgba(255, 144, 144, 0.92);
   }
 
-  .wt-setting-trigger.is-danger:hover {
-    color: #ff7a7a;
+  .wt-setting-pill.is-danger:hover {
+    background: rgba(255, 92, 92, 0.22);
+    color: #ffd2d2;
   }
 
-  /* RIGHT-SIDE FRIENDS RAIL (lowered flush to bottom-right corner, no clipping, brightness hover) */
+  /* RIGHT-SIDE FRIENDS RAIL (flush bottom-right, no clipping, brightness hover, context-menu only) */
   .wt-friends-rail {
     position: absolute;
     right: var(--page-pad-x, 28px);
-    bottom: 24px;
+    bottom: clamp(20px, 2.8vh, 30px);
     z-index: 15;
     display: flex;
     flex-direction: column;
@@ -1625,7 +1611,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
+    cursor: default;
     flex-shrink: 0;
     transition:
       filter 0.2s cubic-bezier(0.22, 1, 0.36, 1),
@@ -1677,109 +1663,127 @@
     background: #294aeb;
   }
 
-  /* Right-click ComboBox Popover */
-  .wt-ctx-popover {
+  /* Marlakit Kit ComboBox-identical Context Menu */
+  .wt-kit-combo-layer {
     position: fixed;
     z-index: 10000;
-    min-width: 184px;
-    max-width: 228px;
-    padding: 6px;
-    border-radius: 13px;
-    background: var(--mila-popup-comboBg, #161616);
-    box-shadow: var(--mila-popup-comboShadow, 0 18px 44px rgba(0, 0, 0, 0.62));
-    color: #ffffff;
+    transform-origin: top right;
+  }
+
+  .wt-kit-combo-popover {
+    min-width: 196px;
+    max-width: 248px;
+    padding: 0;
+    border-radius: 15px;
+    background: var(--mila-popup-comboBg, rgba(10, 10, 10, 0.9));
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: none;
+    box-shadow: var(--mila-popup-shadow, 0 18px 46px rgba(0, 0, 0, 0.56));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     user-select: none;
   }
 
-  .wt-ctx-header {
-    padding: 6px 9px 7px;
-    margin-bottom: 4px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  .wt-kit-combo-section-label {
+    flex-shrink: 0;
+    padding: 11px 14px 7px;
     display: flex;
     flex-direction: column;
     gap: 2px;
+    user-select: none;
   }
 
-  .wt-ctx-user-row {
+  .wt-kit-combo-user-line {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-  }
-
-  .wt-ctx-name {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 12.5px;
+    font-size: 11px;
     font-weight: 700;
-    color: #ffffff;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    letter-spacing: 0.02em;
+    color: var(--mila-popup-comboSectionText, rgba(255, 255, 255, 0.34));
   }
 
-  .wt-ctx-status-dot {
-    width: 7px;
-    height: 7px;
+  .wt-kit-combo-sub-line {
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.45));
+  }
+
+  .wt-kit-status-dot {
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: #48484c;
     flex-shrink: 0;
   }
 
-  .wt-ctx-status-dot.is-online {
+  .wt-kit-status-dot.is-online {
     background: #29eb36;
   }
 
-  .wt-ctx-status-dot.is-room {
+  .wt-kit-status-dot.is-room {
     background: #294aeb;
   }
 
-  .wt-ctx-status-dot.is-pending {
+  .wt-kit-status-dot.is-pending {
     background: #d4b13b;
   }
 
-  .wt-ctx-sub {
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.44);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .wt-ctx-list {
+  .wt-kit-combo-list {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 0;
+    width: 100%;
+    padding-bottom: 4px;
   }
 
-  .wt-ctx-item {
+  .wt-kit-combo-item {
+    flex-shrink: 0;
     width: 100%;
-    padding: 7px 10px;
+    min-height: 36px;
+    height: 36px;
+    padding: 0 14px;
     border: none;
-    border-radius: 8px;
+    outline: none;
+    border-radius: 0;
     background: transparent;
-    color: rgba(255, 255, 255, 0.86);
+    color: var(--mila-popup-itemText, rgba(255, 255, 255, 0.72));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
     font-weight: 500;
-    text-align: left;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     cursor: pointer;
     transition:
       background-color 0.14s ease,
       color 0.14s ease;
   }
 
-  .wt-ctx-item:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #ffffff;
+  .wt-kit-combo-item:hover {
+    background: var(--mila-popup-itemHover, rgba(255, 255, 255, 0.1));
+    color: var(--mila-text-primary, #ffffff);
   }
 
-  .wt-ctx-item.is-danger {
-    color: #ff7e7e;
+  .wt-kit-combo-item.is-danger {
+    color: #ff8c8c;
   }
 
-  .wt-ctx-item.is-danger:hover {
-    background: rgba(255, 107, 107, 0.12);
-    color: #ff9494;
+  .wt-kit-combo-item.is-danger:hover {
+    background: rgba(255, 107, 107, 0.14);
+    color: #ffb2b2;
+  }
+
+  .wt-kit-combo-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>
