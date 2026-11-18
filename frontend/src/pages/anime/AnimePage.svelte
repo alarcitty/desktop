@@ -1725,7 +1725,7 @@
     position: relative;
     width: 100%;
     min-height: clamp(440px, 64vh, 650px);
-    padding-top: 72px;
+    padding-top: var(--header-height, 58px);
     display: flex;
     flex-direction: column;
     overflow: hidden;

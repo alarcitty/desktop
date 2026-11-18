@@ -623,7 +623,7 @@
     position: relative;
     width: 100%;
     min-height: 100vh;
-    padding: 72px 0 0 0;
+    padding: var(--header-height, 58px) 0 0 0;
     box-sizing: border-box;
     background: var(--mila-app-canvas, #0c0c0c);
     color: var(--mila-text-primary, #ffffff);

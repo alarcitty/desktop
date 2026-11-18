@@ -59,6 +59,8 @@ export interface WailsRuntimeBridge {
   WindowUnfullscreen?: () => void;
   WindowIsFullscreen?: () => Promise<boolean>;
   WindowIsMaximised?: () => Promise<boolean>;
+  WindowMinimise?: () => void;
+  Quit?: () => void;
   BrowserOpenURL?: (url: string) => void;
   EventsOn?: (eventName: string, callback: (...data: unknown[]) => void) => () => void;
 }

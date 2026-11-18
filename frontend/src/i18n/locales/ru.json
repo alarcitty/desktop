@@ -29,7 +29,11 @@
     "signOut": "Выйти",
     "account": "Аккаунт",
     "language": "Язык",
-    "checkReleases": "Check Releases"
+    "checkReleases": "Check Releases",
+    "minimize": "Свернуть",
+    "fullscreen": "На весь экран",
+    "exitFullscreen": "Выйти из полноэкранного режима",
+    "close": "Закрыть"
   },
   "home": {
     "newReleases": "Новые релизы",

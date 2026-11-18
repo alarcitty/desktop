@@ -231,7 +231,6 @@
 
   .credits-inner {
     width: 100%;
-    max-width: 1280px;
     margin: 0 auto;
     padding: clamp(44px, 5vw, 72px) var(--page-pad-x) clamp(48px, 5.5vw, 76px);
     box-sizing: border-box;

@@ -147,6 +147,25 @@ export async function toggleAppFullscreen(): Promise<boolean> {
   return next;
 }
 
+export function minimizeAppWindow(): void {
+  const runtime = getWailsRuntime();
+  if (typeof runtime?.WindowMinimise === 'function') {
+    runtime.WindowMinimise();
+  }
+}
+
+export function closeAppWindow(): void {
+  flushBeforeClose();
+  const runtime = getWailsRuntime();
+  if (typeof runtime?.Quit === 'function') {
+    runtime.Quit();
+    return;
+  }
+  if (typeof window !== 'undefined' && typeof window.close === 'function') {
+    window.close();
+  }
+}
+
 export async function setAppFullscreenFocus(focused: boolean): Promise<void> {
   const goMila = getWailsMilaBindings();
   if (typeof goMila?.SetFullscreenFocus === 'function') {

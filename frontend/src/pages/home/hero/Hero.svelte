@@ -1270,7 +1270,7 @@
     position: relative;
     width: 100%;
     min-height: 105vh;
-    padding-top: 72px;
+    padding-top: var(--header-height, 58px);
     background-color: var(--mila-app-canvas, #0c0c0c);
     display: flex;
     flex-direction: column;
@@ -1382,7 +1382,7 @@
 
   .hero-container {
     width: 100%;
-    min-height: calc(100vh - 72px);
+    min-height: calc(100vh - var(--header-height, 58px));
     display: flex;
     flex-direction: column;
     padding: 0 var(--page-pad-x) 14px var(--page-pad-x);
@@ -1393,7 +1393,7 @@
 
   .hero-bg-next-btn {
     position: absolute;
-    right: 16px;
+    right: 6px;
     top: 40%;
     transform: translateY(-50%);
     z-index: 6;

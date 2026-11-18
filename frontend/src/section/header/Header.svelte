@@ -1,6 +1,10 @@
 <script lang="ts">
   import Search from "@lucide/svelte/icons/search";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
+  import Minus from "@lucide/svelte/icons/minus";
+  import Maximize from "@lucide/svelte/icons/maximize";
+  import Minimize from "@lucide/svelte/icons/minimize";
+  import X from "@lucide/svelte/icons/x";
   import { cubicOut } from "svelte/easing";
   import MilaLogo from "../../themes/MilaLogo.svelte";
   import Input from "../../marlakit/input/Input.svelte";
@@ -14,9 +18,13 @@
   import { search, openSearch, setSearchAnchor } from "../../app/search.svelte";
   import { auth, initAuth, loginWithGoogle, logout } from "../../app/auth.svelte";
   import {
+    bindings,
+    closeAppWindow,
     invokeCheckAndInstallUpdate,
     invokeGetUpdateStatus,
+    minimizeAppWindow,
     subscribeAppUpdateStatus,
+    toggleAppFullscreen,
     type AppUpdateStatus
   } from "../../app/bindings.svelte";
   import {
@@ -356,6 +364,40 @@
         </div>
       {/if}
     </div>
+
+    <div class="win-controls" aria-label="Window controls">
+      <button
+        type="button"
+        class="win-btn"
+        aria-label={t("header.minimize")}
+        title={t("header.minimize")}
+        onclick={minimizeAppWindow}
+      >
+        <Minus size={14} strokeWidth={1.9} />
+      </button>
+      <button
+        type="button"
+        class="win-btn"
+        aria-label={bindings.isWindowSharp ? t("header.exitFullscreen") : t("header.fullscreen")}
+        title={bindings.isWindowSharp ? t("header.exitFullscreen") : t("header.fullscreen")}
+        onclick={() => void toggleAppFullscreen()}
+      >
+        {#if bindings.isWindowSharp}
+          <Minimize size={13} strokeWidth={1.9} />
+        {:else}
+          <Maximize size={13} strokeWidth={1.9} />
+        {/if}
+      </button>
+      <button
+        type="button"
+        class="win-btn win-btn-close"
+        aria-label={t("header.close")}
+        title={t("header.close")}
+        onclick={closeAppWindow}
+      >
+        <X size={14} strokeWidth={1.9} />
+      </button>
+    </div>
   </div>
 </header>
 
@@ -366,7 +408,7 @@
     left: 0;
     right: 0;
     width: 100%;
-    height: 72px;
+    height: var(--header-height, 58px);
     background: transparent;
     display: flex;
     align-items: center;
@@ -402,7 +444,7 @@
   }
 
   .header.is-hidden {
-    top: -76px;
+    top: calc(var(--header-height, 58px) * -1 - 4px);
     opacity: 0;
     pointer-events: none;
     --wails-draggable: no-drag;
@@ -413,13 +455,17 @@
     z-index: 2;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
     min-width: 0;
   }
 
   .search-anchor {
     display: flex;
     --wails-draggable: no-drag;
+  }
+
+  .search-anchor :global(.marlakit-input-wrap) {
+    height: 34px;
   }
 
   .search-anchor.is-hidden {
@@ -458,11 +504,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 66px;
+    height: 44px;
   }
 
   :global(.logo-img) {
-    height: 52px;
+    height: 40px;
     width: auto;
     display: block;
     pointer-events: none;
@@ -473,13 +519,13 @@
     z-index: 2;
     display: flex;
     align-items: center;
-    gap: 24px;
+    gap: 16px;
   }
 
   .nav-tabs {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     --wails-draggable: no-drag;
   }
 
@@ -487,7 +533,7 @@
     position: relative;
     background: transparent;
     border: none;
-    padding: 8px 12px;
+    padding: 6px 10px;
     margin: 0;
     cursor: pointer;
     display: inline-flex;
@@ -574,18 +620,69 @@
     align-items: center;
   }
 
+  .auth-slot :global(.marlakit-social-btn) {
+    height: 34px;
+    padding: 0 13px;
+    border-radius: 10px;
+    font-size: 13px;
+    gap: 8px;
+  }
+
+  .win-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding-left: 10px;
+    margin-left: -4px;
+    border-left: 1px solid var(--mila-surface-border, rgba(255, 255, 255, 0.1));
+    --wails-draggable: no-drag;
+  }
+
+  .win-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    outline: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--mila-header-navText, rgba(255, 255, 255, 0.56));
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition:
+      color var(--hover-dur) var(--ease-out),
+      background-color var(--hover-dur) var(--ease-out),
+      transform 0.1s ease;
+  }
+
+  .win-btn:hover {
+    color: var(--mila-header-navTextActive, #ffffff);
+    background: var(--mila-buttons-secondBg, rgba(255, 255, 255, 0.08));
+  }
+
+  .win-btn:active {
+    transform: scale(0.9);
+  }
+
+  .win-btn-close:hover {
+    color: #ffffff;
+    background: rgba(243, 139, 168, 0.24);
+  }
+
   :global(.auth-profile) {
     --wails-draggable: no-drag;
   }
 
   :global(.auth-combo-menu) {
-    top: 40px !important;
+    top: 36px !important;
   }
 
   .auth-trigger {
     display: inline-flex;
     align-items: center;
-    gap: 11px;
+    gap: 9px;
     padding: 0;
     margin: 0;
     background: transparent;
@@ -601,7 +698,7 @@
   }
 
   .auth-user-name {
-    max-width: 150px;
+    max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -613,8 +710,8 @@
   }
 
   .auth-avatar {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     object-fit: cover;
     flex-shrink: 0;
@@ -627,36 +724,36 @@
     background: var(--mila-header-avatarBg, rgba(255, 255, 255, 0.12));
     color: var(--mila-header-avatarText, #fff);
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
   }
 
   @media (max-width: 1140px) {
     .search-anchor :global(.marlakit-input-wrap) {
-      width: clamp(200px, 24vw, 290px);
+      width: clamp(185px, 22vw, 270px);
     }
 
     .header-left {
-      gap: 12px;
+      gap: 10px;
     }
 
     .header-right {
-      gap: 16px;
+      gap: 12px;
     }
   }
 
   @media (max-width: 980px) {
     :global(.logo-img) {
-      height: 44px;
-    }
-
-    .search-anchor :global(.marlakit-input-wrap) {
-      width: clamp(170px, 21vw, 230px);
       height: 36px;
     }
 
+    .search-anchor :global(.marlakit-input-wrap) {
+      width: clamp(150px, 19vw, 210px);
+      height: 32px;
+    }
+
     .header-right {
-      gap: 12px;
+      gap: 10px;
     }
 
     .nav-tabs {
@@ -664,27 +761,37 @@
     }
 
     .tab-btn {
-      padding: 7px 9px;
+      padding: 6px 8px;
       gap: 5px;
-      font-size: 13px;
+      font-size: 12.5px;
     }
 
     .auth-slot :global(.marlakit-social-btn) {
-      height: 36px;
-      padding: 0 12px;
-      font-size: 13px;
-      gap: 8px;
+      height: 32px;
+      padding: 0 11px;
+      font-size: 12.5px;
+      gap: 7px;
       white-space: nowrap;
     }
 
     .auth-avatar {
-      width: 28px;
-      height: 28px;
+      width: 26px;
+      height: 26px;
     }
 
     .auth-user-name {
-      max-width: 110px;
+      max-width: 100px;
       font-size: 12px;
+    }
+
+    .win-controls {
+      padding-left: 8px;
+      margin-left: -2px;
+    }
+
+    .win-btn {
+      width: 26px;
+      height: 26px;
     }
   }
 </style>

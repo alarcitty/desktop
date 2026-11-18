@@ -599,7 +599,7 @@
     position: relative;
     width: 100%;
     min-height: clamp(410px, 58vh, 540px);
-    padding: 68px 0 clamp(28px, 4vw, 42px) 0;
+    padding: var(--header-height, 58px) 0 clamp(28px, 4vw, 42px) 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;

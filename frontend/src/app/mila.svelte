@@ -52,7 +52,7 @@
     if (delta > 0) {
       upScrollAccum = 0;
       downScrollAccum += delta;
-      if (top > 72 && downScrollAccum >= 14) {
+      if (top > 58 && downScrollAccum >= 14) {
         headerHidden = true;
       }
     } else {

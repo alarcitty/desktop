@@ -29,7 +29,11 @@
     "signOut": "Sign out",
     "account": "Account",
     "language": "Language",
-    "checkReleases": "Check Releases"
+    "checkReleases": "Check Releases",
+    "minimize": "Minimize",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit fullscreen",
+    "close": "Close"
   },
   "home": {
     "newReleases": "New Releases",
