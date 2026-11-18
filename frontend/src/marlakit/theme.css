@@ -23,7 +23,7 @@
   --marlakit-transition: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 
   /* shared layout / motion tokens used by header and pages */
-  --header-height: 58px;
+  --header-height: 48px;
   --page-pad-x: 16px;
   --radius-card: 16px;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);

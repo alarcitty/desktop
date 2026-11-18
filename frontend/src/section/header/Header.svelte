@@ -2,8 +2,8 @@
   import Search from "@lucide/svelte/icons/search";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import Minus from "@lucide/svelte/icons/minus";
-  import Maximize from "@lucide/svelte/icons/maximize";
-  import Minimize from "@lucide/svelte/icons/minimize";
+  import Square from "@lucide/svelte/icons/square";
+  import Copy from "@lucide/svelte/icons/copy";
   import X from "@lucide/svelte/icons/x";
   import { cubicOut } from "svelte/easing";
   import MilaLogo from "../../themes/MilaLogo.svelte";
@@ -249,26 +249,26 @@
     </div>
   </div>
 
-  <div class="header-right">
-    <!-- Nav tabs -->
-    <nav class="nav-tabs">
-      {#each pages as tab (tab.id)}
-        {@const TabIcon = tab.icon}
-        {@const tabTitle = t(navLabels[tab.id] ?? tab.name)}
-        <button
-          type="button"
-          class="tab-btn"
-          class:active={router.current === tab.id}
-          onclick={() => navigate(tab.id)}
-          title={tabTitle}
-          aria-label={tabTitle}
-        >
-          <TabIcon size={18} strokeWidth={1.7} />
-          <span class="tab-name">{tabTitle}</span>
-        </button>
-      {/each}
-    </nav>
+  <!-- Nav tabs (centered) -->
+  <nav class="nav-tabs">
+    {#each pages as tab (tab.id)}
+      {@const TabIcon = tab.icon}
+      {@const tabTitle = t(navLabels[tab.id] ?? tab.name)}
+      <button
+        type="button"
+        class="tab-btn"
+        class:active={router.current === tab.id}
+        onclick={() => navigate(tab.id)}
+        title={tabTitle}
+        aria-label={tabTitle}
+      >
+        <TabIcon size={18} strokeWidth={1.7} />
+        <span class="tab-name">{tabTitle}</span>
+      </button>
+    {/each}
+  </nav>
 
+  <div class="header-right">
     <div class="auth-slot">
       {#if auth.user}
         <div
@@ -373,7 +373,7 @@
         title={t("header.minimize")}
         onclick={minimizeAppWindow}
       >
-        <Minus size={14} strokeWidth={1.9} />
+        <Minus size={15} strokeWidth={1.4} />
       </button>
       <button
         type="button"
@@ -383,9 +383,9 @@
         onclick={() => void toggleAppFullscreen()}
       >
         {#if bindings.isWindowSharp}
-          <Minimize size={13} strokeWidth={1.9} />
+          <Copy size={13} strokeWidth={1.4} />
         {:else}
-          <Maximize size={13} strokeWidth={1.9} />
+          <Square size={12} strokeWidth={1.4} />
         {/if}
       </button>
       <button
@@ -395,7 +395,7 @@
         title={t("header.close")}
         onclick={closeAppWindow}
       >
-        <X size={14} strokeWidth={1.9} />
+        <X size={16} strokeWidth={1.4} />
       </button>
     </div>
   </div>
@@ -408,12 +408,12 @@
     left: 0;
     right: 0;
     width: 100%;
-    height: var(--header-height, 58px);
+    height: var(--header-height, 48px);
     background: transparent;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
-    justify-content: space-between;
-    padding: 0 var(--page-pad-x);
+    padding: 0 0 0 var(--page-pad-x);
     box-sizing: border-box;
     --wails-draggable: drag;
     user-select: none;
@@ -444,7 +444,7 @@
   }
 
   .header.is-hidden {
-    top: calc(var(--header-height, 58px) * -1 - 4px);
+    top: calc(var(--header-height, 48px) * -1 - 4px);
     opacity: 0;
     pointer-events: none;
     --wails-draggable: no-drag;
@@ -465,7 +465,18 @@
   }
 
   .search-anchor :global(.marlakit-input-wrap) {
-    height: 34px;
+    height: 32px;
+    background: color-mix(in srgb, var(--mila-inputs-bg, rgba(255, 255, 255, 0.08)) 62%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(1.08);
+    backdrop-filter: blur(18px) saturate(1.08);
+  }
+
+  .search-anchor :global(.marlakit-input-wrap:hover) {
+    background: color-mix(in srgb, var(--mila-inputs-bg, rgba(255, 255, 255, 0.08)) 78%, transparent);
+  }
+
+  .search-anchor :global(.marlakit-input-wrap:focus-within) {
+    background: color-mix(in srgb, var(--mila-inputs-bg, rgba(255, 255, 255, 0.08)) 92%, transparent);
   }
 
   .search-anchor.is-hidden {
@@ -517,12 +528,17 @@
   .header-right {
     position: relative;
     z-index: 2;
+    justify-self: end;
+    align-self: stretch;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
   }
 
   .nav-tabs {
+    position: relative;
+    z-index: 2;
+    justify-self: center;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -571,7 +587,7 @@
   .header-avatar-ambient {
     position: absolute;
     top: 0;
-    right: 68px;
+    right: 74px;
     width: 380px;
     height: 150px;
     pointer-events: none;
@@ -629,45 +645,49 @@
   }
 
   .win-controls {
+    align-self: stretch;
     display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    padding-left: 2px;
-    margin-left: 0;
+    align-items: stretch;
+    gap: 0;
+    margin-left: 4px;
     --wails-draggable: no-drag;
   }
 
   .win-btn {
-    width: 28px;
-    height: 28px;
+    width: 49px;
+    height: 100%;
     padding: 0;
     border: none;
     outline: none;
-    border-radius: 8px;
+    border-radius: 0;
     background: transparent;
-    color: var(--mila-header-navText, rgba(255, 255, 255, 0.56));
+    color: var(--mila-header-navText, rgba(255, 255, 255, 0.62));
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     transition:
-      color var(--hover-dur) var(--ease-out),
-      background-color var(--hover-dur) var(--ease-out),
-      transform 0.1s ease;
+      color 0.18s var(--ease-out),
+      background-color 0.18s var(--ease-out);
   }
 
   .win-btn:hover {
     color: var(--mila-header-navTextActive, #ffffff);
-    background: var(--mila-buttons-secondBg, rgba(255, 255, 255, 0.08));
+    background: color-mix(in srgb, var(--mila-header-navTextActive, #ffffff) 9%, transparent);
   }
 
   .win-btn:active {
-    transform: scale(0.9);
+    background: color-mix(in srgb, var(--mila-header-navTextActive, #ffffff) 14%, transparent);
   }
 
-  .win-btn-close:hover {
+  .win-btn-close:hover,
+  .win-btn-close:active {
     color: #ffffff;
-    background: rgba(243, 139, 168, 0.24);
+    background: rgba(120, 11, 11, 0.33);
+  }
+
+  .win-btn-close:active {
+    background: rgba(120, 11, 11, 0.5);
   }
 
   :global(.auth-profile) {
@@ -784,13 +804,21 @@
     }
 
     .win-controls {
-      padding-left: 2px;
       margin-left: 0;
     }
 
     .win-btn {
-      width: 26px;
-      height: 26px;
+      width: 44px;
+    }
+  }
+
+  @media (max-width: 1060px) {
+    .tab-name {
+      display: none;
+    }
+
+    .tab-btn {
+      padding: 7px 11px;
     }
   }
 </style>
