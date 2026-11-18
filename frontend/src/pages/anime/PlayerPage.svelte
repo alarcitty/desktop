@@ -615,10 +615,10 @@
   }
 
   .player-body {
-    padding: clamp(20px, 2.4vw, 28px) var(--page-pad-x) clamp(40px, 5vw, 64px) var(--page-pad-x);
+    padding: clamp(16px, 2vw, 22px) var(--page-pad-x) var(--page-pad-x) var(--page-pad-x);
     display: flex;
     flex-direction: column;
-    gap: clamp(28px, 3.2vw, 40px);
+    gap: clamp(24px, 2.8vw, 32px);
   }
 
   .stage-state {

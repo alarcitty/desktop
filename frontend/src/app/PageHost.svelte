@@ -14,7 +14,7 @@
   let animePageComponent = $state<Component | null>(loadAnimePage.getLoaded());
   let playerPageComponent = $state<Component | null>(loadPlayerPage.getLoaded());
   const LEAVE_MS = 130;
-  const MORPH_MS = 380;
+  const MORPH_MS = 480;
   const ENTER_SETTLE_MS = 300;
 
   // Pre-mount all main tabs at startup (hidden tabs use visibility/height:0 rather than
@@ -30,6 +30,7 @@
   let leaveTimer: number | undefined;
   let settleTimer: number | undefined;
   let enterRaf = 0;
+  let enterRaf2 = 0;
   let switchToken = 0;
 
   function clearTimers() {
@@ -38,6 +39,10 @@
     if (enterRaf) {
       window.cancelAnimationFrame(enterRaf);
       enterRaf = 0;
+    }
+    if (enterRaf2) {
+      window.cancelAnimationFrame(enterRaf2);
+      enterRaf2 = 0;
     }
   }
 
@@ -78,14 +83,18 @@
         enterRaf = window.requestAnimationFrame(() => {
           enterRaf = 0;
           if (token !== switchToken) return;
-          enterReady = true;
-          settleTimer = window.setTimeout(() => {
-            if (token === switchToken) {
-              leavingId = null;
-              morphMode = null;
-              isTransitioning = false;
-            }
-          }, MORPH_MS);
+          enterRaf2 = window.requestAnimationFrame(() => {
+            enterRaf2 = 0;
+            if (token !== switchToken) return;
+            enterReady = true;
+            settleTimer = window.setTimeout(() => {
+              if (token === switchToken) {
+                leavingId = null;
+                morphMode = null;
+                isTransitioning = false;
+              }
+            }, MORPH_MS);
+          });
         });
       } else {
         leaveTimer = window.setTimeout(() => {
@@ -184,7 +193,7 @@
   }
 
   .page-slot.is-animating {
-    will-change: opacity, transform;
+    will-change: opacity, transform, filter;
     backface-visibility: hidden;
   }
 
@@ -195,15 +204,20 @@
   }
 
   .page-slot.is-pre-enter.is-morph-forward {
-    transform: translate3d(0, 56px, 0);
+    opacity: 0;
+    filter: blur(18px);
+    transform: translate3d(0, 56px, 0) scale(0.988);
   }
 
   .page-slot.is-pre-enter.is-morph-back {
-    transform: translate3d(0, -32px, 0);
+    opacity: 0;
+    filter: blur(14px);
+    transform: translate3d(0, -32px, 0) scale(0.992);
   }
 
   .page-slot.is-entered {
     opacity: 1;
+    filter: blur(0px);
     transform: none;
   }
 
@@ -216,9 +230,11 @@
 
   .page-slot.is-animating.is-entered.is-morph-forward,
   .page-slot.is-animating.is-entered.is-morph-back {
+    transform: translate3d(0, 0, 0) scale(1);
     transition:
-      opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1),
-      transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+      opacity 0.44s cubic-bezier(0.22, 1, 0.36, 1),
+      filter 0.46s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.46s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .page-slot.is-leaving {
@@ -226,17 +242,17 @@
     inset: 0 0 auto 0;
     z-index: 1;
     pointer-events: none;
-    will-change: opacity, transform;
+    will-change: opacity, transform, filter;
     backface-visibility: hidden;
     animation: pageLeave 0.13s cubic-bezier(0.4, 0, 1, 1) both;
   }
 
   .page-slot.is-leaving.is-morph-forward {
-    animation: pageMorphLeaveUp 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: pageMorphLeaveUp 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .page-slot.is-leaving.is-morph-back {
-    animation: pageMorphLeaveDown 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: pageMorphLeaveDown 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   @keyframes pageLeave {
@@ -253,22 +269,26 @@
   @keyframes pageMorphLeaveUp {
     from {
       opacity: 1;
-      transform: translate3d(0, 0, 0);
+      filter: blur(0px);
+      transform: translate3d(0, 0, 0) scale(1);
     }
     to {
       opacity: 0;
-      transform: translate3d(0, -56px, 0);
+      filter: blur(18px);
+      transform: translate3d(0, -56px, 0) scale(0.986);
     }
   }
 
   @keyframes pageMorphLeaveDown {
     from {
       opacity: 1;
-      transform: translate3d(0, 0, 0);
+      filter: blur(0px);
+      transform: translate3d(0, 0, 0) scale(1);
     }
     to {
       opacity: 0;
-      transform: translate3d(0, 48px, 0);
+      filter: blur(16px);
+      transform: translate3d(0, 48px, 0) scale(0.988);
     }
   }
 </style>

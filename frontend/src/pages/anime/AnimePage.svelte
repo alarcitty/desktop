@@ -32,7 +32,7 @@
     type ShikiVideoItem
   } from '../../api/anime';
   import { isInWatchLater, isLiked, toggleLike, toggleWatchLater } from '../../app/library.svelte';
-  import { encodeMilaShareLink, goBack, triggerScrollTransitionDown } from '../../app/router.svelte';
+  import { encodeMilaShareLink, goBack } from '../../app/router.svelte';
   import {
     openAnimePlayer,
     openWatch,
@@ -502,12 +502,11 @@
     if (transitioningToPlayer) return;
     transitioningToPlayer = true;
     void loadPlayerPage.load();
-    triggerScrollTransitionDown(280);
+    openAnimePlayer();
     playerTransitionTimer = window.setTimeout(() => {
       transitioningToPlayer = false;
       playerTransitionTimer = undefined;
-      openAnimePlayer();
-    }, 130);
+    }, 120);
   }
 
   function handlePlanToggle() {
@@ -1383,7 +1382,7 @@
     position: relative;
     z-index: 3;
     flex: 1 1 auto;
-    padding: 28px var(--page-pad-x) 24px var(--page-pad-x);
+    padding: 20px var(--page-pad-x) 14px var(--page-pad-x);
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
@@ -1583,8 +1582,8 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 22px;
-    margin-top: 24px;
+    gap: 18px;
+    margin-top: 18px;
   }
 
   .season-tab {
@@ -1710,7 +1709,7 @@
   }
 
   .anime-body {
-    padding: clamp(24px, 3vw, 36px) var(--page-pad-x) 0 var(--page-pad-x);
+    padding: 6px var(--page-pad-x) 0 var(--page-pad-x);
     display: flex;
     flex-direction: column;
     gap: clamp(32px, 3.8vw, 48px);
@@ -1750,7 +1749,46 @@
     color: var(--mila-text-muted, rgba(255, 255, 255, 0.42));
   }
 
-  /* Shared View Switcher */
+  /* Shared Sort Group & View Switcher */
+  .lib-sort-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 36px;
+    padding: 3px;
+    border-radius: 11px;
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
+    box-sizing: border-box;
+  }
+
+  .sort-chip-btn {
+    height: 30px;
+    padding: 0 10px;
+    border: none;
+    outline: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.44));
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
+    white-space: nowrap;
+  }
+
+  .sort-chip-btn:hover {
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.8));
+  }
+
+  .sort-chip-btn.active {
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.1));
+    color: var(--mila-accent-highlight, #ffffff);
+  }
+
   .ep-view-modes {
     position: relative;
     display: inline-flex;
