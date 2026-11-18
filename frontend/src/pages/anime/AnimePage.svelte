@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { fade, scale } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
@@ -15,9 +15,6 @@
   import LayoutList from '@lucide/svelte/icons/layout-list';
   import Search from '@lucide/svelte/icons/search';
   import Star from '@lucide/svelte/icons/star';
-  import PictureInPicture2 from '@lucide/svelte/icons/picture-in-picture-2';
-  import RefreshCw from '@lucide/svelte/icons/refresh-cw';
-  import HardDriveDownload from '@lucide/svelte/icons/hard-drive-download';
   import X from '@lucide/svelte/icons/x';
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
@@ -26,8 +23,6 @@
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import { portal } from '../../marlakit/portal';
-  import EpisodeThumb from './EpisodeThumb.svelte';
-  import TorrentPopup from './TorrentPopup.svelte';
   import {
     buildMetaTags,
     type AnimeSeasonEntry,
@@ -36,38 +31,28 @@
     type ShikiSimilarAnime,
     type ShikiVideoItem
   } from '../../api/anime';
-  import type { TorrentSearchItem } from '../../api/providers/torrent';
-  import { episodeProgressMap, getEpisodeProgress } from '../../app/history.svelte';
   import { isInWatchLater, isLiked, toggleLike, toggleWatchLater } from '../../app/library.svelte';
-  import { encodeMilaShareLink, goBack } from '../../app/router.svelte';
+  import { encodeMilaShareLink, goBack, triggerScrollTransitionDown } from '../../app/router.svelte';
   import {
-    expandCustomPip,
-    openTorrentStream,
+    openAnimePlayer,
     openWatch,
     player,
-    retryWatch,
-    selectEpisode,
-    setInlinePlayerStage,
     switchSeason
   } from '../../app/player.svelte';
+  import { loadPlayerPage } from '..';
   import { t } from '../../app/i18n.svelte';
 
-  const EP_PAGE_SIZE = 16;
-  const EP_VIEW_MODE_KEY = 'mila.anime.episodesViewMode';
   const TRAILER_VIEW_MODE_KEY = 'mila.anime.trailersViewMode';
   const CHAR_VIEW_MODE_KEY = 'mila.anime.charactersViewMode';
 
-  type EpSortKey = 'order' | 'duration' | 'unwatched';
   type CharSortKey = 'default' | 'name' | 'va';
 
-  function readSavedViewMode(key: string, fallback: 'grid' | 'list' | 'strip'): string {
+  function readSavedViewMode(key: string, fallback: 'grid' | 'strip'): string {
     if (typeof localStorage === 'undefined') return fallback;
     return localStorage.getItem(key) || fallback;
   }
 
   let viewportW = $state(typeof window !== 'undefined' ? window.innerWidth : 1440);
-  let playerSectionEl = $state<HTMLElement | null>(null);
-  let inlineStageEl = $state<HTMLDivElement | null>(null);
   let descTextEl = $state<HTMLParagraphElement | null>(null);
   let descExpanded = $state(false);
   let descCollapsedH = $state(78);
@@ -75,11 +60,8 @@
   let isPlanLoading = $state(false);
   let shareCopied = $state(false);
   let shareTimer: number | undefined;
-
-  let epViewMode = $state<'grid' | 'list'>(readSavedViewMode(EP_VIEW_MODE_KEY, 'grid') === 'list' ? 'list' : 'grid');
-  let epSortBy = $state<EpSortKey>('order');
-  let epSortDir = $state<'asc' | 'desc'>('asc');
-  let epRangeIndex = $state(0);
+  let playerTransitionTimer: number | undefined;
+  let transitioningToPlayer = false;
 
   let trailerViewMode = $state<'grid' | 'list'>(readSavedViewMode(TRAILER_VIEW_MODE_KEY, 'grid') === 'list' ? 'list' : 'grid');
   let lightboxUrl = $state<string | null>(null);
@@ -102,12 +84,9 @@
   let canScrollMoreLeft = $state(false);
   let canScrollMoreRight = $state(false);
 
-  let torrentsOpen = $state(false);
-  let torrentsLoading = $state(false);
-  let torrentsError = $state('');
-  let torrentResults = $state<TorrentSearchItem[]>([]);
-  let torrentResultsFor = $state('');
-  let torrentReqToken = 0;
+  onMount(() => {
+    void loadPlayerPage.load();
+  });
 
   const currentShikiId = $derived(player.shikiArt?.id ?? player.target?.shikiId ?? 0);
 
@@ -231,13 +210,6 @@
 
   const currentEpisode = $derived(episodes[player.episodeIndex] ?? null);
 
-  $effect(() => {
-    setInlinePlayerStage(inlineStageEl);
-    return () => {
-      setInlinePlayerStage(null);
-    };
-  });
-
   function gridCornerFlags(index: number, total: number, cols: number) {
     if (total <= 0) {
       return { tl: false, tr: false, bl: false, br: false };
@@ -254,58 +226,7 @@
     };
   }
 
-  const epCols = $derived(viewportW <= 960 ? 2 : viewportW <= 1220 ? 3 : 4);
   const mediaCols = $derived(viewportW <= 960 ? 2 : 3);
-
-  const sortedEpisodes = $derived.by(() => {
-    const dir = epSortDir === 'asc' ? 1 : -1;
-    const list = episodes.map((ep, idx) => ({ ep, idx }));
-    if (epSortBy === 'order' && epSortDir === 'asc') {
-      return list;
-    }
-    if (epSortBy === 'unwatched') {
-      episodeProgressMap.items;
-      return [...list].sort((a, b) => {
-        const wa = getEpProgressInfo(a.idx, a.ep.ordinal).watched ? 1 : 0;
-        const wb = getEpProgressInfo(b.idx, b.ep.ordinal).watched ? 1 : 0;
-        if (wa !== wb) return (wa - wb) * dir;
-        return a.ep.ordinal - b.ep.ordinal;
-      });
-    }
-    if (epSortBy === 'duration') {
-      return [...list].sort((a, b) => {
-        const da = a.ep.duration || 0;
-        const db = b.ep.duration || 0;
-        if (da !== db) return (da - db) * dir;
-        return a.ep.ordinal - b.ep.ordinal;
-      });
-    }
-    return [...list].sort((a, b) => (a.ep.ordinal - b.ep.ordinal) * dir);
-  });
-
-  const episodeRanges = $derived.by(() => {
-    if (sortedEpisodes.length <= EP_PAGE_SIZE) return [];
-    const ranges: Array<{ label: string; start: number; end: number }> = [];
-    for (let start = 0; start < sortedEpisodes.length; start += EP_PAGE_SIZE) {
-      const end = Math.min(start + EP_PAGE_SIZE, sortedEpisodes.length);
-      if (epSortBy === 'order' && epSortDir === 'asc') {
-        const firstOrd = sortedEpisodes[start]?.ep.ordinal ?? start + 1;
-        const lastOrd = sortedEpisodes[end - 1]?.ep.ordinal ?? end;
-        ranges.push({ label: `${firstOrd}–${lastOrd}`, start, end });
-      } else {
-        ranges.push({ label: `${start + 1}–${end}`, start, end });
-      }
-    }
-    return ranges;
-  });
-
-  const visibleEpisodes = $derived.by(() => {
-    if (episodeRanges.length === 0) {
-      return sortedEpisodes;
-    }
-    const range = episodeRanges[epRangeIndex] ?? episodeRanges[0];
-    return sortedEpisodes.slice(range.start, range.end);
-  });
 
   const galleryShots = $derived((player.shikiArt?.screenshots ?? []).slice(0, 6));
 
@@ -419,17 +340,8 @@
     // Reset page-local transient modals/filters when switching to a different title.
     void currentShikiId;
     void player.target?.releaseAlias;
-    torrentReqToken += 1;
-    torrentsLoading = false;
-    torrentsOpen = false;
-    torrentResults = [];
-    torrentResultsFor = '';
-    torrentsError = '';
     lightboxUrl = null;
     activeTrailer = null;
-    epSortBy = 'order';
-    epSortDir = 'asc';
-    epRangeIndex = 0;
     charQuery = '';
     charRoleFilter = 'all';
     charGenderFilter = 'all';
@@ -442,25 +354,17 @@
   });
 
   onDestroy(() => {
-    torrentReqToken += 1;
-    torrentResults = [];
     lightboxUrl = null;
     activeTrailer = null;
     if (shareTimer !== undefined) {
       window.clearTimeout(shareTimer);
       shareTimer = undefined;
     }
-  });
-
-  function toggleEpSort(key: EpSortKey) {
-    if (epSortBy === key) {
-      epSortDir = epSortDir === 'asc' ? 'desc' : 'asc';
-    } else {
-      epSortBy = key;
-      epSortDir = 'asc';
+    if (playerTransitionTimer !== undefined) {
+      window.clearTimeout(playerTransitionTimer);
+      playerTransitionTimer = undefined;
     }
-    epRangeIndex = 0;
-  }
+  });
 
   function toggleCharSort(key: CharSortKey) {
     if (charSortBy === key) {
@@ -480,12 +384,6 @@
     }
   }
 
-  function setEpisodeViewMode(mode: 'grid' | 'list') {
-    if (epViewMode === mode) return;
-    epViewMode = mode;
-    saveViewModePref(EP_VIEW_MODE_KEY, mode);
-  }
-
   function setTrailerViewMode(mode: 'grid' | 'list') {
     if (trailerViewMode === mode) return;
     trailerViewMode = mode;
@@ -496,34 +394,6 @@
     if (charViewMode === mode) return;
     charViewMode = mode;
     saveViewModePref(CHAR_VIEW_MODE_KEY, mode);
-  }
-
-  function getEpProgressInfo(epIdx: number, ordinal: number) {
-    // Subscribe to reactive store changes
-    episodeProgressMap.items;
-    const ep = episodes[epIdx];
-    const entry = getEpisodeProgress(
-      {
-        shikiId: currentShikiId || undefined,
-        releaseAlias: player.release?.alias ?? player.target?.releaseAlias,
-        title: displayTitle
-      },
-      ordinal
-    );
-    if (!entry) return { ratio: 0, watched: false, currentTime: 0 };
-    const dur = entry.duration > 0 ? entry.duration : ep?.duration ?? 0;
-    const ratio = dur > 0 ? Math.min(1, Math.max(0, entry.currentTime / dur)) : 0;
-    return {
-      ratio: entry.watched && ratio < 0.85 ? 1 : ratio,
-      watched: entry.watched || ratio >= 0.85,
-      currentTime: entry.currentTime
-    };
-  }
-
-  function formatEpDuration(sec: number): string {
-    if (!sec || sec <= 0) return '';
-    const mins = Math.round(sec / 60);
-    return mins > 0 ? `${mins} min` : `${sec} sec`;
   }
 
   function fallbackCopyText(text: string): boolean {
@@ -574,7 +444,7 @@
 
   function openRelatedAnime(item: ShikiRelatedAnime) {
     if (item.isCurrent) {
-      scrollToPlayer();
+      goToPlayer();
       return;
     }
     void openWatch({
@@ -598,26 +468,6 @@
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
   }
-
-  const episodeFallbackImages = $derived.by(() => {
-    const out: string[] = [];
-    for (const url of [...galleryShots, backdropUrl, posterUrl]) {
-      const clean = url?.trim();
-      if (clean && !out.includes(clean)) {
-        out.push(clean);
-      }
-    }
-    return out;
-  });
-
-  $effect(() => {
-    // Keep active episode range synced when auto-advancing to the next episode.
-    if (episodes.length > EP_PAGE_SIZE) {
-      epRangeIndex = Math.floor(player.episodeIndex / EP_PAGE_SIZE);
-    } else {
-      epRangeIndex = 0;
-    }
-  });
 
   const inLibrary = $derived(
     isInWatchLater({
@@ -648,13 +498,16 @@
     };
   }
 
-  function scrollToPlayer() {
-    playerSectionEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
-  function handleChooseEpisode(index: number) {
-    selectEpisode(index);
-    scrollToPlayer();
+  function goToPlayer() {
+    if (transitioningToPlayer) return;
+    transitioningToPlayer = true;
+    void loadPlayerPage.load();
+    triggerScrollTransitionDown(280);
+    playerTransitionTimer = window.setTimeout(() => {
+      transitioningToPlayer = false;
+      playerTransitionTimer = undefined;
+      openAnimePlayer();
+    }, 130);
   }
 
   function handlePlanToggle() {
@@ -679,43 +532,6 @@
         lightboxUrl = null;
       }
     }
-  }
-
-  async function toggleTorrentsDrawer() {
-    torrentsOpen = !torrentsOpen;
-    if (!torrentsOpen) {
-      torrentReqToken += 1;
-      torrentsLoading = false;
-      return;
-    }
-    const key = `${player.shikiArt?.id ?? 0}:${displayTitle}`;
-    if (torrentResultsFor === key && torrentResults.length > 0) return;
-
-    const reqToken = ++torrentReqToken;
-    torrentsLoading = true;
-    torrentsError = '';
-    try {
-      const q = (player.shikiArt?.english || player.shikiArt?.name || displayTitle || '').trim();
-      const libId = player.release?.provider === 'aniliberty' ? player.release.id : 0;
-      const { searchTorrents } = await import('../../api/providers/torrent');
-      const items = await searchTorrents(q, libId);
-      if (reqToken !== torrentReqToken) return;
-      torrentResults = items;
-      torrentResultsFor = key;
-    } catch (err) {
-      if (reqToken !== torrentReqToken) return;
-      torrentsError = err instanceof Error ? err.message : 'Failed to search torrents';
-    } finally {
-      if (reqToken === torrentReqToken) {
-        torrentsLoading = false;
-      }
-    }
-  }
-
-  async function handleLaunchTorrent(item: TorrentSearchItem | string) {
-    torrentsOpen = false;
-    await openTorrentStream(item);
-    scrollToPlayer();
   }
 </script>
 
@@ -778,7 +594,7 @@
           {/if}
 
           <div class="overview-actions">
-            <MainButton loading={player.loading} onclick={scrollToPlayer}>
+            <MainButton loading={player.loading} onclick={goToPlayer}>
               {#snippet icon()}
                 <Play size={16} fill="currentColor" strokeWidth={0} />
               {/snippet}
@@ -875,206 +691,8 @@
     </div>
   </div>
 
-  <!-- Inline player stage -->
-  <section
-    class="player-section"
-    bind:this={playerSectionEl}
-    aria-label="Video player"
-  >
-    <div class="player-frame-wrap">
-      <div class="player-stage">
-      {#if player.loading}
-        <div class="stage-state" role="status" aria-label={t('anime.loading')} transition:fade={{ duration: 180 }}>
-          <div class="spinner" aria-hidden="true"></div>
-        </div>
-      {:else if player.error}
-        <div class="stage-state stage-error">
-          <p class="error-text">{player.error}</p>
-          <MainButton onclick={retryWatch}>
-            {#snippet icon()}
-              <RefreshCw size={15} strokeWidth={2} />
-            {/snippet}
-            {t('anime.retry')}
-          </MainButton>
-        </div>
-      {:else if currentEpisode}
-        <div
-          class="player-inline-slot"
-          class:is-hidden={player.pipMode && !player.pipDismissed}
-          bind:this={inlineStageEl}
-        ></div>
-        {#if player.pipMode && !player.pipDismissed}
-          <div class="stage-state" transition:fade={{ duration: 180 }}>
-            <span>Playing in Picture-in-Picture</span>
-            <SecondButton onclick={expandCustomPip}>
-              {#snippet icon()}
-                <PictureInPicture2 size={15} strokeWidth={2} />
-              {/snippet}
-              Return to player
-            </SecondButton>
-          </div>
-        {/if}
-      {:else}
-        <div class="stage-state">
-          <span>Select a title with Watch to begin playback.</span>
-        </div>
-      {/if}
-      </div>
-    </div>
-  </section>
-
-  <!-- Episode picker, frames & trailers -->
+  <!-- Frames & trailers -->
   <div class="anime-body">
-
-    {#if episodes.length > 0}
-      <section class="episodes-section" aria-label="Episodes">
-        <div class="section-head">
-          <div class="section-head-left">
-            <h2 class="section-heading">{t('anime.episodes')}</h2>
-            <span class="section-count">{episodes.length}</span>
-          </div>
-
-          <div class="range-tabs" role="tablist" aria-label="Episode controls">
-            {#if episodeRanges.length > 1}
-              {#each episodeRanges as range, i (range.label)}
-                <button
-                  type="button"
-                  class="range-pill"
-                  class:is-active={epRangeIndex === i}
-                  onclick={() => { epRangeIndex = i; }}
-                >
-                  {range.label}
-                </button>
-              {/each}
-            {/if}
-
-            <div class="lib-sort-group" role="group" aria-label="Sort episodes">
-              <button
-                type="button"
-                class="sort-chip-btn"
-                class:active={epSortBy === 'order'}
-                onclick={() => toggleEpSort('order')}
-              >
-                <span>Order</span>
-                {#if epSortBy === 'order'}
-                  {#if epSortDir === 'asc'}
-                    <ArrowUp size={13} strokeWidth={2.1} />
-                  {:else}
-                    <ArrowDown size={13} strokeWidth={2.1} />
-                  {/if}
-                {/if}
-              </button>
-              <button
-                type="button"
-                class="sort-chip-btn"
-                class:active={epSortBy === 'duration'}
-                onclick={() => toggleEpSort('duration')}
-              >
-                <span>Duration</span>
-                {#if epSortBy === 'duration'}
-                  {#if epSortDir === 'asc'}
-                    <ArrowUp size={13} strokeWidth={2.1} />
-                  {:else}
-                    <ArrowDown size={13} strokeWidth={2.1} />
-                  {/if}
-                {/if}
-              </button>
-              <button
-                type="button"
-                class="sort-chip-btn"
-                class:active={epSortBy === 'unwatched'}
-                onclick={() => toggleEpSort('unwatched')}
-              >
-                <span>Unwatched</span>
-                {#if epSortBy === 'unwatched'}
-                  {#if epSortDir === 'asc'}
-                    <ArrowUp size={13} strokeWidth={2.1} />
-                  {:else}
-                    <ArrowDown size={13} strokeWidth={2.1} />
-                  {/if}
-                {/if}
-              </button>
-            </div>
-
-            <button
-              type="button"
-              class="range-pill torrent-toggle-pill"
-              class:is-active={torrentsOpen || player.release?.provider === 'torrent'}
-              onclick={() => void toggleTorrentsDrawer()}
-            >
-              <HardDriveDownload size={14} strokeWidth={1.9} />
-              <span>Torrents</span>
-            </button>
-
-            <div class="ep-view-modes" class:is-grid={epViewMode === 'grid'} role="group" aria-label="Episodes layout">
-              <div class="ep-view-pill" aria-hidden="true"></div>
-              <button
-                type="button"
-                class="ep-view-btn"
-                class:active={epViewMode === 'list'}
-                aria-label="List view"
-                aria-pressed={epViewMode === 'list'}
-                onclick={() => setEpisodeViewMode('list')}
-              >
-                <LayoutList size={17} strokeWidth={1.7} />
-              </button>
-              <button
-                type="button"
-                class="ep-view-btn"
-                class:active={epViewMode === 'grid'}
-                aria-label="Grid view"
-                aria-pressed={epViewMode === 'grid'}
-                onclick={() => setEpisodeViewMode('grid')}
-              >
-                <LayoutGrid size={17} strokeWidth={1.7} />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {#if epViewMode === 'grid'}
-          <div class="episodes-grid" in:fade={{ duration: 180, easing: cubicOut }}>
-            {#each visibleEpisodes as entry, i (entry.ep.id)}
-              {@const epProg = getEpProgressInfo(entry.idx, entry.ep.ordinal)}
-              {@const corners = gridCornerFlags(i, visibleEpisodes.length, epCols)}
-              <EpisodeThumb
-                episode={entry.ep}
-                index={entry.idx}
-                variant="grid"
-                isCurrent={entry.idx === player.episodeIndex}
-                isWatched={epProg.watched}
-                progressRatio={epProg.ratio}
-                cornerTL={corners.tl}
-                cornerTR={corners.tr}
-                cornerBL={corners.bl}
-                cornerBR={corners.br}
-                fallbackImages={episodeFallbackImages}
-                onchoose={() => handleChooseEpisode(entry.idx)}
-              />
-            {/each}
-          </div>
-        {:else}
-          <div class="episodes-list" in:fade={{ duration: 180, easing: cubicOut }}>
-            {#each visibleEpisodes as entry (entry.ep.id)}
-              {@const epProg = getEpProgressInfo(entry.idx, entry.ep.ordinal)}
-              <EpisodeThumb
-                episode={entry.ep}
-                index={entry.idx}
-                variant="list"
-                isCurrent={entry.idx === player.episodeIndex}
-                isWatched={epProg.watched}
-                progressRatio={epProg.ratio}
-                cornerTL={true}
-                cornerBL={true}
-                fallbackImages={episodeFallbackImages}
-                onchoose={() => handleChooseEpisode(entry.idx)}
-              />
-            {/each}
-          </div>
-        {/if}
-      </section>
-    {/if}
-
     {#if galleryShots.length > 0 || trailerVideos.length > 0}
       <section class="frames-section" aria-label="Frames and Trailers">
         <div class="section-head">
@@ -1697,17 +1315,6 @@
   </div>
 {/if}
 
-<TorrentPopup
-  open={torrentsOpen}
-  title={displayTitle}
-  poster={posterUrl}
-  loading={torrentsLoading}
-  error={torrentsError}
-  results={torrentResults}
-  onclose={() => { torrentsOpen = false; }}
-  onselect={(item) => void handleLaunchTorrent(item)}
-/>
-
 <style>
   .anime-page {
     width: 100%;
@@ -2102,49 +1709,6 @@
     pointer-events: none;
   }
 
-  /* Full-bleed edge-to-edge player stage */
-  .player-section {
-    position: relative;
-    width: 100%;
-    padding: 10px 0 4px 0;
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .player-frame-wrap {
-    position: relative;
-    width: 100%;
-  }
-
-  .player-stage {
-    position: relative;
-    z-index: 1;
-    width: 100%;
-    aspect-ratio: 16 / 9;
-    max-height: min(82vh, 56.25vw);
-    border-radius: 0;
-    clip-path: inset(0);
-    overflow: hidden;
-    background: #070709;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .player-stage :global(.hls-player) {
-    border-radius: 0;
-  }
-
-  .player-inline-slot {
-    width: 100%;
-    height: 100%;
-  }
-
-  .player-inline-slot.is-hidden {
-    display: none;
-  }
-
   .anime-body {
     padding: clamp(24px, 3vw, 36px) var(--page-pad-x) 0 var(--page-pad-x);
     display: flex;
@@ -2156,39 +1720,7 @@
     padding-bottom: clamp(40px, 5vw, 64px);
   }
 
-  .stage-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 14px;
-    padding: 24px;
-    text-align: center;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 15px;
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .error-text {
-    margin: 0;
-    color: #f87171;
-  }
-
-  .spinner {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    border: 2.5px solid rgba(255, 255, 255, 0.14);
-    border-top-color: #ffffff;
-    animation: spin 0.75s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  /* Episodes Section */
+  /* Section Header & View Switcher */
   .section-head {
     display: flex;
     align-items: center;
@@ -2218,85 +1750,7 @@
     color: var(--mila-text-muted, rgba(255, 255, 255, 0.42));
   }
 
-  .range-tabs {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-
-  .range-pill {
-    height: 36px;
-    padding: 0 13px;
-    border: none;
-    outline: none;
-    border-radius: 11px;
-    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
-    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.72));
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color 0.18s var(--ease-out), color 0.18s var(--ease-out);
-  }
-
-  .range-pill:hover {
-    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.12));
-    color: var(--mila-text-primary, #ffffff);
-  }
-
-  .range-pill.is-active {
-    background: var(--mila-app-surfaceActive, rgba(255, 255, 255, 0.16));
-    color: var(--mila-accent-highlight, #ffffff);
-    font-weight: 500;
-  }
-
-  .torrent-toggle-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  /* Shared Library.svelte Sort Group & View Switcher */
-  .lib-sort-group {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    height: 36px;
-    padding: 3px;
-    border-radius: 11px;
-    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
-    box-sizing: border-box;
-  }
-
-  .sort-chip-btn {
-    height: 30px;
-    padding: 0 10px;
-    border: none;
-    outline: none;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--mila-text-muted, rgba(255, 255, 255, 0.44));
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12.5px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
-    white-space: nowrap;
-  }
-
-  .sort-chip-btn:hover {
-    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.8));
-  }
-
-  .sort-chip-btn.active {
-    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.1));
-    color: var(--mila-accent-highlight, #ffffff);
-  }
-
+  /* Shared View Switcher */
   .ep-view-modes {
     position: relative;
     display: inline-flex;
@@ -2349,31 +1803,6 @@
 
   .ep-view-btn.active {
     color: var(--mila-accent-highlight, #ffffff);
-  }
-
-  /* Connected Corner-Only Mosaic Grids (Episodes, Frames, Trailers) */
-  .episodes-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0;
-  }
-
-  @media (max-width: 1220px) {
-    .episodes-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-
-  @media (max-width: 960px) {
-    .episodes-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  .episodes-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
   }
 
   /* Frames Gallery */

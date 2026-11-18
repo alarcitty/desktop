@@ -10,7 +10,7 @@ import News from './news/News.svelte';
 import WatchTogether from './watch-together/WatchTogether.svelte';
 import { createLazyModuleLoader } from '../api/providers/lazy';
 
-export type PageId = 'home' | 'library' | 'news' | 'watch-together' | 'anime';
+export type PageId = 'home' | 'library' | 'news' | 'watch-together' | 'anime' | 'player';
 
 export interface PageDef
 {
@@ -30,6 +30,7 @@ export const pages: PageDef[] = [
 ];
 
 export const loadAnimePage = createLazyModuleLoader(() => import('./anime/AnimePage.svelte').then((m) => m.default));
+export const loadPlayerPage = createLazyModuleLoader(() => import('./anime/PlayerPage.svelte').then((m) => m.default));
 
 export const defaultPage: PageId = 'home';
 

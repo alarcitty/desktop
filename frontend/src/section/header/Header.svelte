@@ -632,9 +632,8 @@
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    padding-left: 10px;
-    margin-left: -4px;
-    border-left: 1px solid var(--mila-surface-border, rgba(255, 255, 255, 0.1));
+    padding-left: 2px;
+    margin-left: 0;
     --wails-draggable: no-drag;
   }
 
@@ -785,8 +784,8 @@
     }
 
     .win-controls {
-      padding-left: 8px;
-      margin-left: -2px;
+      padding-left: 2px;
+      margin-left: 0;
     }
 
     .win-btn {

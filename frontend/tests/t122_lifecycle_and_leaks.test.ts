@@ -246,7 +246,13 @@ describe('T-122 lifecycle, cleanup & hot-path storage primitives', () => {
     );
     expect(animePageSrc).toContain('onDestroy(');
     expect(animePageSrc).toContain('ro.disconnect()');
-    expect(animePageSrc).toContain('torrentReqToken');
+
+    const playerPageSrc = fs.readFileSync(
+      path.join(SRC_ROOT, 'pages/anime/PlayerPage.svelte'),
+      'utf8'
+    );
+    expect(playerPageSrc).toContain('onDestroy(');
+    expect(playerPageSrc).toContain('torrentReqToken');
 
     const playerDockSrc = fs.readFileSync(
       path.join(SRC_ROOT, 'app/PlayerDock.svelte'),

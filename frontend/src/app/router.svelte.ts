@@ -31,9 +31,14 @@ export type RouteTarget =
 type RouteRestoreListener = (entry: RouteEntry, direction: RouteDirection) => void;
 
 let scrollReader: (() => number) | null = null;
+let smoothScrollWriter: ((top: number) => void) | null = null;
 const restoreListeners = new Set<RouteRestoreListener>();
 const scrollByPage = new Map<PageId, number>();
 let lastHistoryNavTs = 0;
+
+function isDetailPage(page: PageId): boolean {
+  return page === 'anime' || page === 'player';
+}
 
 function cloneParams(params?: RouteParams): RouteParams | undefined {
   if (!params) return undefined;
@@ -50,13 +55,13 @@ function cloneParams(params?: RouteParams): RouteParams | undefined {
 }
 
 export function buildRouteKey(page: PageId, params?: RouteParams): string {
-  if (page !== 'anime') {
+  if (!isDetailPage(page)) {
     return page;
   }
   const aliasPart = params?.alias?.trim().toLowerCase() || '';
   const shikiPart = params?.shikiId && params.shikiId > 0 ? String(params.shikiId) : '';
   const titlePart = !aliasPart && !shikiPart ? (params?.title?.trim().toLowerCase() || 'default') : '';
-  return `anime:${shikiPart}:${aliasPart}:${titlePart}`;
+  return `${page}:${shikiPart}:${aliasPart}:${titlePart}`;
 }
 
 function normalizeTarget(target: RouteTarget): { page: PageId; params?: RouteParams } {
@@ -141,7 +146,7 @@ function saveOutgoingScroll(): void {
   const currentEntry = router.stack[router.index];
   if (currentEntry) {
     currentEntry.scrollTop = top;
-    if (currentEntry.page !== 'anime') {
+    if (!isDetailPage(currentEntry.page)) {
       scrollByPage.set(currentEntry.page, top);
     }
   }
@@ -151,11 +156,11 @@ function applyEntryAtIndex(nextIndex: number, direction: RouteDirection, syncMod
   const entry = router.stack[nextIndex];
   if (!entry) return;
 
-  if (router.current !== 'anime' && router.current !== entry.page) {
+  if (!isDetailPage(router.current) && router.current !== entry.page) {
     router.previous = router.current;
   } else if (direction === 'back' || direction === 'forward') {
     for (let i = nextIndex - 1; i >= 0; i--) {
-      if (router.stack[i].page !== 'anime') {
+      if (!isDetailPage(router.stack[i].page)) {
         router.previous = router.stack[i].page;
         break;
       }
@@ -183,14 +188,26 @@ function applyEntryAtIndex(nextIndex: number, direction: RouteDirection, syncMod
   }
 }
 
-export function registerScrollBridge(getScrollTop: () => number): () => void {
+export function registerScrollBridge(getScrollTop: () => number, smoothTo?: (top: number) => void): () => void {
   scrollReader = getScrollTop;
+  if (smoothTo) {
+    smoothScrollWriter = smoothTo;
+  }
   syncBrowserHistory('replace');
   return () => {
     if (scrollReader === getScrollTop) {
       scrollReader = null;
     }
+    if (smoothTo && smoothScrollWriter === smoothTo) {
+      smoothScrollWriter = null;
+    }
   };
+}
+
+export function triggerScrollTransitionDown(deltaPx = 280): void {
+  if (!scrollReader || !smoothScrollWriter) return;
+  const current = Math.max(0, scrollReader());
+  smoothScrollWriter(current + Math.max(0, deltaPx));
 }
 
 export function onRouteRestore(listener: RouteRestoreListener): () => void {
@@ -205,7 +222,7 @@ export function getSavedPageScroll(pageId: PageId): number {
   if (active && active.page === pageId) {
     return router.targetScrollTop;
   }
-  return pageId === 'anime' ? 0 : (scrollByPage.get(pageId) ?? 0);
+  return isDetailPage(pageId) ? 0 : (scrollByPage.get(pageId) ?? 0);
 }
 
 export function updateCurrentRouteParams(partial: Partial<RouteParams>): void {
@@ -237,7 +254,7 @@ export function navigate(target: RouteTarget, opts?: { replace?: boolean }): voi
 
   saveOutgoingScroll();
 
-  const initialScroll = page === 'anime' ? 0 : (scrollByPage.get(page) ?? 0);
+  const initialScroll = isDetailPage(page) ? 0 : (scrollByPage.get(page) ?? 0);
   const newEntry: RouteEntry = {
     key: nextKey,
     page,

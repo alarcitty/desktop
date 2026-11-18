@@ -76,11 +76,11 @@
 
   $effect.pre(() => {
     const curPage = router.current;
-    if (prevPage === 'anime' && curPage !== 'anime') {
+    if (prevPage === 'player' && curPage !== 'player') {
       if (currentEpisode && player.isPlaying && !player.pipDismissed) {
         player.pipMode = true;
       }
-    } else if (prevPage !== 'anime' && curPage === 'anime') {
+    } else if (prevPage !== 'player' && curPage === 'player') {
       if (!player.pipManual && !bindings.osPipActive && !docPipWindow) {
         player.pipMode = false;
       }
@@ -97,7 +97,7 @@
         (bindings.osPipActive ||
           Boolean(docPipWindow) ||
           player.pipMode ||
-          (router.current !== 'anime' && player.isPlaying))
+          (router.current !== 'player' && player.isPlaying))
     )
   );
 
@@ -106,7 +106,7 @@
       currentEpisode &&
         !player.loading &&
         !player.error &&
-        router.current === 'anime' &&
+        router.current === 'player' &&
         !isPipVisible &&
         player.inlineStageEl
     )
@@ -126,11 +126,14 @@
     }
 
     if (targetParent && node.parentElement !== targetParent) {
+      const wasInParking = node.parentElement === parkingEl;
       const shouldPreservePlay = targetParent !== parkingEl && !player.pipDismissed;
       const wasPlaying = shouldPreservePlay ? (hlsPlayerRef?.beginReparent() ?? player.isPlaying) : false;
+      const shouldPlayAfterAttach =
+        shouldPreservePlay && (wasPlaying || (wasInParking && targetParent === player.inlineStageEl && player.autoplay));
       targetParent.appendChild(node);
       if (shouldPreservePlay) {
-        hlsPlayerRef?.endReparent(wasPlaying);
+        hlsPlayerRef?.endReparent(shouldPlayAfterAttach);
       }
     }
   });
@@ -414,7 +417,7 @@
         {hasNext}
         hasFallback={player.voices.some((v) => v.id !== player.selectedVoiceId)}
         isPip={isPipVisible}
-        keyboardEnabled={Boolean((router.current === 'anime' && !player.pipMode) || isPipVisible)}
+        keyboardEnabled={Boolean((router.current === 'player' && !player.pipMode) || isPipVisible)}
         onprev={prevEpisode}
         onnext={nextEpisode}
         ontimeprogress={(sec, dur, force) => reportPlaybackProgress(sec, dur, force)}

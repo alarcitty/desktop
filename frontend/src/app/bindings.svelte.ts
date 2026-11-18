@@ -465,7 +465,11 @@ export function mountBindingsController(): () => void {
           releaseAlias: parsed.alias,
           searchQueries: []
         },
-        { episodeOrdinal: parsed.episodeOrdinal, autoPlay: true }
+        {
+          episodeOrdinal: parsed.episodeOrdinal,
+          autoPlay: Boolean(parsed.episodeOrdinal),
+          directPlayer: Boolean(parsed.episodeOrdinal)
+        }
       )
     );
   };

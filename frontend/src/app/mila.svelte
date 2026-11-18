@@ -10,7 +10,7 @@
   import SetupScene from '../section/setup/SetupScene.svelte';
   import { bootState, initBootGate } from './boot.svelte';
   import { bindings, mountBindingsController } from './bindings.svelte';
-  import { getSavedPageScroll, registerScrollBridge } from './router.svelte';
+  import { getSavedPageScroll, registerScrollBridge, router } from './router.svelte';
   import './theme.svelte';
   import type { PageId } from '../pages';
 
@@ -76,7 +76,10 @@
 
   onMount(() => {
     initBootGate();
-    const unregisterScroll = registerScrollBridge(() => scrollArea?.getScrollTop() ?? 0);
+    const unregisterScroll = registerScrollBridge(
+      () => scrollArea?.getScrollTop() ?? 0,
+      (top) => scrollArea?.smoothScrollTo(top)
+    );
     const unmountBindings = mountBindingsController();
 
     return () => {
@@ -94,7 +97,7 @@
   class:is-os-pip={bindings.osPipActive}
 >
   <div class="content-layer" class:is-setup-active={setupOpen}>
-    <Header hidden={headerHidden} scrolled={headerScrolled} />
+    <Header hidden={headerHidden || router.current === 'player'} scrolled={headerScrolled} />
     <ScrollArea bind:this={scrollArea} onscroll={handleViewportScroll}>
       <PageHost onBeforeEnter={handlePageBeforeEnter} />
     </ScrollArea>

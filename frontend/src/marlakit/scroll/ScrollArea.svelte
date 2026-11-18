@@ -59,6 +59,19 @@
     setScrollTop(0);
   }
 
+  export function smoothScrollTo(top: number) {
+    if (!viewportRef) return;
+    const maxScroll = Math.max(0, viewportRef.scrollHeight - viewportRef.clientHeight);
+    if (!wheelRafId) {
+      smoothTop = viewportRef.scrollTop;
+    }
+    targetTop = Math.max(0, Math.min(maxScroll, top));
+    if (!wheelRafId) {
+      lastFrameTs = 0;
+      wheelRafId = requestAnimationFrame(stepWheelScroll);
+    }
+  }
+
   export function syncMetrics() {
     if (!viewportRef) return;
     cachedScrollHeight = viewportRef.scrollHeight;

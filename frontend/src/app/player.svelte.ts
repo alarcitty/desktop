@@ -585,7 +585,13 @@ export async function fallbackVoice(autoFromFailure = false): Promise<boolean> {
 
 export async function openWatch(
   target: WatchTarget,
-  opts?: { episodeOrdinal?: number; episodeIndex?: number; resumeTime?: number; autoPlay?: boolean }
+  opts?: {
+    episodeOrdinal?: number;
+    episodeIndex?: number;
+    resumeTime?: number;
+    autoPlay?: boolean;
+    directPlayer?: boolean;
+  }
 ): Promise<void> {
   const token = ++activeRequestToken;
   const shouldAutoPlay = Boolean(opts?.autoPlay);
@@ -594,7 +600,7 @@ export async function openWatch(
   player.pipManual = false;
   player.pipDismissed = false;
   navigate({
-    page: 'anime',
+    page: opts?.directPlayer ? 'player' : 'anime',
     shikiId: target.shikiId,
     alias: target.releaseAlias,
     title: target.title,
@@ -620,6 +626,41 @@ export async function openWatch(
       }
     })
     .catch(() => {});
+}
+
+export function openAnimePlayer(opts?: { episodeIndex?: number; episodeOrdinal?: number }): void {
+  const rel = player.release;
+  const target = player.target;
+  if (!rel && !target) return;
+
+  if (rel && opts?.episodeIndex != null && opts.episodeIndex >= 0 && opts.episodeIndex < rel.episodes.length) {
+    player.episodeIndex = opts.episodeIndex;
+    player.resumeTime = 0;
+  } else if (rel && opts?.episodeOrdinal != null) {
+    const idx = rel.episodes.findIndex((e) => e.ordinal === opts.episodeOrdinal);
+    if (idx >= 0) {
+      player.episodeIndex = idx;
+      player.resumeTime = 0;
+    }
+  }
+
+  player.autoplay = true;
+  player.pipMode = false;
+  player.pipManual = false;
+  player.pipDismissed = false;
+
+  const ep = rel?.episodes[player.episodeIndex];
+  navigate({
+    page: 'player',
+    shikiId: player.shikiArt?.id ?? target?.shikiId,
+    alias: rel?.alias ?? target?.releaseAlias,
+    title: player.shikiArt?.english || player.shikiArt?.name || rel?.title || target?.title || player.title,
+    searchQueries: target?.searchQueries,
+    autoPlay: true,
+    episode: player.episodeIndex,
+    episodeOrdinal: opts?.episodeOrdinal ?? ep?.ordinal,
+    resumeTime: player.resumeTime
+  });
 }
 
 export async function switchSeason(season: AnimeSeasonEntry): Promise<void> {
@@ -704,7 +745,7 @@ async function restoreRouteTarget(params: RouteParams): Promise<void> {
 }
 
 onRouteRestore((entry) => {
-  if (entry.page === 'anime' && entry.params) {
+  if ((entry.page === 'anime' || entry.page === 'player') && entry.params) {
     void restoreRouteTarget(entry.params);
   }
 });
@@ -741,7 +782,7 @@ export function selectEpisode(index: number): void {
     playControlCallback?.();
     return;
   }
-  if (router.current === 'anime') {
+  if (router.current === 'anime' || router.current === 'player') {
     updateCurrentRouteParams({
       episode: index,
       episodeOrdinal: ep?.ordinal,
@@ -769,7 +810,7 @@ export function nextEpisode(): void {
     player.episodeIndex += 1;
     syncNowPlaying();
     const ep = player.release.episodes[player.episodeIndex];
-    if (router.current === 'anime') {
+    if (router.current === 'anime' || router.current === 'player') {
       updateCurrentRouteParams({
         episode: player.episodeIndex,
         episodeOrdinal: ep?.ordinal,
@@ -831,9 +872,9 @@ export function expandCustomPip(): void {
   player.pipMode = false;
   player.pipManual = false;
   player.pipDismissed = false;
-  if (router.current !== 'anime') {
+  if (router.current !== 'player') {
     navigate({
-      page: 'anime',
+      page: 'player',
       shikiId: player.shikiArt?.id ?? player.target?.shikiId,
       alias: player.release?.alias ?? player.target?.releaseAlias,
       title: player.title,

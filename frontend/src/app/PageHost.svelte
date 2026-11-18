@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack, type Component } from 'svelte';
-  import { pages, getPage, loadAnimePage, type PageId } from '../pages';
+  import { pages, getPage, loadAnimePage, loadPlayerPage, type PageId } from '../pages';
   import { router } from './router.svelte';
 
   interface Props {
@@ -10,8 +10,11 @@
   let { onBeforeEnter }: Props = $props();
 
   const CACHED_PAGES = new Set<PageId>(pages.map((p) => p.id));
+  const DETAIL_PAGES: PageId[] = ['anime', 'player'];
   let animePageComponent = $state<Component | null>(loadAnimePage.getLoaded());
+  let playerPageComponent = $state<Component | null>(loadPlayerPage.getLoaded());
   const LEAVE_MS = 130;
+  const MORPH_MS = 380;
   const ENTER_SETTLE_MS = 300;
 
   // Pre-mount all main tabs at startup (hidden tabs use visibility/height:0 rather than
@@ -20,6 +23,7 @@
   let currentTracked: PageId = router.current;
   let currentRouteKeyTracked: string = router.routeKey;
   let leavingId = $state<PageId | null>(null);
+  let morphMode = $state<'forward' | 'back' | null>(null);
   let hasSwitched = $state(false);
   let enterReady = $state(true);
   let isTransitioning = $state(false);
@@ -45,22 +49,31 @@
         animePageComponent = Comp;
       });
     }
+    if (next === 'player' && !playerPageComponent) {
+      void loadPlayerPage.load().then((Comp) => {
+        playerPageComponent = Comp;
+      });
+    }
     if (CACHED_PAGES.has(next) && !visited.includes(next)) {
       visited = [...visited, next];
     }
     if (next !== currentTracked) {
+      const from = currentTracked;
+      const isAnimeToPlayer = from === 'anime' && next === 'player';
+      const isPlayerToAnime = from === 'player' && next === 'anime';
+      const nextMorph = isAnimeToPlayer ? 'forward' : isPlayerToAnime ? 'back' : null;
+
       const token = ++switchToken;
       clearTimers();
-      leavingId = currentTracked;
+      leavingId = from;
+      morphMode = nextMorph;
       currentTracked = next;
       currentRouteKeyTracked = nextKey;
       hasSwitched = true;
       enterReady = false;
       isTransitioning = true;
 
-      leaveTimer = window.setTimeout(() => {
-        if (token !== switchToken) return;
-        leavingId = null;
+      if (nextMorph) {
         untrack(() => onBeforeEnter?.(next));
         enterRaf = window.requestAnimationFrame(() => {
           enterRaf = 0;
@@ -68,11 +81,29 @@
           enterReady = true;
           settleTimer = window.setTimeout(() => {
             if (token === switchToken) {
+              leavingId = null;
+              morphMode = null;
               isTransitioning = false;
             }
-          }, ENTER_SETTLE_MS);
+          }, MORPH_MS);
         });
-      }, LEAVE_MS);
+      } else {
+        leaveTimer = window.setTimeout(() => {
+          if (token !== switchToken) return;
+          leavingId = null;
+          untrack(() => onBeforeEnter?.(next));
+          enterRaf = window.requestAnimationFrame(() => {
+            enterRaf = 0;
+            if (token !== switchToken) return;
+            enterReady = true;
+            settleTimer = window.setTimeout(() => {
+              if (token === switchToken) {
+                isTransitioning = false;
+              }
+            }, ENTER_SETTLE_MS);
+          });
+        }, LEAVE_MS);
+      }
     } else if (nextKey !== currentRouteKeyTracked) {
       currentRouteKeyTracked = nextKey;
       untrack(() => onBeforeEnter?.(next));
@@ -103,20 +134,26 @@
     </div>
   {/each}
 
-  {#if !CACHED_PAGES.has(router.current)}
-    {#key router.current}
-      {@const Page = router.current === 'anime' ? animePageComponent : getPage(router.current).component}
-      {#if Page}
-        <div
-          class="page-slot is-active is-animating"
-          class:is-pre-enter={!enterReady}
-          class:is-entered={enterReady}
-        >
-          <Page />
-        </div>
-      {/if}
-    {/key}
-  {/if}
+  {#each DETAIL_PAGES as detailId (detailId)}
+    {@const active = router.current === detailId}
+    {@const leaving = leavingId === detailId && !active}
+    {@const DetailPage = detailId === 'anime' ? animePageComponent : playerPageComponent}
+    {#if (active || leaving) && DetailPage}
+      <div
+        class="page-slot"
+        class:is-active={active}
+        class:is-animating={active && hasSwitched && isTransitioning}
+        class:is-pre-enter={active && hasSwitched && !enterReady}
+        class:is-entered={active && (!hasSwitched || enterReady)}
+        class:is-leaving={leaving}
+        class:is-morph-forward={morphMode === 'forward'}
+        class:is-morph-back={morphMode === 'back'}
+        aria-hidden={!active}
+      >
+        <DetailPage />
+      </div>
+    {/if}
+  {/each}
 </div>
 
 <style>
@@ -157,6 +194,14 @@
     pointer-events: none;
   }
 
+  .page-slot.is-pre-enter.is-morph-forward {
+    transform: translate3d(0, 56px, 0);
+  }
+
+  .page-slot.is-pre-enter.is-morph-back {
+    transform: translate3d(0, -32px, 0);
+  }
+
   .page-slot.is-entered {
     opacity: 1;
     transform: none;
@@ -169,6 +214,13 @@
       transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
+  .page-slot.is-animating.is-entered.is-morph-forward,
+  .page-slot.is-animating.is-entered.is-morph-back {
+    transition:
+      opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
   .page-slot.is-leaving {
     position: absolute;
     inset: 0 0 auto 0;
@@ -179,6 +231,14 @@
     animation: pageLeave 0.13s cubic-bezier(0.4, 0, 1, 1) both;
   }
 
+  .page-slot.is-leaving.is-morph-forward {
+    animation: pageMorphLeaveUp 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .page-slot.is-leaving.is-morph-back {
+    animation: pageMorphLeaveDown 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
   @keyframes pageLeave {
     from {
       opacity: 1;
@@ -187,6 +247,28 @@
     to {
       opacity: 0;
       transform: translate3d(0, -6px, 0);
+    }
+  }
+
+  @keyframes pageMorphLeaveUp {
+    from {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      opacity: 0;
+      transform: translate3d(0, -56px, 0);
+    }
+  }
+
+  @keyframes pageMorphLeaveDown {
+    from {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      opacity: 0;
+      transform: translate3d(0, 48px, 0);
     }
   }
 </style>
