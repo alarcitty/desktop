@@ -690,6 +690,22 @@
     background: #0c0c0c;
   }
 
+  .ep-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.085) 0%, rgba(255, 255, 255, 0) 46%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s var(--ease-out);
+  }
+
+  .ep-card:hover::after {
+    opacity: 1;
+  }
+
   .ep-thumb {
     position: absolute;
     inset: 0;
@@ -697,11 +713,11 @@
     height: 100%;
     object-fit: cover;
     display: block;
-    transition: transform 0.45s var(--ease-out);
+    transition: filter 0.34s var(--ease-out);
   }
 
-  .ep-card.is-grid:hover .ep-thumb {
-    transform: scale(1.05);
+  .ep-card:hover .ep-thumb {
+    filter: brightness(1.08) contrast(1.04);
   }
 
   .ep-preview-video {

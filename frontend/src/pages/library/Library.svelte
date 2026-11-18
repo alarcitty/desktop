@@ -1091,11 +1091,28 @@
     object-fit: cover;
     user-select: none;
     pointer-events: none;
-    transition: transform var(--hover-dur) var(--ease-out);
+    transition: filter 0.32s var(--ease-out);
+  }
+
+  .library-row::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    border-radius: inherit;
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 40%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s var(--ease-out);
+  }
+
+  .library-row:hover::after {
+    opacity: 1;
   }
 
   .library-row:hover .row-poster {
-    transform: scale(1.02);
+    filter: brightness(1.08) contrast(1.03);
   }
 
   .progress-track {
@@ -1250,11 +1267,27 @@
     object-fit: cover;
     user-select: none;
     pointer-events: none;
-    transition: transform 0.4s var(--ease-out);
+    transition: filter 0.34s var(--ease-out);
+  }
+
+  .library-tile::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.085) 0%, rgba(255, 255, 255, 0) 46%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s var(--ease-out);
+  }
+
+  .library-tile:hover::after {
+    opacity: 1;
   }
 
   .library-tile:hover .tile-poster {
-    transform: scale(1.04);
+    filter: brightness(1.08) contrast(1.04);
   }
 
   .tile-overlay {

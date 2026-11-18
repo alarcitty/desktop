@@ -561,21 +561,23 @@
   function scheduleHideControls() {
     if (!controlsVisible) {
       controlsVisible = true;
-    } else if (playing && activeMenu === 'none') {
+    } else if (activeMenu === 'none' && !draggingSeek) {
       const now = Date.now();
       if (now - lastHideArmMs < 150) return;
       lastHideArmMs = now;
     }
     window.clearTimeout(hideTimer);
-    if (!playing || activeMenu !== 'none') {
+    if (activeMenu !== 'none' || draggingSeek) {
       lastHideArmMs = 0;
       return;
     }
     lastHideArmMs = Date.now();
     hideTimer = window.setTimeout(() => {
-      controlsVisible = false;
+      if (activeMenu === 'none' && !draggingSeek) {
+        controlsVisible = false;
+      }
       lastHideArmMs = 0;
-    }, 2400);
+    }, playing ? 2600 : 3000);
   }
 
   function destroyHls() {
@@ -2017,13 +2019,13 @@
   class="hls-player {className}"
   class:is-fullscreen={isFullscreen}
   class:is-pip={isPip && !isFullscreen}
-  class:controls-hidden={!controlsVisible && playing}
+  class:controls-hidden={!controlsVisible && activeMenu === 'none' && !draggingSeek}
   tabindex="0"
   role="region"
   aria-label={title || 'Video player'}
   onmousemove={scheduleHideControls}
   onmouseleave={() => {
-    if (playing && activeMenu === 'none') controlsVisible = false;
+    if (activeMenu === 'none' && !draggingSeek) controlsVisible = false;
   }}
 >
   <!-- svelte-ignore a11y_media_has_caption -->
@@ -2074,7 +2076,7 @@
       controlsVisible = true;
       dubAudioEl?.pause();
       onplaychange?.(false);
-      window.clearTimeout(hideTimer);
+      scheduleHideControls();
       if (videoEl) {
         ontimeprogress?.(videoEl.currentTime || 0, videoEl.duration || duration || 0, true);
       }
@@ -2216,7 +2218,7 @@
         <span class="ffmpeg-status">{ffmpegNotice}</span>
       {/if}
     </div>
-  {:else if !playing && !errorText}
+  {:else if !playing && !errorText && controlsVisible}
     <button
       type="button"
       class="center-play"
@@ -2260,7 +2262,7 @@
     <button
       type="button"
       class="skip-pill"
-      class:raised={controlsVisible || !playing}
+      class:raised={controlsVisible}
       onclick={() => seekTo(skipTarget.to)}
       transition:fly={{ y: 16, duration: 260, easing: cubicOut }}
     >
@@ -2273,7 +2275,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="top-bar"
-      class:visible={controlsVisible || !playing}
+      class:visible={controlsVisible}
       onpointerdown={handlePipDragTrigger}
     >
       <div class="title-stack">
@@ -2324,7 +2326,7 @@
     </div>
   {/if}
 
-  <div class="controls-dock" class:visible={controlsVisible || !playing}>
+  <div class="controls-dock" class:visible={controlsVisible}>
     <!-- Timeline -->
     <div
       bind:this={seekEl}

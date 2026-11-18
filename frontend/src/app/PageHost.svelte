@@ -14,7 +14,7 @@
   let animePageComponent = $state<Component | null>(loadAnimePage.getLoaded());
   let playerPageComponent = $state<Component | null>(loadPlayerPage.getLoaded());
   const LEAVE_MS = 130;
-  const MORPH_MS = 480;
+  const MORPH_MS = 560;
   const ENTER_SETTLE_MS = 300;
 
   // Pre-mount all main tabs at startup (hidden tabs use visibility/height:0 rather than
@@ -30,7 +30,6 @@
   let leaveTimer: number | undefined;
   let settleTimer: number | undefined;
   let enterRaf = 0;
-  let enterRaf2 = 0;
   let switchToken = 0;
 
   function clearTimers() {
@@ -39,10 +38,6 @@
     if (enterRaf) {
       window.cancelAnimationFrame(enterRaf);
       enterRaf = 0;
-    }
-    if (enterRaf2) {
-      window.cancelAnimationFrame(enterRaf2);
-      enterRaf2 = 0;
     }
   }
 
@@ -80,22 +75,14 @@
 
       if (nextMorph) {
         untrack(() => onBeforeEnter?.(next));
-        enterRaf = window.requestAnimationFrame(() => {
-          enterRaf = 0;
-          if (token !== switchToken) return;
-          enterRaf2 = window.requestAnimationFrame(() => {
-            enterRaf2 = 0;
-            if (token !== switchToken) return;
-            enterReady = true;
-            settleTimer = window.setTimeout(() => {
-              if (token === switchToken) {
-                leavingId = null;
-                morphMode = null;
-                isTransitioning = false;
-              }
-            }, MORPH_MS);
-          });
-        });
+        enterReady = true;
+        settleTimer = window.setTimeout(() => {
+          if (token === switchToken) {
+            leavingId = null;
+            morphMode = null;
+            isTransitioning = false;
+          }
+        }, MORPH_MS);
       } else {
         leaveTimer = window.setTimeout(() => {
           if (token !== switchToken) return;
@@ -203,16 +190,10 @@
     pointer-events: none;
   }
 
-  .page-slot.is-pre-enter.is-morph-forward {
-    opacity: 0;
-    filter: blur(18px);
-    transform: translate3d(0, 56px, 0) scale(0.988);
-  }
-
+  .page-slot.is-pre-enter.is-morph-forward,
   .page-slot.is-pre-enter.is-morph-back {
     opacity: 0;
-    filter: blur(14px);
-    transform: translate3d(0, -32px, 0) scale(0.992);
+    transform: none;
   }
 
   .page-slot.is-entered {
@@ -221,20 +202,19 @@
     transform: none;
   }
 
-  .page-slot.is-animating.is-entered {
+  .page-slot.is-animating.is-entered:not(.is-morph-forward):not(.is-morph-back) {
     transform: translate3d(0, 0, 0);
     transition:
       opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1),
       transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  .page-slot.is-animating.is-entered.is-morph-forward,
-  .page-slot.is-animating.is-entered.is-morph-back {
-    transform: translate3d(0, 0, 0) scale(1);
-    transition:
-      opacity 0.44s cubic-bezier(0.22, 1, 0.36, 1),
-      filter 0.46s cubic-bezier(0.22, 1, 0.36, 1),
-      transform 0.46s cubic-bezier(0.22, 1, 0.36, 1);
+  .page-slot.is-active.is-animating.is-morph-forward {
+    animation: pageMorphEnterUp 0.56s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .page-slot.is-active.is-animating.is-morph-back {
+    animation: pageMorphEnterDown 0.52s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .page-slot.is-leaving {
@@ -248,11 +228,11 @@
   }
 
   .page-slot.is-leaving.is-morph-forward {
-    animation: pageMorphLeaveUp 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: pageMorphLeaveUp 0.48s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .page-slot.is-leaving.is-morph-back {
-    animation: pageMorphLeaveDown 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: pageMorphLeaveDown 0.48s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   @keyframes pageLeave {
@@ -266,6 +246,32 @@
     }
   }
 
+  @keyframes pageMorphEnterUp {
+    from {
+      opacity: 0;
+      filter: blur(20px);
+      transform: translate3d(0, 44px, 0) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      filter: blur(0px);
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  @keyframes pageMorphEnterDown {
+    from {
+      opacity: 0;
+      filter: blur(18px);
+      transform: translate3d(0, -32px, 0) scale(0.988);
+    }
+    to {
+      opacity: 1;
+      filter: blur(0px);
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
   @keyframes pageMorphLeaveUp {
     from {
       opacity: 1;
@@ -274,8 +280,8 @@
     }
     to {
       opacity: 0;
-      filter: blur(18px);
-      transform: translate3d(0, -56px, 0) scale(0.986);
+      filter: blur(20px);
+      transform: translate3d(0, -44px, 0) scale(0.985);
     }
   }
 
@@ -287,8 +293,8 @@
     }
     to {
       opacity: 0;
-      filter: blur(16px);
-      transform: translate3d(0, 48px, 0) scale(0.988);
+      filter: blur(18px);
+      transform: translate3d(0, 38px, 0) scale(0.988);
     }
   }
 </style>

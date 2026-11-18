@@ -290,16 +290,6 @@
     <div class="player-frame-wrap">
       <div class="player-stage">
         <div class="player-top-drag" aria-hidden="true"></div>
-        <button
-          type="button"
-          class="player-back-btn"
-          onclick={goBack}
-          aria-label={t('anime.back')}
-          title={t('anime.back')}
-        >
-          <ArrowLeft size={16} strokeWidth={2} />
-          <span>{t('anime.back')}</span>
-        </button>
 
         {#if player.loading}
           <div class="stage-state" role="status" aria-label={t('anime.loading')} transition:fade={{ duration: 180 }}>
@@ -346,6 +336,15 @@
       <section class="episodes-section" aria-label="Episodes">
         <div class="section-head">
           <div class="section-head-left">
+            <button
+              type="button"
+              class="episodes-back-btn"
+              onclick={goBack}
+              aria-label={t('anime.back')}
+              title={t('anime.back')}
+            >
+              <ArrowLeft size={18} strokeWidth={2} />
+            </button>
             <h2 class="section-heading">{t('anime.episodes')}</h2>
             <span class="section-count">{episodes.length}</span>
           </div>
@@ -557,45 +556,34 @@
     --wails-draggable: drag;
   }
 
-  .player-back-btn {
-    position: absolute;
-    top: 14px;
-    left: var(--page-pad-x, 16px);
-    z-index: 14;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    margin: -6px -8px;
+  .episodes-back-btn {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    margin: 0 2px 0 -4px;
     border: none;
     outline: none;
     border-radius: 8px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.56);
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13.5px;
-    font-weight: 500;
-    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.72);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.48));
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    opacity: 0.72;
-    --wails-draggable: no-drag;
     transition:
       color 0.2s var(--ease-out),
-      opacity 0.2s var(--ease-out),
       transform 0.2s var(--ease-out);
   }
 
-  .player-back-btn:hover {
-    color: #ffffff;
-    opacity: 1;
+  .episodes-back-btn:hover {
+    color: var(--mila-text-primary, #ffffff);
     transform: translateX(-2px);
   }
 
-  .player-back-btn:active {
-    transform: translateX(-3px) scale(0.96);
+  .episodes-back-btn:active {
+    transform: translateX(-3px) scale(0.94);
   }
 
-  :global(body.is-player-fullscreen) .player-back-btn,
   :global(body.is-player-fullscreen) .player-top-drag {
     opacity: 0;
     pointer-events: none;

@@ -163,9 +163,9 @@
     position: fixed;
     inset: 0;
     z-index: 1000;
-    background: var(--mila-popup-backdrop, rgba(5, 5, 7, 0.62));
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
+    background: var(--mila-popup-backdrop, rgba(5, 5, 7, 0.56));
+    -webkit-backdrop-filter: blur(24px) saturate(1.15);
+    backdrop-filter: blur(24px) saturate(1.15);
     opacity: 0;
     will-change: opacity;
     transition: opacity var(--popup-duration) cubic-bezier(0.22, 1, 0.36, 1);
@@ -206,7 +206,9 @@
   {
     padding: 16px;
     border-radius: var(--radius-card, 16px);
-    background: var(--mila-popup-bgExpanded, rgba(12, 12, 14, 0.96));
+    background: var(--mila-popup-bgExpanded, rgba(12, 12, 15, 0.74));
+    -webkit-backdrop-filter: blur(36px) saturate(1.28);
+    backdrop-filter: blur(36px) saturate(1.28);
     box-shadow: var(--mila-popup-shadow, 0 36px 100px rgba(0, 0, 0, 0.85));
   }
 

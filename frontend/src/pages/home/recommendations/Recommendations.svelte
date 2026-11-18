@@ -211,7 +211,7 @@
     backface-visibility: hidden;
     user-select: none;
     pointer-events: none;
-    transition: transform 0.4s var(--ease-out);
+    transition: filter 0.34s var(--ease-out);
   }
 
   /* 46% dark overlay from Figma */
@@ -223,13 +223,28 @@
     transition: background-color var(--hover-dur) var(--ease-out);
   }
 
+  .rec-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.085) 0%, rgba(255, 255, 255, 0) 46%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s var(--ease-out);
+  }
+
   .rec-card:hover .card-img {
-    will-change: transform;
-    transform: scale(1.03);
+    filter: brightness(1.08) contrast(1.04);
   }
 
   .rec-card:hover .card-overlay {
-    background: rgba(0, 0, 0, 0.22);
+    background: rgba(0, 0, 0, 0.18);
+  }
+
+  .rec-card:hover::after {
+    opacity: 1;
   }
 
   /* Bottom tab notch: 47x29px, rounded top corners */

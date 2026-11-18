@@ -1890,16 +1890,38 @@
     --card-r-br: var(--radius-card);
   }
 
+  .frame-card::after,
+  .trailer-card::after,
+  .franchise-card::after,
+  .more-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.085) 0%, rgba(255, 255, 255, 0) 46%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s var(--ease-out);
+  }
+
+  .frame-card:hover::after,
+  .trailer-card:hover::after,
+  .franchise-card:hover::after,
+  .more-card:hover::after {
+    opacity: 1;
+  }
+
   .frame-img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
-    transition: transform 0.45s var(--ease-out);
+    transition: filter 0.34s var(--ease-out);
   }
 
   .frame-card:hover .frame-img {
-    transform: scale(1.04);
+    filter: brightness(1.08) contrast(1.04);
   }
 
   .lightbox-backdrop {
@@ -1999,12 +2021,11 @@
     object-fit: cover;
     display: block;
     filter: brightness(0.86);
-    transition: transform 0.45s var(--ease-out), filter 0.35s var(--ease-out);
+    transition: filter 0.34s var(--ease-out);
   }
 
   .trailer-card:hover .trailer-bg {
-    transform: scale(1.05);
-    filter: brightness(0.98);
+    filter: brightness(1.04) contrast(1.04);
   }
 
   .trailer-scrim {
@@ -2160,11 +2181,11 @@
     height: 100%;
     object-fit: cover;
     display: block;
-    transition: transform 0.38s var(--ease-out);
+    transition: filter 0.34s var(--ease-out);
   }
 
   .trailer-row:hover .trailer-row-thumb {
-    transform: scale(1.04);
+    filter: brightness(1.08) contrast(1.04);
   }
 
   .trailer-row-info {
@@ -2343,11 +2364,11 @@
     height: 100%;
     object-fit: cover;
     display: block;
-    transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: filter 0.34s var(--ease-out);
   }
 
   .franchise-card:hover .franchise-poster {
-    transform: scale(1.04);
+    filter: brightness(1.08) contrast(1.04);
   }
 
   .franchise-scrim {
@@ -2930,11 +2951,11 @@
     height: 100%;
     object-fit: cover;
     display: block;
-    transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: filter 0.34s var(--ease-out);
   }
 
   .more-card:hover .more-card-img {
-    transform: scale(1.03);
+    filter: brightness(1.08) contrast(1.04);
   }
 
   .more-card-overlay {

@@ -325,8 +325,24 @@
                 flex-basis 0.65s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
+  .card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 45%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s var(--ease-out);
+  }
+
+  .card:not(.is-active):hover::after {
+    opacity: 1;
+  }
+
   .card:not(.is-active):hover .side-card-overlay.is-dimmed {
-    opacity: 0.45;
+    opacity: 0.35;
   }
 
   /* Active expanded card: responsive width from compact desktop (440px @ 858px) up to 840px */

@@ -72,9 +72,9 @@
         "icon": "rgba(255, 255, 255, 0.38)"
       },
       "popup": {
-        "backdrop": "rgba(5, 5, 7, 0.62)",
-        "bg": "rgba(14, 14, 17, 0.96)",
-        "bgExpanded": "rgba(12, 12, 14, 0.96)",
+        "backdrop": "rgba(5, 5, 7, 0.56)",
+        "bg": "rgba(14, 14, 17, 0.72)",
+        "bgExpanded": "rgba(12, 12, 15, 0.74)",
         "comboBg": "rgba(10, 10, 10, 0.9)",
         "comboSectionText": "rgba(255, 255, 255, 0.2)",
         "shadow": "0 36px 100px rgba(0, 0, 0, 0.85)",
@@ -209,9 +209,9 @@
         "icon": "rgba(17, 17, 20, 0.48)"
       },
       "popup": {
-        "backdrop": "rgba(220, 222, 228, 0.62)",
-        "bg": "rgba(255, 255, 255, 0.96)",
-        "bgExpanded": "rgba(248, 248, 251, 0.96)",
+        "backdrop": "rgba(220, 222, 228, 0.54)",
+        "bg": "rgba(255, 255, 255, 0.78)",
+        "bgExpanded": "rgba(248, 248, 251, 0.8)",
         "comboBg": "rgba(255, 255, 255, 0.9)",
         "comboSectionText": "rgba(17, 17, 20, 0.25)",
         "shadow": "0 28px 80px rgba(16, 18, 24, 0.16)",
@@ -338,17 +338,17 @@
         "socialText": "#15161a"
       },
       "inputs": {
-        "bg": "hsla({hue}, 34%, 72%, 0.085)",
-        "bgHover": "hsla({hue}, 40%, 72%, 0.11)",
-        "bgFocus": "hsla({hue}, 56%, 70%, 0.16)",
+        "bg": "rgba(255, 255, 255, 0.075)",
+        "bgHover": "rgba(255, 255, 255, 0.1)",
+        "bgFocus": "rgba(255, 255, 255, 0.13)",
         "text": "#ffffff",
         "placeholder": "rgba(255, 255, 255, 0.34)",
-        "icon": "hsla({hue}, 68%, 78%, 0.62)"
+        "icon": "rgba(255, 255, 255, 0.42)"
       },
       "popup": {
-        "backdrop": "rgba(6, 6, 9, 0.64)",
-        "bg": "hsla({hue}, 16%, 7%, 0.96)",
-        "bgExpanded": "hsla({hue}, 16%, 6%, 0.96)",
+        "backdrop": "rgba(6, 6, 9, 0.56)",
+        "bg": "hsla({hue}, 14%, 7%, 0.72)",
+        "bgExpanded": "hsla({hue}, 14%, 6%, 0.74)",
         "comboBg": "hsla({hue}, 16%, 4%, 0.9)",
         "comboSectionText": "rgba(255, 255, 255, 0.2)",
         "shadow": "0 36px 100px rgba(0, 0, 0, 0.86)",

@@ -4,7 +4,6 @@
   import { cubicOut } from 'svelte/easing';
   import type HlsType from 'hls.js';
   import { getLoadedHls, loadHls } from '../../../app/hlsLoader';
-  import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import ChevronLeft from '@lucide/svelte/icons/chevron-left';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Play from '@lucide/svelte/icons/play';
@@ -921,31 +920,6 @@
     if (!activeHero) return;
     toggleLike(buildHeroLibraryPayload(activeHero));
   }
-
-  function scrollBelowHero(e: MouseEvent)
-  {
-    const btn = e.currentTarget as HTMLElement | null;
-    const viewport = btn?.closest('.marlakit-scroll-viewport') as HTMLElement | null;
-    const releases = document.querySelector('.releases-section');
-    if (viewport && releases instanceof HTMLElement)
-    {
-      const targetTop = viewport.scrollTop + releases.getBoundingClientRect().top - 42;
-      viewport.scrollTo({
-        top: Math.max(0, targetTop),
-        behavior: 'smooth'
-      });
-      return;
-    }
-    if (releases instanceof HTMLElement)
-    {
-      releases.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-    viewport?.scrollBy({
-      top: Math.round(window.innerHeight * 0.88),
-      behavior: 'smooth'
-    });
-  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1256,11 +1230,6 @@
       </div>
     {/if}
   </div>
-
-      <!-- Bottom scroll indicator chevron -->
-      <button type="button" class="hero-bottom-arrow" aria-label="Scroll to releases" onclick={scrollBelowHero}>
-        <ChevronDown size={18} strokeWidth={2} class="arrow-icon" />
-      </button>
     </section>
   </div>
 </div>
@@ -1269,7 +1238,7 @@
   .hero-bg-wrapper {
     position: relative;
     width: 100%;
-    min-height: 105vh;
+    min-height: 100vh;
     padding-top: var(--header-height, 58px);
     background-color: var(--mila-app-canvas, #0c0c0c);
     display: flex;
@@ -1385,7 +1354,7 @@
     min-height: calc(100vh - var(--header-height, 58px));
     display: flex;
     flex-direction: column;
-    padding: 0 var(--page-pad-x) 14px var(--page-pad-x);
+    padding: 0 var(--page-pad-x) var(--page-pad-x) var(--page-pad-x);
     box-sizing: border-box;
     position: relative;
     z-index: 2;
@@ -1866,11 +1835,27 @@
     backface-visibility: hidden;
     pointer-events: none;
     user-select: none;
-    transition: transform 0.45s var(--ease-out);
+    transition: filter 0.32s var(--ease-out);
   }
 
   .strip-card:not(.is-active):hover .strip-card-img {
-    transform: scale(1.04);
+    filter: brightness(1.09) contrast(1.04);
+  }
+
+  .strip-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 48%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s var(--ease-out);
+  }
+
+  .strip-card:not(.is-active):hover::after {
+    opacity: 1;
   }
 
   .strip-card-overlay {
@@ -1941,37 +1926,7 @@
 
   @media (max-height: 740px) {
     .hero-content {
-      padding-top: 76px;
+      padding-top: 56px;
     }
-
-    .hero-bottom-arrow {
-      margin-top: 10px;
-    }
-  }
-
-  .hero-bottom-arrow {
-    margin-top: 18px;
-    margin-bottom: 2px;
-    padding: 4px 12px;
-    border: none;
-    background: transparent;
-    align-self: center;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    opacity: 0.65;
-    transition: opacity 0.15s ease, transform 0.15s ease;
-    position: relative;
-    z-index: 2;
-  }
-
-  .hero-bottom-arrow:hover {
-    opacity: 1;
-    transform: translateY(2px);
-  }
-
-  :global(.arrow-icon) {
-    color: #ffffff;
   }
 </style>

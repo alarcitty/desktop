@@ -2155,22 +2155,26 @@
     position: relative;
     z-index: 3;
     flex: 0 0 auto;
-    padding: 5px 11px;
+    padding: 0;
     border: none;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.12);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    border-radius: 0;
+    background: transparent;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 11.5px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.88);
+    font-weight: 500;
+    letter-spacing: 0.015em;
+    color: rgba(255, 255, 255, 0.42);
     line-height: 1;
+    transition: color 0.2s var(--ease-out);
   }
 
   .source-badge.is-history {
-    background: rgba(166, 227, 161, 0.18);
-    color: var(--marlakit-green, #a6e3a1);
+    background: transparent;
+    color: rgba(166, 227, 161, 0.78);
+  }
+
+  .result.selected .source-badge:not(.is-history) {
+    color: rgba(255, 255, 255, 0.7);
   }
 
   .empty {

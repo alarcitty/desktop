@@ -210,7 +210,7 @@
       out:revealBlur={{ duration: 240, blur: 0 }}
     >
       {#if auth.user.avatar_url && !avatarBroken}
-        <LayerBlur src={auth.user.avatar_url} blur={88} opacity={0.68} scale={1.25} />
+        <LayerBlur src={auth.user.avatar_url} blur={76} opacity={0.32} scale={1.2} />
       {:else}
         <div class="header-avatar-ambient-fallback"></div>
       {/if}
@@ -571,28 +571,28 @@
   .header-avatar-ambient {
     position: absolute;
     top: 0;
-    right: 0;
-    width: 520px;
-    height: 220px;
+    right: 68px;
+    width: 380px;
+    height: 150px;
     pointer-events: none;
     user-select: none;
     z-index: 0;
     overflow: hidden;
     -webkit-mask-image: radial-gradient(
-      ellipse 94% 94% at 100% 0%,
+      ellipse 88% 92% at 74% 0%,
       rgba(0, 0, 0, 1) 0%,
-      rgba(0, 0, 0, 0.72) 22%,
-      rgba(0, 0, 0, 0.36) 44%,
-      rgba(0, 0, 0, 0.12) 66%,
-      rgba(0, 0, 0, 0) 86%
+      rgba(0, 0, 0, 0.65) 24%,
+      rgba(0, 0, 0, 0.3) 48%,
+      rgba(0, 0, 0, 0.1) 70%,
+      rgba(0, 0, 0, 0) 90%
     );
     mask-image: radial-gradient(
-      ellipse 94% 94% at 100% 0%,
+      ellipse 88% 92% at 74% 0%,
       rgba(0, 0, 0, 1) 0%,
-      rgba(0, 0, 0, 0.72) 22%,
-      rgba(0, 0, 0, 0.36) 44%,
-      rgba(0, 0, 0, 0.12) 66%,
-      rgba(0, 0, 0, 0) 86%
+      rgba(0, 0, 0, 0.65) 24%,
+      rgba(0, 0, 0, 0.3) 48%,
+      rgba(0, 0, 0, 0.1) 70%,
+      rgba(0, 0, 0, 0) 90%
     );
   }
 
@@ -600,9 +600,9 @@
     width: 100%;
     height: 100%;
     background: radial-gradient(
-      ellipse at 92% 10%,
-      rgba(166, 227, 161, 0.32) 0%,
-      rgba(137, 220, 235, 0.16) 42%,
+      ellipse at 74% 10%,
+      rgba(166, 227, 161, 0.16) 0%,
+      rgba(137, 220, 235, 0.08) 42%,
       rgba(12, 12, 12, 0) 78%
     );
   }
