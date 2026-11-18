@@ -1,5 +1,6 @@
 <script lang="ts">
-  import Heart from '@lucide/svelte/icons/heart';
+  import { Heart } from 'lucide';
+  import { MorphIcon } from 'morphicons/svelte';
 
   interface Props {
     liked?: boolean;
@@ -30,7 +31,7 @@
   {onclick}
 >
   <span class="like-heart-wrap" class:is-popped={liked}>
-    <Heart size={18} strokeWidth={2} fill={liked ? 'currentColor' : 'none'} />
+    <MorphIcon icon={Heart} size={18} strokeWidth={2} fill={liked ? 'currentColor' : 'none'} spring="bouncy" />
   </span>
 </button>
 

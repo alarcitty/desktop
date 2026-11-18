@@ -1,24 +1,27 @@
 <script lang="ts">
   import type HlsType from 'hls.js';
   import type { ErrorData } from 'hls.js';
-  import Play from '@lucide/svelte/icons/play';
-  import Pause from '@lucide/svelte/icons/pause';
-  import Volume1 from '@lucide/svelte/icons/volume-1';
-  import Volume2 from '@lucide/svelte/icons/volume-2';
-  import VolumeX from '@lucide/svelte/icons/volume-x';
-  import Maximize from '@lucide/svelte/icons/maximize';
-  import Minimize from '@lucide/svelte/icons/minimize';
-  import PictureInPicture2 from '@lucide/svelte/icons/picture-in-picture-2';
-  import Settings from '@lucide/svelte/icons/settings';
-  import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
-  import SkipBack from '@lucide/svelte/icons/skip-back';
-  import SkipForward from '@lucide/svelte/icons/skip-forward';
-  import AudioLines from '@lucide/svelte/icons/audio-lines';
-  import FastForward from '@lucide/svelte/icons/fast-forward';
-  import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
-  import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left';
-  import ArrowUpLeft from '@lucide/svelte/icons/arrow-up-left';
-  import X from '@lucide/svelte/icons/x';
+  import { MorphIcon } from 'morphicons/svelte';
+  import {
+    Play,
+    Pause,
+    Volume1,
+    Volume2,
+    VolumeX,
+    Maximize,
+    Minimize,
+    PictureInPicture2,
+    Settings,
+    SlidersHorizontal,
+    SkipBack,
+    SkipForward,
+    AudioLines,
+    FastForward,
+    RotateCcw,
+    ArrowRightLeft,
+    ArrowUpLeft,
+    X
+  } from 'lucide';
   import { onDestroy, untrack } from 'svelte';
   import { fade, fly, scale } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
@@ -2269,16 +2272,19 @@
   {#if spaceHoldBoostActive}
     <div class="speed-boost-pill" transition:scale={{ start: 0.9, duration: 140, easing: cubicOut }}>
       <span>2x</span>
-      <FastForward size={14} fill="currentColor" strokeWidth={0} />
+      <MorphIcon icon={FastForward} size={14} fill="currentColor" strokeWidth={0} />
     </div>
   {:else if osdVisible && osdText}
     <div class="player-osd-pill" transition:scale={{ start: 0.92, duration: 140, easing: cubicOut }}>
-      {#if osdKind === 'mute'}
-        <VolumeX size={15} strokeWidth={2} />
-      {:else if osdKind === 'volume'}
-        <Volume2 size={15} strokeWidth={2} />
+      {#if osdKind === 'mute' || osdKind === 'volume'}
+        <MorphIcon
+          icon={osdKind === 'mute' ? VolumeX : Volume2}
+          size={15}
+          strokeWidth={2}
+          spring="snappy"
+        />
       {:else if osdKind === 'speed'}
-        <FastForward size={15} strokeWidth={2} />
+        <MorphIcon icon={FastForward} size={15} strokeWidth={2} />
       {/if}
       <span>{osdText}</span>
     </div>
@@ -2299,7 +2305,7 @@
       onclick={togglePlay}
       transition:scale={{ start: 0.72, duration: 200, easing: cubicOut }}
     >
-      <Play size={54} fill="currentColor" strokeWidth={0} />
+      <MorphIcon icon={Play} size={54} fill="currentColor" strokeWidth={0} />
     </button>
   {/if}
 
@@ -2314,7 +2320,7 @@
             reloadTick += 1;
           }}
         >
-          <RotateCcw size={14} strokeWidth={2} />
+          <MorphIcon icon={RotateCcw} size={14} strokeWidth={2} />
           <span>Retry</span>
         </button>
         {#if hasFallback && onfallback}
@@ -2323,7 +2329,7 @@
             class="error-btn error-btn-primary"
             onclick={() => onfallback?.()}
           >
-            <ArrowRightLeft size={14} strokeWidth={2} />
+            <MorphIcon icon={ArrowRightLeft} size={14} strokeWidth={2} />
             <span>Switch voice</span>
           </button>
         {/if}
@@ -2340,7 +2346,7 @@
       transition:fly={{ y: 16, duration: 260, easing: cubicOut }}
     >
       <span>{skipTarget.label}</span>
-      <SkipForward size={14} strokeWidth={2.1} class="skip-arrow" />
+      <MorphIcon icon={SkipForward} size={14} strokeWidth={2.1} class="skip-arrow" />
     </button>
   {/if}
 
@@ -2375,7 +2381,7 @@
                 onexpandpip?.();
               }}
             >
-              <ArrowUpLeft size={15} strokeWidth={2.1} />
+              <MorphIcon icon={ArrowUpLeft} size={15} strokeWidth={2.1} />
             </button>
           {/if}
           {#if onclosepip}
@@ -2391,7 +2397,7 @@
                 onclosepip?.();
               }}
             >
-              <X size={15} strokeWidth={2.1} />
+              <MorphIcon icon={X} size={15} strokeWidth={2.1} />
             </button>
           {/if}
         {/if}
@@ -2471,11 +2477,13 @@
           aria-label={playing ? 'Pause' : 'Play'}
           onclick={togglePlay}
         >
-          {#if playing}
-            <Pause size={18} fill="currentColor" strokeWidth={0} />
-          {:else}
-            <Play size={18} fill="currentColor" strokeWidth={0} />
-          {/if}
+          <MorphIcon
+            icon={playing ? Pause : Play}
+            size={18}
+            fill="currentColor"
+            strokeWidth={0}
+            spring="snappy"
+          />
         </button>
 
         {#if hasPrev && (!isPip || isFullscreen)}
@@ -2486,7 +2494,7 @@
             title="Previous episode (P)"
             onclick={() => onprev?.()}
           >
-            <SkipBack size={17} strokeWidth={1.8} />
+            <MorphIcon icon={SkipBack} size={17} strokeWidth={1.8} />
           </button>
         {/if}
 
@@ -2498,7 +2506,7 @@
             title="Next episode (N)"
             onclick={() => onnext?.()}
           >
-            <SkipForward size={18} strokeWidth={1.8} />
+            <MorphIcon icon={SkipForward} size={18} strokeWidth={1.8} />
           </button>
         {/if}
 
@@ -2515,13 +2523,12 @@
             aria-label={muted ? 'Unmute' : 'Mute'}
             onclick={toggleMute}
           >
-            {#if muted || volume === 0}
-              <VolumeX size={18} strokeWidth={1.8} />
-            {:else if volume <= 0.5}
-              <Volume1 size={18} strokeWidth={1.8} />
-            {:else}
-              <Volume2 size={18} strokeWidth={1.8} />
-            {/if}
+            <MorphIcon
+              icon={muted || volume === 0 ? VolumeX : volume <= 0.5 ? Volume1 : Volume2}
+              size={18}
+              strokeWidth={1.8}
+              spring="snappy"
+            />
           </button>
           <Slider
             class="volume-slider"
@@ -2582,7 +2589,7 @@
               }}
             >
               {#snippet icon()}
-                <AudioLines size={14} strokeWidth={1.9} />
+                <MorphIcon icon={AudioLines} size={14} strokeWidth={1.9} />
               {/snippet}
               {#snippet subFooter(parentOpt)}
                 {#if parentOpt.value === 'cat:mix' && dubAudio && onduboffsetchange}
@@ -2651,7 +2658,7 @@
               onselect={(opt) => setQuality(Number(opt.value))}
             >
               {#snippet icon()}
-                <Settings size={14} strokeWidth={1.9} />
+                <MorphIcon icon={Settings} size={14} strokeWidth={1.9} />
               {/snippet}
             </ComboBox>
           {/if}
@@ -2670,7 +2677,7 @@
                 scheduleHideControls();
               }}
             >
-              <SlidersHorizontal size={16} strokeWidth={1.9} />
+              <MorphIcon icon={SlidersHorizontal} size={16} strokeWidth={1.9} />
             </button>
 
             {#if activeMenu === 'appearance'}
@@ -2739,7 +2746,7 @@
           title={isPip ? 'Return to page player' : 'Mini-player (Picture in picture)'}
           onclick={() => void togglePiP()}
         >
-          <PictureInPicture2 size={18} strokeWidth={1.8} />
+          <MorphIcon icon={PictureInPicture2} size={18} strokeWidth={1.8} />
         </button>
 
         <button
@@ -2748,11 +2755,12 @@
           aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           onclick={() => void toggleFullscreen()}
         >
-          {#if isFullscreen}
-            <Minimize size={18} strokeWidth={1.8} />
-          {:else}
-            <Maximize size={18} strokeWidth={1.8} />
-          {/if}
+          <MorphIcon
+            icon={isFullscreen ? Minimize : Maximize}
+            size={18}
+            strokeWidth={1.8}
+            spring="snappy"
+          />
         </button>
       </div>
     </div>

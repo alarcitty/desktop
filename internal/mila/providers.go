@@ -312,19 +312,51 @@ func serveAniboomMasterPlaylist(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	embed := strings.TrimSpace(r.URL.Query().Get("embed"))
-	ep, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("ep")))
+	q := r.URL.Query()
+	embed := strings.TrimSpace(q.Get("embed"))
+	ep, _ := strconv.Atoi(strings.TrimSpace(q.Get("ep")))
 	resolved, err := resolveAniboomEpisode(r.Context(), embed, ep)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
+	var masterURL string
+	if err == nil {
+		masterURL, err = validatePublicStreamURL(resolved.MasterURL)
 	}
-	masterURL, err := validatePublicStreamURL(resolved.MasterURL)
 	if err != nil {
+		// Fallback to paired Kodik embed when AniBoom fails or omits HLS for a translation.
+		fallbackEmbed := strings.TrimSpace(q.Get("fallback"))
+		animegoID, _ := strconv.Atoi(strings.TrimSpace(q.Get("animego_id")))
+		epID, _ := strconv.Atoi(strings.TrimSpace(q.Get("ep_id")))
+		trID := strings.TrimSpace(q.Get("tr"))
+		if fallbackEmbed != "" || (epID > 0 && trID != "") {
+			var kResolved *KodikResolved
+			var kErr error
+			if epID > 0 && trID != "" {
+				kResolved, _, kErr = resolveAnimeGOKodikMaster(r.Context(), animegoID, epID, trID, fallbackEmbed)
+			} else {
+				kResolved, kErr = resolveKodikEpisode(r.Context(), fallbackEmbed, animeGORefererURL)
+			}
+			if kErr == nil && kResolved != nil && len(kResolved.Sources) > 0 {
+				playlist := buildKodikMasterPlaylist(kResolved.Sources, kodikStreamReferer(fallbackEmbed))
+				w.Header().Set("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8")
+				w.Header().Set("Content-Length", strconv.Itoa(len(playlist)))
+				w.WriteHeader(http.StatusOK)
+				if r.Method != http.MethodHead {
+					_, _ = io.WriteString(w, playlist)
+				}
+				return
+			}
+		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	fetchAndServePlaylist(w, r, masterURL, aniboomRefererURL)
+}
+
+func kodikStreamReferer(embed string) string {
+	streamRef := "https://kodikplayer.com/"
+	if parsed, parseErr := url.Parse(normalizeEmbedURL(embed)); parseErr == nil && parsed.Host != "" {
+		streamRef = "https://" + parsed.Host + "/"
+	}
+	return streamRef
 }
 
 func resolveKodikFromHTTPRequest(r *http.Request) (*KodikResolved, string, error) {
@@ -342,11 +374,7 @@ func resolveKodikFromHTTPRequest(r *http.Request) (*KodikResolved, string, error
 	if err != nil {
 		return nil, "", err
 	}
-	streamRef := "https://kodikplayer.com/"
-	if parsed, parseErr := url.Parse(normalizeEmbedURL(embed)); parseErr == nil && parsed.Host != "" {
-		streamRef = "https://" + parsed.Host + "/"
-	}
-	return resolved, streamRef, nil
+	return resolved, kodikStreamReferer(embed), nil
 }
 
 func serveKodikResolveJSON(w http.ResponseWriter, r *http.Request) {

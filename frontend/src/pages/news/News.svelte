@@ -2,17 +2,15 @@
   import { onMount } from 'svelte';
   import { fade, fly, scale } from 'svelte/transition';
   import { cubicIn, cubicOut } from 'svelte/easing';
-  import Play from '@lucide/svelte/icons/play';
-  import RefreshCw from '@lucide/svelte/icons/refresh-cw';
-  import BookOpen from '@lucide/svelte/icons/book-open';
-  import MessageSquare from '@lucide/svelte/icons/message-square';
-  import ExternalLink from '@lucide/svelte/icons/external-link';
-  import X from '@lucide/svelte/icons/x';
+  import { MorphIcon } from 'morphicons/svelte';
+  import { Play, RefreshCw, BookOpen, MessageSquare, ExternalLink, X, ArrowUpRight } from 'lucide';
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../marlakit/button/SecondButton.svelte';
   import LikeButton from '../../marlakit/button/LikeButton.svelte';
+  import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
+  import ScrollArea from '../../marlakit/scroll/ScrollArea.svelte';
   import { portal } from '../../marlakit/portal';
   import { getCachedNewsFeed, loadNewsFeed, type NewsItem } from '../../api/news';
   import { isLiked, toggleLike } from '../../app/library.svelte';
@@ -321,7 +319,7 @@
         title={t('news.sync')}
         onclick={() => fetchFeed(true)}
       >
-        <RefreshCw size={15} strokeWidth={2} class="sync-icon" />
+        <MorphIcon icon={RefreshCw} size={15} strokeWidth={2} class="sync-icon" />
         <span>{t('news.sync')}</span>
       </button>
     </div>
@@ -354,27 +352,27 @@
           {#if leadItem.releaseAlias}
             <MainButton loading={watchingId === leadItem.id} onclick={(e) => watchItem(leadItem, e)}>
               {#snippet icon()}
-                <Play size={16} fill="currentColor" strokeWidth={0} />
+                <MorphIcon icon={Play} size={16} fill="currentColor" strokeWidth={0} />
               {/snippet}
               {t('news.watchEp', { n: leadItem.episodeOrdinal ?? 1 })}
             </MainButton>
             <SecondButton onclick={() => openStory(leadItem)}>
               {#snippet icon()}
-                <BookOpen size={16} strokeWidth={2} />
+                <MorphIcon icon={BookOpen} size={16} strokeWidth={2} />
               {/snippet}
               {t('news.details')}
             </SecondButton>
           {:else}
             <MainButton onclick={() => openStory(leadItem)}>
               {#snippet icon()}
-                <BookOpen size={16} strokeWidth={2} />
+                <MorphIcon icon={BookOpen} size={16} strokeWidth={2} />
               {/snippet}
               {t('news.readStory')}
             </MainButton>
             {#if leadItem.shikiId}
               <SecondButton loading={watchingId === leadItem.id} onclick={(e) => watchItem(leadItem, e)}>
                 {#snippet icon()}
-                  <Play size={16} fill="currentColor" strokeWidth={0} />
+                  <MorphIcon icon={Play} size={16} fill="currentColor" strokeWidth={0} />
                 {/snippet}
                 {t('news.watch')}
               </SecondButton>
@@ -397,6 +395,12 @@
       </div>
     {/if}
   </section>
+
+  {#if leadItem?.image}
+    <div class="news-ambient" aria-hidden="true">
+      <LayerBlur src={leadItem.image} blur={96} opacity={0.28} scale={1.18} offsetY={-10} />
+    </div>
+  {/if}
 
   <div class="news-body">
     {#if loading}
@@ -428,6 +432,7 @@
                   <div
                     class="story-card"
                     class:is-compact={!item.image}
+                    class:is-release={Boolean(item.releaseAlias)}
                     onclick={() => openStory(item)}
                   >
                     {#if item.image}
@@ -441,6 +446,9 @@
                           decoding="async"
                         />
                         <div class="media-fade"></div>
+                        {#if item.releaseAlias && item.episodeOrdinal}
+                          <span class="media-ep-pill">EP {item.episodeOrdinal}</span>
+                        {/if}
                       </div>
                     {/if}
 
@@ -457,26 +465,27 @@
                           {/if}
                           {#if item.commentsCount && item.commentsCount > 0}
                             <span class="meta-comments">
-                              <MessageSquare size={12} strokeWidth={2} />
+                              <MorphIcon icon={MessageSquare} size={12} strokeWidth={2} />
                               {item.commentsCount}
                             </span>
                           {/if}
                         </div>
 
                         {#if item.releaseAlias}
-                          <MainButton loading={watchingId === item.id} onclick={(e) => watchItem(item, e)}>
-                            {#snippet icon()}
-                              <Play size={15} fill="currentColor" strokeWidth={0} />
-                            {/snippet}
-                            Watch
-                          </MainButton>
+                          <button
+                            type="button"
+                            class="story-action-pill is-watch"
+                            disabled={watchingId === item.id}
+                            onclick={(e) => watchItem(item, e)}
+                          >
+                            <MorphIcon icon={Play} size={12} fill="currentColor" strokeWidth={0} />
+                            <span>{watchingId === item.id ? '...' : t('news.watch')}</span>
+                          </button>
                         {:else}
-                          <SecondButton onclick={(e) => { e.stopPropagation(); openStory(item); }}>
-                            {#snippet icon()}
-                              <BookOpen size={15} strokeWidth={2} />
-                            {/snippet}
-                            Read
-                          </SecondButton>
+                          <span class="story-action-pill is-read" aria-hidden="true">
+                            <span>{t('news.readStory')}</span>
+                            <MorphIcon icon={ArrowUpRight} size={13} strokeWidth={2} />
+                          </span>
                         {/if}
                       </div>
                     </div>
@@ -509,70 +518,72 @@
       aria-label={activeStory.title}
       tabindex="-1"
     >
-      {#if activeStory.image}
-        <div class="reader-hero">
-          <img
-            src={activeStory.image}
-            alt={activeStory.title}
-            class="reader-hero-img"
-            class:is-portrait={!activeStory.isLandscape}
-          />
-          <div class="reader-hero-fade"></div>
-        </div>
-      {/if}
-
       <button
         type="button"
         class="reader-close"
         aria-label="Close article"
         onclick={closeStory}
       >
-        <X size={18} strokeWidth={2} />
+        <MorphIcon icon={X} size={18} strokeWidth={2} />
       </button>
 
-      <div class="reader-content">
-        <MetaLine
-          score={activeStory.score}
-          tags={[
-            ...(activeStory.relativeTime ? [activeStory.relativeTime] : []),
-            ...activeStory.hashtags
-          ]}
-        />
-
-        <h2 class="reader-title">{activeStory.title}</h2>
-
-        <div class="reader-paragraphs">
-          {#each activeStory.paragraphs as para, idx (idx)}
-            <p class="reader-para">{para}</p>
-          {/each}
-        </div>
-
-        {#if activeStory.quote}
-          <blockquote class="reader-quote">{activeStory.quote}</blockquote>
+      <ScrollArea maxHeight={680}>
+        {#if activeStory.image}
+          <div class="reader-hero">
+            <img
+              src={activeStory.image}
+              alt={activeStory.title}
+              class="reader-hero-img"
+              class:is-portrait={!activeStory.isLandscape}
+            />
+            <div class="reader-hero-fade"></div>
+          </div>
         {/if}
 
-        <div class="reader-actions">
-          {#if activeStory.releaseAlias || activeStory.shikiId}
-            <MainButton loading={watchingId === activeStory.id} onclick={() => watchItem(activeStory!)}>
-              {#snippet icon()}
-                <Play size={16} fill="currentColor" strokeWidth={0} />
-              {/snippet}
-              Watch on Mila
-            </MainButton>
+        <div class="reader-content">
+          <MetaLine
+            score={activeStory.score}
+            tags={[
+              ...(activeStory.relativeTime ? [activeStory.relativeTime] : []),
+              ...activeStory.hashtags
+            ]}
+          />
+
+          <h2 class="reader-title">{activeStory.title}</h2>
+
+          <div class="reader-paragraphs">
+            {#each activeStory.paragraphs as para, idx (idx)}
+              <p class="reader-para">{para}</p>
+            {/each}
+          </div>
+
+          {#if activeStory.quote}
+            <blockquote class="reader-quote">{activeStory.quote}</blockquote>
           {/if}
 
-          {#if activeStory.externalUrl}
-            <SecondButton
-              onclick={() => window.open(activeStory!.externalUrl, '_blank', 'noopener,noreferrer')}
-            >
-              {#snippet icon()}
-                <ExternalLink size={15} strokeWidth={2} />
-              {/snippet}
-              Open on Shikimori
-            </SecondButton>
-          {/if}
+          <div class="reader-actions">
+            {#if activeStory.releaseAlias || activeStory.shikiId}
+              <MainButton loading={watchingId === activeStory.id} onclick={() => watchItem(activeStory!)}>
+                {#snippet icon()}
+                  <MorphIcon icon={Play} size={16} fill="currentColor" strokeWidth={0} />
+                {/snippet}
+                Watch on Mila
+              </MainButton>
+            {/if}
+
+            {#if activeStory.externalUrl}
+              <SecondButton
+                onclick={() => window.open(activeStory!.externalUrl, '_blank', 'noopener,noreferrer')}
+              >
+                {#snippet icon()}
+                  <MorphIcon icon={ExternalLink} size={15} strokeWidth={2} />
+                {/snippet}
+                Open on Shikimori
+              </SecondButton>
+            {/if}
+          </div>
         </div>
-      </div>
+      </ScrollArea>
     </div>
   </div>
 {/if}
@@ -582,7 +593,7 @@
     position: relative;
     width: 100%;
     min-height: 100vh;
-    padding: 0 0 56px 0;
+    padding: 0 0 36px 0;
     box-sizing: border-box;
     background: var(--mila-app-canvas, #0c0c0c);
     color: var(--mila-text-primary, #ffffff);
@@ -594,12 +605,38 @@
     transition: background-color 360ms cubic-bezier(0.22, 1, 0.36, 1), color 320ms ease;
   }
 
+  .news-ambient {
+    position: absolute;
+    top: clamp(320px, 44vh, 460px);
+    left: 0;
+    right: 0;
+    height: clamp(360px, 52vh, 520px);
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+    mask-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 0.92) 28%,
+      rgba(0, 0, 0, 0.45) 70%,
+      rgba(0, 0, 0, 0) 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 0.92) 28%,
+      rgba(0, 0, 0, 0.45) 70%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+
   /* Full-bleed edge-to-edge Home-style banner hero */
   .news-hero-wrap {
     position: relative;
+    z-index: 1;
     width: 100%;
-    min-height: clamp(410px, 58vh, 540px);
-    padding: var(--header-height, 58px) 0 clamp(28px, 4vw, 42px) 0;
+    min-height: clamp(410px, 56vh, 520px);
+    padding: var(--header-height, 58px) 0 clamp(28px, 3.6vw, 40px) 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -901,41 +938,26 @@
     flex-direction: column;
     width: 100%;
     border-radius: var(--radius-card);
+    clip-path: inset(0 round var(--radius-card));
     overflow: hidden;
-    background: var(--mila-cards-bg, #0c0c0c);
+    background: var(--mila-app-surface, rgba(255, 255, 255, 0.032));
     cursor: pointer;
     isolation: isolate;
     contain: layout paint;
     content-visibility: auto;
-    contain-intrinsic-size: 1px 360px;
-    transition: transform 0.3s var(--ease-out);
+    contain-intrinsic-size: 1px 340px;
+    transition:
+      background-color 0.28s var(--ease-out),
+      transform 0.3s var(--ease-out);
   }
 
-  .story-card::after {
-    content: '';
-    position: absolute;
-    inset: -3px;
-    border-radius: calc(var(--radius-card) + 3px);
-    border: 4px solid var(--mila-app-canvas, #0c0c0c);
-    transform: translateZ(0);
-    pointer-events: none;
-    z-index: 5;
+  .story-card:hover {
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.056));
+    transform: translateY(-2px);
   }
 
-  .story-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: 4;
-    border-radius: var(--radius-card);
-    background: linear-gradient(155deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 45%);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.28s var(--ease-out);
-  }
-
-  .story-card:hover::before {
-    opacity: 1;
+  .story-card:active {
+    transform: translateY(0) scale(0.992);
   }
 
   .story-media {
@@ -953,7 +975,10 @@
     object-fit: cover;
     display: block;
     backface-visibility: hidden;
-    transition: filter 0.34s var(--ease-out);
+    transform: scale(1.001);
+    transition:
+      transform 0.48s var(--ease-out),
+      filter 0.34s var(--ease-out);
     pointer-events: none;
     user-select: none;
   }
@@ -963,26 +988,44 @@
   }
 
   .story-card:hover .media-img {
-    filter: brightness(1.09) contrast(1.04);
+    transform: scale(1.032);
+    filter: brightness(1.06) contrast(1.03);
   }
 
   .media-fade {
     position: absolute;
-    inset: -3px;
+    inset: -2px;
     z-index: 1;
-    background: linear-gradient(180deg, rgba(16, 16, 18, 0) 36%, var(--mila-cards-bg, #101012) 95%);
+    background: linear-gradient(180deg, rgba(16, 16, 18, 0) 34%, rgba(16, 16, 18, 0.88) 92%, var(--mila-cards-bg, #101012) 100%);
+    pointer-events: none;
+  }
+
+  .media-ep-pill {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 2;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(12, 12, 14, 0.72);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--mila-accent, #d9ff70);
     pointer-events: none;
   }
 
   .story-info {
     position: relative;
     z-index: 2;
-    margin-top: -2px;
-    background: var(--mila-cards-bg, #101012);
+    margin-top: -1px;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 14px 18px 16px 18px;
+    padding: 13px 18px 15px 18px;
     flex: 0 0 auto;
   }
 
@@ -994,7 +1037,7 @@
   .story-title {
     margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(16px, 1.45vw, 18px);
+    font-size: clamp(15.5px, 1.42vw, 17.5px);
     font-weight: 700;
     line-height: 1.24;
     color: var(--mila-text-primary, #f3f3f3);
@@ -1008,8 +1051,8 @@
   .story-excerpt {
     margin: 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 14px;
-    line-height: 1.42;
+    font-size: 13.5px;
+    line-height: 1.44;
     color: var(--mila-text-muted, #8d8d8d);
     display: -webkit-box;
     line-clamp: 2;
@@ -1019,7 +1062,7 @@
   }
 
   .story-footer {
-    padding-top: 6px;
+    padding-top: 8px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1031,7 +1074,7 @@
     align-items: center;
     gap: 10px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
+    font-size: 12.5px;
     color: var(--mila-text-dim, #6b6b70);
   }
 
@@ -1039,6 +1082,52 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
+  }
+
+  .story-action-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 11px;
+    border: none;
+    border-radius: 8px;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    transition:
+      background-color 0.22s var(--ease-out),
+      color 0.22s var(--ease-out),
+      transform 0.14s ease,
+      opacity 0.22s var(--ease-out);
+  }
+
+  .story-action-pill.is-watch {
+    background: var(--mila-accent-muted, rgba(217, 255, 112, 0.14));
+    color: var(--mila-accent, #d9ff70);
+    cursor: pointer;
+  }
+
+  .story-action-pill.is-watch:hover {
+    background: var(--mila-accent, #d9ff70);
+    color: #0b0b0c;
+  }
+
+  .story-action-pill.is-watch:active {
+    transform: scale(0.95);
+  }
+
+  .story-action-pill.is-read {
+    background: rgba(255, 255, 255, 0.045);
+    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.7));
+    opacity: 0.72;
+  }
+
+  .story-card:hover .story-action-pill.is-read {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--mila-text-primary, #ffffff);
+    opacity: 1;
   }
 
   /* Loading skeletons */
@@ -1101,8 +1190,8 @@
   .reader-modal {
     position: relative;
     width: min(820px, 100%);
-    max-height: calc(100vh - 36px);
-    overflow-y: auto;
+    max-height: calc(100vh - 48px);
+    overflow: hidden;
     border-radius: 18px;
     background: var(--mila-popup-bgExpanded, rgba(14, 14, 17, 0.94));
     box-shadow: var(--mila-popup-shadow, 0 32px 90px rgba(0, 0, 0, 0.8));

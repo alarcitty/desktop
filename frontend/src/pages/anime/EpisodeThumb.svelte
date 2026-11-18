@@ -3,8 +3,8 @@
   import type HlsType from 'hls.js';
   import { getLoadedHls, loadHls } from '../../app/hlsLoader';
   import { releaseVideoElementBuffers } from '../../app/lifecycle';
-  import Play from '@lucide/svelte/icons/play';
-  import Check from '@lucide/svelte/icons/check';
+  import { MorphIcon } from 'morphicons/svelte';
+  import { Play, Check } from 'lucide';
   import type { PlayableEpisode } from '../../api/anime';
 
   interface Props {
@@ -369,7 +369,7 @@
         />
       {:else}
         <div class="ep-thumb-fallback" aria-hidden="true">
-          <Play size={18} fill="currentColor" strokeWidth={0} />
+          <MorphIcon icon={Play} size={18} fill="currentColor" strokeWidth={0} />
         </div>
       {/if}
 
@@ -402,7 +402,7 @@
         {/if}
         {#if isWatched}
           <span class="ep-list-tag is-watched">
-            <Check size={11} strokeWidth={2.5} />
+            <MorphIcon icon={Check} size={11} strokeWidth={2.5} />
             <span>Watched</span>
           </span>
         {/if}
@@ -452,7 +452,7 @@
         />
       {:else}
         <div class="ep-thumb-fallback" aria-hidden="true">
-          <Play size={20} fill="currentColor" strokeWidth={0} />
+          <MorphIcon icon={Play} size={20} fill="currentColor" strokeWidth={0} />
         </div>
       {/if}
 
@@ -476,7 +476,7 @@
         {/if}
         {#if isWatched}
           <span class="ep-badge-watched" title="Watched">
-            <Check size={12} strokeWidth={2.6} />
+            <MorphIcon icon={Check} size={12} strokeWidth={2.6} />
           </span>
         {/if}
       </div>

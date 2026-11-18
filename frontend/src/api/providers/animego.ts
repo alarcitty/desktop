@@ -18,6 +18,7 @@ export interface RawAnimeGODub {
   title: string;
   providerSlug: string;
   embedUrl: string;
+  fallbackKodikUrl?: string;
 }
 
 export interface RawAnimeGOPlayer {
@@ -50,10 +51,25 @@ function getWailsAnimeGO() {
   return getWailsMilaBridge();
 }
 
-export function buildAniboomMasterUrl(embedUrl: string, ordinal: number): string {
+export function buildAniboomMasterUrl(
+  embedUrl: string,
+  ordinal: number,
+  fallbackKodikUrl = '',
+  animeId = 0,
+  episodeId = 0,
+  translationId = ''
+): string {
   const params = new URLSearchParams();
   params.set('embed', embedUrl);
   params.set('ep', String(ordinal));
+  if (fallbackKodikUrl) {
+    params.set('fallback', fallbackKodikUrl);
+  }
+  if (episodeId > 0 && translationId) {
+    if (animeId > 0) params.set('animego_id', String(animeId));
+    params.set('ep_id', String(episodeId));
+    params.set('tr', translationId);
+  }
   return `/ext/aniboom/master.m3u8?${params.toString()}`;
 }
 
@@ -81,7 +97,8 @@ function buildAnimeGOEpisodeStream(
   ep: { ordinal: number; episodeId: number },
   trId: string,
   embedUrl: string,
-  providerSlug: string
+  providerSlug: string,
+  fallbackKodikUrl = ''
 ): Pick<PlayableEpisode, 'hls_1080' | 'hls_720'> {
   if (providerSlug === 'kodik') {
     return {
@@ -89,7 +106,14 @@ function buildAnimeGOEpisodeStream(
     };
   }
   return {
-    hls_1080: buildAniboomMasterUrl(embedUrl, ep.ordinal)
+    hls_1080: buildAniboomMasterUrl(
+      embedUrl,
+      ep.ordinal,
+      fallbackKodikUrl,
+      animeId,
+      ep.episodeId,
+      trId
+    )
   };
 }
 
@@ -194,6 +218,7 @@ export async function fetchAnimeGOEpisodes(
   const matchedDub = playerData.dubs.find((d) => d.translationId === translationId);
   const resolvedEmbed = embedUrl || embedByKey.get(cacheKey) || matchedDub?.embedUrl || '';
   const resolvedSlug = providerSlug || matchedDub?.providerSlug || (resolvedEmbed.includes('kodik') ? 'kodik' : 'aniboom');
+  const fallbackKodikUrl = matchedDub?.fallbackKodikUrl || '';
   if (!resolvedEmbed) return [];
   embedByKey.set(cacheKey, resolvedEmbed);
 
@@ -207,7 +232,7 @@ export async function fetchAnimeGOEpisodes(
     ordinal: ep.ordinal,
     name: `Episode ${ep.ordinal}`,
     duration: 0,
-    ...buildAnimeGOEpisodeStream(animeId, ep, translationId, resolvedEmbed, resolvedSlug)
+    ...buildAnimeGOEpisodeStream(animeId, ep, translationId, resolvedEmbed, resolvedSlug, fallbackKodikUrl)
   }));
 
   if (episodes.length > 0) {
@@ -275,7 +300,14 @@ export async function findAnimeGOMatch(
       ordinal: ep.ordinal,
       name: `Episode ${ep.ordinal}`,
       duration: 0,
-      ...buildAnimeGOEpisodeStream(bestItem.id, ep, trId, dub.embedUrl, dub.providerSlug)
+      ...buildAnimeGOEpisodeStream(
+        bestItem.id,
+        ep,
+        trId,
+        dub.embedUrl,
+        dub.providerSlug,
+        dub.fallbackKodikUrl || ''
+      )
     }));
     episodesByKey.set(cacheKey, episodes);
 

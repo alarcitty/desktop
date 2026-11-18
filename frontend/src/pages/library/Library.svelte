@@ -1,17 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { cubicIn, cubicOut } from 'svelte/easing';
-  import ArrowDown from '@lucide/svelte/icons/arrow-down';
-  import ArrowDownAZ from '@lucide/svelte/icons/arrow-down-a-z';
-  import ArrowUp from '@lucide/svelte/icons/arrow-up';
-  import Calendar from '@lucide/svelte/icons/calendar';
-  import Clock from '@lucide/svelte/icons/clock';
-  import LayoutList from '@lucide/svelte/icons/layout-list';
-  import LayoutGrid from '@lucide/svelte/icons/layout-grid';
-  import Search from '@lucide/svelte/icons/search';
-  import Star from '@lucide/svelte/icons/star';
-  import Trash2 from '@lucide/svelte/icons/trash-2';
-  import X from '@lucide/svelte/icons/x';
+  import {
+    ArrowDown,
+    ArrowDownAZ,
+    ArrowUp,
+    Calendar,
+    Clock,
+    LayoutGrid,
+    LayoutList,
+    Search,
+    Star,
+    Trash2,
+    X
+  } from 'lucide';
+  import { MorphIcon } from 'morphicons/svelte';
 
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import MetaLine from '../../marlakit/meta/MetaLine.svelte';
@@ -397,7 +400,7 @@
 
     <div class="library-controls">
       <div class="library-search" class:has-query={searchQuery.length > 0}>
-        <Search size={15} strokeWidth={1.8} class="library-search-icon" />
+        <MorphIcon icon={Search} size={15} strokeWidth={1.8} class="library-search-icon" />
         <input
           type="text"
           class="library-search-input"
@@ -413,7 +416,7 @@
             aria-label="Clear search"
             onclick={() => { searchQuery = ''; }}
           >
-            <X size={14} strokeWidth={2} />
+            <MorphIcon icon={X} size={14} strokeWidth={2} />
           </button>
         {/if}
       </div>
@@ -430,21 +433,18 @@
             aria-pressed={active}
             onclick={() => toggleSort(opt.key)}
           >
-            {#if opt.key === 'date'}
-              <Clock size={15} strokeWidth={1.85} />
-            {:else if opt.key === 'year'}
-              <Calendar size={15} strokeWidth={1.85} />
-            {:else if opt.key === 'rating'}
-              <Star size={15} strokeWidth={1.85} />
-            {:else}
-              <ArrowDownAZ size={15} strokeWidth={1.85} />
-            {/if}
+            <MorphIcon
+              icon={opt.key === 'date' ? Clock : opt.key === 'year' ? Calendar : opt.key === 'rating' ? Star : ArrowDownAZ}
+              size={15}
+              strokeWidth={1.85}
+            />
             {#if active}
-              {#if sortDir === 'desc'}
-                <ArrowDown size={11} strokeWidth={2.2} />
-              {:else}
-                <ArrowUp size={11} strokeWidth={2.2} />
-              {/if}
+              <MorphIcon
+                icon={sortDir === 'desc' ? ArrowDown : ArrowUp}
+                size={11}
+                strokeWidth={2.2}
+                spring="snappy"
+              />
             {/if}
           </button>
         {/each}
@@ -461,7 +461,7 @@
           aria-pressed={viewMode === 'list'}
           onclick={() => setViewMode('list')}
         >
-          <LayoutList size={18} strokeWidth={1.7} />
+          <MorphIcon icon={LayoutList} size={18} strokeWidth={1.7} />
         </button>
         <button
           type="button"
@@ -471,7 +471,7 @@
           aria-pressed={viewMode === 'grid'}
           onclick={() => setViewMode('grid')}
         >
-          <LayoutGrid size={18} strokeWidth={1.7} />
+          <MorphIcon icon={LayoutGrid} size={18} strokeWidth={1.7} />
         </button>
       </div>
 
@@ -483,7 +483,7 @@
           title="Clear history"
           onclick={clearWatchHistory}
         >
-          <Trash2 size={17} strokeWidth={1.75} />
+          <MorphIcon icon={Trash2} size={17} strokeWidth={1.75} />
         </button>
       {/if}
     </div>
@@ -564,7 +564,7 @@
                     removeHistoryEntry(item.id);
                   }}
                 >
-                  <Trash2 size={16} strokeWidth={1.75} />
+                  <MorphIcon icon={Trash2} size={16} strokeWidth={1.75} />
                 </button>
               </div>
             {/if}
@@ -608,7 +608,7 @@
                   removeHistoryEntry(item.id);
                 }}
               >
-                <Trash2 size={16} strokeWidth={1.75} />
+                <MorphIcon icon={Trash2} size={16} strokeWidth={1.75} />
               </button>
             {/if}
 
@@ -636,7 +636,8 @@
   .library-page {
     position: relative;
     width: 100%;
-    padding: var(--header-height, 58px) 0 18px 0;
+    min-height: 100vh;
+    padding: var(--header-height, 58px) 0 24px 0;
     box-sizing: border-box;
     background: var(--mila-app-canvas, #0c0c0c);
     color: var(--mila-text-primary, #ffffff);
@@ -653,13 +654,23 @@
     top: 0;
     left: 0;
     width: 100%;
-    height: 700px;
+    height: clamp(460px, 72vh, 720px);
     pointer-events: none;
     z-index: 0;
     contain: strict;
     transform: translate3d(0, 0, 0);
-    -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
-    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
+    -webkit-mask-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 1) 0%,
+      rgba(0, 0, 0, 0.48) 54%,
+      rgba(0, 0, 0, 0) 100%
+    );
+    mask-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 1) 0%,
+      rgba(0, 0, 0, 0.48) 54%,
+      rgba(0, 0, 0, 0) 100%
+    );
   }
 
   .library-head {

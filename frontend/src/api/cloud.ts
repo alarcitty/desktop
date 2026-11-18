@@ -10,6 +10,8 @@ export interface CloudPingResult {
 
 export interface CloudUser {
   id: number;
+  public_id?: string;
+  username?: string;
   email: string;
   name: string;
   avatar_url: string;

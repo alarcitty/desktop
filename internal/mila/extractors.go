@@ -48,10 +48,11 @@ type AnimeGOEpisodeItem struct {
 
 // AnimeGODubItem represents an extractable voiceover or subtitle track (AniBoom or Kodik).
 type AnimeGODubItem struct {
-	TranslationID string `json:"translationId"`
-	Title         string `json:"title"`
-	ProviderSlug  string `json:"providerSlug"`
-	EmbedURL      string `json:"embedUrl"`
+	TranslationID    string `json:"translationId"`
+	Title            string `json:"title"`
+	ProviderSlug     string `json:"providerSlug"`
+	EmbedURL         string `json:"embedUrl"`
+	FallbackKodikURL string `json:"fallbackKodikUrl,omitempty"`
 }
 
 // AnimeGOPlayerResult aggregates episodes and direct-extractable dubs for an anime ID.
@@ -347,10 +348,21 @@ func parseAnimeGOPlayerHTML(animeID int, playerHTML string, episodesHTML string)
 		}
 		if trID != "" {
 			if existing, exists := byTranslation[trID]; exists {
-				// Prefer 1080p AniBoom over 720p Kodik for the same translation ID.
-				if existing.ProviderSlug == "aniboom" || slug != "aniboom" {
+				// Prefer 1080p AniBoom over 720p Kodik for the same translation ID,
+				// but preserve the Kodik embed URL as an extraction fallback.
+				if existing.ProviderSlug == "aniboom" && slug == "kodik" {
+					if existing.FallbackKodikURL == "" {
+						existing.FallbackKodikURL = embedURL
+						byTranslation[trID] = existing
+					}
 					continue
 				}
+				if existing.ProviderSlug == "kodik" && slug == "aniboom" {
+					item.FallbackKodikURL = existing.EmbedURL
+					byTranslation[trID] = item
+					continue
+				}
+				continue
 			}
 			byTranslation[trID] = item
 		} else {

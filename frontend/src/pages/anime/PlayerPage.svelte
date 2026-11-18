@@ -2,17 +2,20 @@
   import { onDestroy } from 'svelte';
   import { fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
-  import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-  import ArrowUp from '@lucide/svelte/icons/arrow-up';
-  import ArrowDown from '@lucide/svelte/icons/arrow-down';
-  import Clock from '@lucide/svelte/icons/clock';
-  import EyeOff from '@lucide/svelte/icons/eye-off';
-  import LayoutGrid from '@lucide/svelte/icons/layout-grid';
-  import LayoutList from '@lucide/svelte/icons/layout-list';
-  import ListOrdered from '@lucide/svelte/icons/list-ordered';
-  import PictureInPicture2 from '@lucide/svelte/icons/picture-in-picture-2';
-  import RefreshCw from '@lucide/svelte/icons/refresh-cw';
-  import HardDriveDownload from '@lucide/svelte/icons/hard-drive-download';
+  import { MorphIcon } from 'morphicons/svelte';
+  import {
+    ArrowLeft,
+    ArrowUp,
+    ArrowDown,
+    Clock,
+    EyeOff,
+    LayoutGrid,
+    LayoutList,
+    ListOrdered,
+    PictureInPicture2,
+    RefreshCw,
+    HardDriveDownload
+  } from 'lucide';
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../marlakit/button/SecondButton.svelte';
@@ -303,7 +306,7 @@
             <p class="error-text">{player.error}</p>
             <MainButton onclick={retryWatch}>
               {#snippet icon()}
-                <RefreshCw size={15} strokeWidth={2} />
+                <MorphIcon icon={RefreshCw} size={15} strokeWidth={2} />
               {/snippet}
               {t('anime.retry')}
             </MainButton>
@@ -319,7 +322,7 @@
               <span>Playing in Picture-in-Picture</span>
               <SecondButton onclick={expandCustomPip}>
                 {#snippet icon()}
-                  <PictureInPicture2 size={15} strokeWidth={2} />
+                  <MorphIcon icon={PictureInPicture2} size={15} strokeWidth={2} />
                 {/snippet}
                 Return to player
               </SecondButton>
@@ -346,7 +349,7 @@
               aria-label={t('anime.back')}
               title={t('anime.back')}
             >
-              <ArrowLeft size={18} strokeWidth={2} />
+              <MorphIcon icon={ArrowLeft} size={18} strokeWidth={2} />
             </button>
             <h2 class="section-heading">{t('anime.episodes')}</h2>
             <span class="section-count">{episodes.length}</span>
@@ -375,13 +378,14 @@
                 title="Order"
                 onclick={() => toggleEpSort('order')}
               >
-                <ListOrdered size={14} strokeWidth={1.85} />
+                <MorphIcon icon={ListOrdered} size={14} strokeWidth={1.85} />
                 {#if epSortBy === 'order'}
-                  {#if epSortDir === 'asc'}
-                    <ArrowUp size={11} strokeWidth={2.2} />
-                  {:else}
-                    <ArrowDown size={11} strokeWidth={2.2} />
-                  {/if}
+                  <MorphIcon
+                    icon={epSortDir === 'asc' ? ArrowUp : ArrowDown}
+                    size={11}
+                    strokeWidth={2.2}
+                    spring="snappy"
+                  />
                 {/if}
               </button>
               <button
@@ -392,13 +396,14 @@
                 title="Duration"
                 onclick={() => toggleEpSort('duration')}
               >
-                <Clock size={14} strokeWidth={1.85} />
+                <MorphIcon icon={Clock} size={14} strokeWidth={1.85} />
                 {#if epSortBy === 'duration'}
-                  {#if epSortDir === 'asc'}
-                    <ArrowUp size={11} strokeWidth={2.2} />
-                  {:else}
-                    <ArrowDown size={11} strokeWidth={2.2} />
-                  {/if}
+                  <MorphIcon
+                    icon={epSortDir === 'asc' ? ArrowUp : ArrowDown}
+                    size={11}
+                    strokeWidth={2.2}
+                    spring="snappy"
+                  />
                 {/if}
               </button>
               <button
@@ -409,13 +414,14 @@
                 title="Unwatched"
                 onclick={() => toggleEpSort('unwatched')}
               >
-                <EyeOff size={14} strokeWidth={1.85} />
+                <MorphIcon icon={EyeOff} size={14} strokeWidth={1.85} />
                 {#if epSortBy === 'unwatched'}
-                  {#if epSortDir === 'asc'}
-                    <ArrowUp size={11} strokeWidth={2.2} />
-                  {:else}
-                    <ArrowDown size={11} strokeWidth={2.2} />
-                  {/if}
+                  <MorphIcon
+                    icon={epSortDir === 'asc' ? ArrowUp : ArrowDown}
+                    size={11}
+                    strokeWidth={2.2}
+                    spring="snappy"
+                  />
                 {/if}
               </button>
             </div>
@@ -426,7 +432,7 @@
               class:is-active={torrentsOpen || player.release?.provider === 'torrent'}
               onclick={() => void toggleTorrentsDrawer()}
             >
-              <HardDriveDownload size={14} strokeWidth={1.9} />
+              <MorphIcon icon={HardDriveDownload} size={14} strokeWidth={1.9} />
               <span>Torrents</span>
             </button>
 
@@ -440,7 +446,7 @@
                 aria-pressed={epViewMode === 'list'}
                 onclick={() => setEpisodeViewMode('list')}
               >
-                <LayoutList size={17} strokeWidth={1.7} />
+                <MorphIcon icon={LayoutList} size={17} strokeWidth={1.7} />
               </button>
               <button
                 type="button"
@@ -450,7 +456,7 @@
                 aria-pressed={epViewMode === 'grid'}
                 onclick={() => setEpisodeViewMode('grid')}
               >
-                <LayoutGrid size={17} strokeWidth={1.7} />
+                <MorphIcon icon={LayoutGrid} size={17} strokeWidth={1.7} />
               </button>
             </div>
           </div>

@@ -1,22 +1,22 @@
 <script lang="ts">
-  import Search from "@lucide/svelte/icons/search";
-  import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
-  import Minus from "@lucide/svelte/icons/minus";
-  import Square from "@lucide/svelte/icons/square";
-  import Copy from "@lucide/svelte/icons/copy";
-  import X from "@lucide/svelte/icons/x";
+  import { Copy, Minus, Search, SlidersHorizontal, Square, X } from "lucide";
+  import { MorphIcon } from "morphicons/svelte";
   import { cubicOut } from "svelte/easing";
   import MilaLogo from "../../themes/MilaLogo.svelte";
   import Input from "../../marlakit/input/Input.svelte";
   import SocialButton from "../../marlakit/button/SocialButton.svelte";
   import GitButton from "../../marlakit/button/GitButton.svelte";
   import ComboBox from "../../marlakit/combo/ComboBox.svelte";
+  import ArrowSwitcher from "../../marlakit/switcher/ArrowSwitcher.svelte";
+  import RgbLine from "../../marlakit/slider/RgbLine.svelte";
   import LayerBlur from "../../marlakit/blur/LayerBlur.svelte";
   import type { ComboOption, ComboSection } from "../../marlakit/combo/types";
   import { pages } from "../../pages";
   import { router, navigate } from "../../app/router.svelte";
   import { search, openSearch, setSearchAnchor } from "../../app/search.svelte";
   import { auth, initAuth, loginWithGoogle, logout } from "../../app/auth.svelte";
+  import { friendsState, openFriendsPopup } from "../../app/friends.svelte";
+  import FriendsPopup from "../friends/FriendsPopup.svelte";
   import {
     bindings,
     closeAppWindow,
@@ -34,6 +34,13 @@
     SUPPORTED_LOCALES,
     t
   } from "../../app/i18n.svelte";
+  import {
+    setCustomHue,
+    setThemeMode,
+    SUPPORTED_THEMES,
+    theme,
+    type ThemeMode
+  } from "../../app/theme.svelte";
 
   interface Props {
     hidden?: boolean;
@@ -157,6 +164,11 @@
       }
       return;
     }
+    if (val === "friends") {
+      menuOpen = false;
+      openFriendsPopup();
+      return;
+    }
     if (val === "logout") {
       menuOpen = false;
       void logout();
@@ -176,21 +188,40 @@
   const userInitial = $derived(userDisplayName.slice(0, 1).toUpperCase());
   const accountSections = $derived<ComboSection[]>([
     {
-      id: "language",
-      title: t("header.language"),
-      options: SUPPORTED_LOCALES.map((loc) => ({
-        value: `lang:${loc.code}`,
-        label: loc.nativeLabel,
-        selected: i18n.locale === loc.code,
-        keepOpen: true
-      }))
-    },
-    {
       id: "account",
-      title: auth.user?.email || t("header.account"),
-      options: [{ value: "logout", label: t("header.signOut"), disabled: auth.loading }]
+      title: auth.user?.username ? `@${auth.user.username}` : auth.user?.email || t("header.account"),
+      options: [
+        {
+          value: "friends",
+          label: t("header.friends"),
+          sublabel:
+            friendsState.incoming.length > 0
+              ? `+${friendsState.incoming.length}`
+              : friendsState.friends.length > 0
+                ? String(friendsState.friends.length)
+                : undefined
+        },
+        { value: "logout", label: t("header.signOut"), disabled: auth.loading }
+      ]
     }
   ]);
+
+  const localeOptions = SUPPORTED_LOCALES.map((loc) => ({
+    value: loc.code,
+    label: loc.nativeLabel
+  }));
+
+  const themeOptions = $derived.by(() => {
+    const labels: Record<ThemeMode, string> = {
+      dark: t("setup.themeDark"),
+      light: t("setup.themeLight"),
+      custom: t("setup.themeCustom")
+    };
+    return SUPPORTED_THEMES.map((mode) => ({
+      value: mode,
+      label: labels[mode]
+    }));
+  });
 
   function revealBlur(
     _node: HTMLElement,
@@ -244,7 +275,7 @@
         placeholder={t("header.searchPlaceholder")}
       >
         {#snippet icon()}
-          <Search size={16} strokeWidth={1.8} />
+          <MorphIcon icon={Search} size={16} strokeWidth={1.8} />
         {/snippet}
         {#snippet trailingIcon()}
           <button
@@ -257,7 +288,7 @@
               openSearch({ filters: true });
             }}
           >
-            <SlidersHorizontal size={15} strokeWidth={1.8} />
+            <MorphIcon icon={SlidersHorizontal} size={15} strokeWidth={1.8} />
           </button>
         {/snippet}
       </Input>
@@ -267,7 +298,6 @@
   <!-- Nav tabs (centered) -->
   <nav class="nav-tabs">
     {#each pages as tab (tab.id)}
-      {@const TabIcon = tab.icon}
       {@const tabTitle = t(navLabels[tab.id] ?? tab.name)}
       <button
         type="button"
@@ -277,7 +307,7 @@
         title={tabTitle}
         aria-label={tabTitle}
       >
-        <TabIcon size={18} strokeWidth={1.7} />
+        <MorphIcon icon={tab.icon} size={18} strokeWidth={1.7} />
         <span class="tab-name">{tabTitle}</span>
       </button>
     {/each}
@@ -294,12 +324,49 @@
             bind:open={menuOpen}
             sections={accountSections}
             placement="bottom-right"
-            minWidth={210}
-            maxHeight={340}
+            minWidth={236}
+            maxHeight={360}
             class="auth-profile"
             menuClass="auth-combo-menu"
             onselect={handleAccountSelect}
           >
+            {#snippet header()}
+              <div class="profile-control-block">
+                <span class="profile-control-label">{t("header.language")}</span>
+                <ArrowSwitcher
+                  compact
+                  value={i18n.locale}
+                  options={localeOptions}
+                  ariaLabel={t("header.language")}
+                  onchange={(val) => {
+                    const code = String(val);
+                    if (isLocaleCode(code)) setLocale(code);
+                  }}
+                />
+              </div>
+              <div class="profile-control-block">
+                <span class="profile-control-label">{t("header.theme")}</span>
+                <ArrowSwitcher
+                  compact
+                  value={theme.mode}
+                  options={themeOptions}
+                  ariaLabel={t("header.theme")}
+                  onchange={(val) => {
+                    const next = String(val) as ThemeMode;
+                    if (SUPPORTED_THEMES.includes(next)) setThemeMode(next);
+                  }}
+                />
+                {#if theme.mode === "custom"}
+                  <div
+                    class="profile-rgb-wrap"
+                    in:revealBlur={{ duration: 240, scale: 0.96, blur: 5 }}
+                    out:revealBlur={{ duration: 160, scale: 0.96, blur: 4 }}
+                  >
+                    <RgbLine hue={theme.hue} onchange={(nextHue) => setCustomHue(nextHue)} />
+                  </div>
+                {/if}
+              </div>
+            {/snippet}
             {#snippet trigger({ open, toggle })}
               <button
                 type="button"
@@ -388,7 +455,7 @@
         title={t("header.minimize")}
         onclick={minimizeAppWindow}
       >
-        <Minus size={15} strokeWidth={1.4} />
+        <MorphIcon icon={Minus} size={15} strokeWidth={1.4} />
       </button>
       <button
         type="button"
@@ -397,11 +464,12 @@
         title={bindings.isWindowSharp ? t("header.exitFullscreen") : t("header.fullscreen")}
         onclick={() => void toggleAppFullscreen()}
       >
-        {#if bindings.isWindowSharp}
-          <Copy size={13} strokeWidth={1.4} />
-        {:else}
-          <Square size={12} strokeWidth={1.4} />
-        {/if}
+        <MorphIcon
+          icon={bindings.isWindowSharp ? Copy : Square}
+          size={bindings.isWindowSharp ? 13 : 12}
+          strokeWidth={1.4}
+          spring="snappy"
+        />
       </button>
       <button
         type="button"
@@ -410,11 +478,13 @@
         title={t("header.close")}
         onclick={closeAppWindow}
       >
-        <X size={16} strokeWidth={1.4} />
+        <MorphIcon icon={X} size={16} strokeWidth={1.4} />
       </button>
     </div>
   </div>
 </header>
+
+<FriendsPopup />
 
 <style>
   .header {
@@ -711,6 +781,25 @@
 
   :global(.auth-combo-menu) {
     top: 36px !important;
+  }
+
+  .profile-control-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .profile-control-label {
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--mila-popup-comboSectionText, rgba(255, 255, 255, 0.24));
+    user-select: none;
+  }
+
+  .profile-rgb-wrap {
+    padding: 2px 2px 0;
   }
 
   .auth-trigger {

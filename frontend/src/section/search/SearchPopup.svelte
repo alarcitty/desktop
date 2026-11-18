@@ -5,17 +5,21 @@
   import type HlsType from 'hls.js';
   import { getLoadedHls, loadHls } from '../../app/hlsLoader';
   import { createDeferredDestroyQueue, releaseVideoElementBuffers } from '../../app/lifecycle';
-  import ArrowUpDown from '@lucide/svelte/icons/arrow-up-down';
-  import Calendar from '@lucide/svelte/icons/calendar';
-  import ChevronDown from '@lucide/svelte/icons/chevron-down';
-  import Hash from '@lucide/svelte/icons/hash';
-  import Layers from '@lucide/svelte/icons/layers';
-  import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
-  import Search from '@lucide/svelte/icons/search';
-  import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
-  import Star from '@lucide/svelte/icons/star';
-  import Tag from '@lucide/svelte/icons/tag';
-  import Tv from '@lucide/svelte/icons/tv';
+  import { MorphIcon } from 'morphicons/svelte';
+  import {
+    ArrowUpDown,
+    Calendar,
+    ChevronDown,
+    Hash,
+    Layers,
+    RotateCcw,
+    Search,
+    SlidersHorizontal,
+    Star,
+    Tag,
+    Tv,
+    Users
+  } from 'lucide';
 
   import MorphPopup from '../../marlakit/popup/MorphPopup.svelte';
   import Input from '../../marlakit/input/Input.svelte';
@@ -34,6 +38,8 @@
     getSearchAnchorRect
   } from '../../app/search.svelte';
   import { openWatch } from '../../app/player.svelte';
+  import { navigate } from '../../app/router.svelte';
+  import { selectAnimeForWatchTogether } from '../../app/watchTogether.svelte';
   import { parseMilaShareLink } from '../../app/router.svelte';
   import {
     clampOpeningClipWindow,
@@ -1189,6 +1195,22 @@
     );
   }
 
+  function pickForWatchTogether(aItem: UnifiedSearchItem | undefined, e?: MouseEvent) {
+    e?.stopPropagation();
+    if (!aItem) return;
+    closeSearch();
+    void selectAnimeForWatchTogether({
+      title: aItem.title,
+      poster: aItem.poster,
+      shikiId: aItem.shikiId,
+      releaseAlias: aItem.releaseAlias,
+      score: aItem.score,
+      tags: formatMetaTags(aItem),
+      searchQueries: aItem.searchQueries
+    });
+    navigate('watch-together');
+  }
+
   function formatMetaTags(item: UnifiedSearchItem): string[] {
     const tags: string[] = [];
     if (item.year) tags.push(String(item.year));
@@ -1286,7 +1308,7 @@
         class="search-popup-input"
       >
         {#snippet icon()}
-          <Search size={17} strokeWidth={1.8} />
+          <MorphIcon icon={Search} size={17} strokeWidth={1.8} />
         {/snippet}
         {#snippet trailingIcon()}
           <div class="input-trailing-actions">
@@ -1302,7 +1324,7 @@
                 search.filtersOpen = !search.filtersOpen;
               }}
             >
-              <SlidersHorizontal size={15} strokeWidth={1.8} />
+              <MorphIcon icon={SlidersHorizontal} size={15} strokeWidth={1.8} />
               {#if activeCustomFilterCount > 0}
                 <span class="filter-badge">{activeCustomFilterCount}</span>
               {/if}
@@ -1340,8 +1362,8 @@
                   title={label}
                   onclick={toggle}
                 >
-                  <Layers size={14} strokeWidth={1.85} />
-                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
+                  <MorphIcon icon={Layers} size={14} strokeWidth={1.85} />
+                  <MorphIcon icon={ChevronDown} size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1370,8 +1392,8 @@
                   title={label}
                   onclick={toggle}
                 >
-                  <Tv size={14} strokeWidth={1.85} />
-                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
+                  <MorphIcon icon={Tv} size={14} strokeWidth={1.85} />
+                  <MorphIcon icon={ChevronDown} size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1399,8 +1421,8 @@
                   title={label}
                   onclick={toggle}
                 >
-                  <Tag size={14} strokeWidth={1.85} />
-                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
+                  <MorphIcon icon={Tag} size={14} strokeWidth={1.85} />
+                  <MorphIcon icon={ChevronDown} size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1429,8 +1451,8 @@
                   title={label}
                   onclick={toggle}
                 >
-                  <Calendar size={14} strokeWidth={1.85} />
-                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
+                  <MorphIcon icon={Calendar} size={14} strokeWidth={1.85} />
+                  <MorphIcon icon={ChevronDown} size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1459,8 +1481,8 @@
                   title={label}
                   onclick={toggle}
                 >
-                  <Star size={14} strokeWidth={1.85} />
-                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
+                  <MorphIcon icon={Star} size={14} strokeWidth={1.85} />
+                  <MorphIcon icon={ChevronDown} size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1489,8 +1511,8 @@
                   title={label}
                   onclick={toggle}
                 >
-                  <Hash size={14} strokeWidth={1.85} />
-                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
+                  <MorphIcon icon={Hash} size={14} strokeWidth={1.85} />
+                  <MorphIcon icon={ChevronDown} size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1519,8 +1541,8 @@
                   title={label}
                   onclick={toggle}
                 >
-                  <ArrowUpDown size={14} strokeWidth={1.85} />
-                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
+                  <MorphIcon icon={ArrowUpDown} size={14} strokeWidth={1.85} />
+                  <MorphIcon icon={ChevronDown} size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1534,7 +1556,7 @@
               title="Reset filters"
               onclick={resetCustomFilters}
             >
-              <RotateCcw size={13} strokeWidth={2} />
+              <MorphIcon icon={RotateCcw} size={13} strokeWidth={2} />
             </button>
           {/if}
         </div>
@@ -1621,6 +1643,17 @@
                         {item.sourceBadge}
                       </span>
                     {/if}
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <span
+                      role="button"
+                      tabindex="-1"
+                      class="wt-pick-btn"
+                      title="Select for Watch Together"
+                      aria-label="Select {item.title} for Watch Together"
+                      onclick={(e) => pickForWatchTogether(item, e)}
+                    >
+                      <MorphIcon icon={Users} size={14} strokeWidth={1.9} />
+                    </span>
                   </button>
                 </li>
               {/each}
@@ -2209,6 +2242,35 @@
 
   .result.selected .source-badge {
     color: rgba(255, 255, 255, 0.78);
+  }
+
+  .wt-pick-btn {
+    position: relative;
+    z-index: 4;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.58);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition:
+      background-color 0.2s var(--ease-out),
+      color 0.2s var(--ease-out),
+      transform 0.14s ease;
+  }
+
+  .wt-pick-btn:hover {
+    background: var(--mila-accent, #d9ff70);
+    color: #0b0b0c;
+    transform: scale(1.05);
+  }
+
+  .wt-pick-btn:active {
+    transform: scale(0.95);
   }
 
   .empty {

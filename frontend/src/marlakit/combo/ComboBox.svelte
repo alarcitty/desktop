@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Check from '@lucide/svelte/icons/check';
-  import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import { Check, ChevronRight } from 'lucide';
+  import { MorphIcon } from 'morphicons/svelte';
   import type { Snippet } from 'svelte';
   import { cubicOut } from 'svelte/easing';
   import ScrollArea from '../scroll/ScrollArea.svelte';
@@ -49,6 +49,7 @@
     disabled?: boolean;
     icon?: Snippet;
     trigger?: Snippet<[{ open: boolean; toggle: () => void; label: string }]>;
+    header?: Snippet;
     footer?: Snippet;
     subFooter?: Snippet<[ComboOption]>;
     class?: string;
@@ -74,6 +75,7 @@
     disabled = false,
     icon,
     trigger,
+    header,
     footer,
     subFooter,
     class: className = '',
@@ -288,7 +290,7 @@
     </button>
   {/if}
 
-  {#if open && normalizedSections.length > 0}
+  {#if open && (normalizedSections.length > 0 || header || footer)}
     <div
       class="marla-combo-layer placement-{placement} {menuClass}"
       transition:comboTransition={{ dirY: placement.startsWith('top') ? 6 : -6 }}
@@ -302,6 +304,11 @@
         style:min-width="{minWidth}px"
         style:max-width={maxWidth ? `${maxWidth}px` : undefined}
       >
+        {#if header}
+          <div class="marla-combo-header">
+            {@render header()}
+          </div>
+        {/if}
         <ScrollArea maxHeight={maxHeight ?? 280}>
           <div class="marla-combo-list">
             {#each normalizedSections as sec, secIdx (sec.id ?? sec.title ?? secIdx)}
@@ -344,10 +351,10 @@
                       {#if isSelected}
                         <span class="marla-combo-dot" aria-hidden="true"></span>
                       {/if}
-                      <ChevronRight size={13} strokeWidth={2} class="marla-combo-chevron" />
+                      <MorphIcon icon={ChevronRight} size={13} strokeWidth={2} class="marla-combo-chevron" />
                     </span>
                   {:else if isSelected}
-                    <Check size={14} strokeWidth={2.2} />
+                    <MorphIcon icon={Check} size={14} strokeWidth={2.2} />
                   {/if}
                 </button>
               {/each}
@@ -399,7 +406,7 @@
                       <span class="marla-combo-label">{subOpt.label}</span>
                     {/if}
                     {#if subSelected}
-                      <Check size={14} strokeWidth={2.2} />
+                      <MorphIcon icon={Check} size={14} strokeWidth={2.2} />
                     {/if}
                   </button>
                 {/each}
@@ -655,6 +662,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 205px;
+  }
+
+  .marla-combo-header {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px 4px;
   }
 
   .marla-combo-footer {

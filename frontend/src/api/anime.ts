@@ -2683,6 +2683,7 @@ export async function resolveVoiceTrackRelease(
   });
   return {
     ...resolved,
+    voiceLabel: resolved.voiceLabel || voice.label,
     episodes: mergeBaseEpisodeMetadata(resolved.episodes, baseRelease?.episodes)
   };
 }
@@ -2695,7 +2696,12 @@ export async function findVoiceOptions(
   const base = buildPrimaryVoiceOption(primary);
   const options: VoiceTrackOption[] = [base];
   const seenIds = new Set<string>([base.id]);
-  const shikiArt = shikiId ? shikiCache.get(shikiId) : undefined;
+  let shikiArt = shikiId ? shikiCache.get(shikiId) : undefined;
+  if (shikiId && !shikiArt) {
+    shikiArt = await ensureShikimoriArtwork([shikiId])
+      .then((m) => m.get(shikiId))
+      .catch(() => undefined);
+  }
   const searchTitles = dedupeSearchQueries([
     shikiArt?.russian,
     primary.title,
@@ -2706,20 +2712,31 @@ export async function findVoiceOptions(
   ]);
   const primaryProvider = primary.provider ?? 'aniliberty';
   const isHentaiPrimary = primaryProvider === 'hentaimama' || primaryProvider === 'hentaigasm';
-  const libSearchTerm = (primary.titleEnglish || primary.title || shikiArt?.russian || '').trim();
+  const libQueries = dedupeSearchQueries([
+    primary.titleEnglish,
+    primary.title,
+    shikiArt?.english,
+    shikiArt?.name,
+    shikiArt?.russian,
+    ...(extraTitles ?? [])
+  ]).slice(0, 3);
 
   const libPromise =
-    !isHentaiPrimary && shikiId && libSearchTerm.length >= 2
+    !isHentaiPrimary && libQueries.length > 0
       ? Promise.allSettled([
-          fetchLibJson<LibSearchCandidate[]>(
-            `/app/search/releases?query=${encodeURIComponent(libSearchTerm)}`,
-            undefined,
-            4500
+          ...libQueries.map((q) =>
+            fetchLibJson<LibSearchCandidate[]>(
+              `/app/search/releases?query=${encodeURIComponent(q)}`,
+              undefined,
+              4500
+            )
           ),
-          fetchLibJson<{ data?: LibSearchCandidate[] }>(
-            `/anime/catalog/releases?f[search]=${encodeURIComponent(libSearchTerm)}&limit=12`,
-            undefined,
-            4500
+          ...libQueries.slice(0, 2).map((q) =>
+            fetchLibJson<{ data?: LibSearchCandidate[] }>(
+              `/anime/catalog/releases?f[search]=${encodeURIComponent(q)}&limit=12`,
+              undefined,
+              4500
+            )
           )
         ])
       : Promise.resolve(null);
@@ -2774,18 +2791,30 @@ export async function findVoiceOptions(
     ]);
 
   if (libSettled.status === 'fulfilled' && libSettled.value) {
-    const [appRes, catRes] = libSettled.value;
     const seenAliases = new Set<string>([primary.alias]);
-    const matching: LibSearchCandidate[] = [];
-    for (const cand of [
-      ...(appRes.status === 'fulfilled' && Array.isArray(appRes.value) ? appRes.value : []),
-      ...(catRes.status === 'fulfilled' && Array.isArray(catRes.value?.data) ? catRes.value.data : [])
-    ]) {
-      if (!cand?.alias || seenAliases.has(cand.alias)) continue;
-      if (cand.shikimori?.id !== shikiId) continue;
-      seenAliases.add(cand.alias);
-      matching.push(cand);
+    const scoredMatches: Array<{ cand: LibSearchCandidate; score: number }> = [];
+    const libTarget: WatchTarget = {
+      title: primary.title,
+      shikiId,
+      searchQueries: searchTitles
+    };
+    for (const res of libSettled.value) {
+      if (res.status !== 'fulfilled' || !res.value) continue;
+      const list = Array.isArray(res.value)
+        ? res.value
+        : Array.isArray((res.value as { data?: LibSearchCandidate[] }).data)
+          ? (res.value as { data: LibSearchCandidate[] }).data
+          : [];
+      for (const cand of list) {
+        if (!cand?.alias || seenAliases.has(cand.alias)) continue;
+        const score = scoreReleaseCandidate(cand, libTarget, shikiArt);
+        if (score <= 0) continue;
+        seenAliases.add(cand.alias);
+        scoredMatches.push({ cand, score });
+      }
     }
+    scoredMatches.sort((a, b) => b.score - a.score);
+    const matching = scoredMatches.map((entry) => entry.cand);
 
     const extraReleases = await Promise.all(
       matching.slice(0, 3).map((cand) => fetchReleaseByIdOrAlias(cand.alias, undefined, shikiId))

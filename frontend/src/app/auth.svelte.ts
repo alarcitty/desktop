@@ -1,5 +1,7 @@
 import { cloudApi, type CloudUser } from '../api/cloud';
 import { startCloudUserSync, stopCloudUserSync } from './cloudSync.svelte';
+import { resetFriendsState } from './friends.svelte';
+import { connectWatchTogether, disconnectWatchTogether } from './watchTogether.svelte';
 
 export interface AuthState {
   user: CloudUser | null;
@@ -31,8 +33,11 @@ export async function initAuth(): Promise<void> {
       auth.error = null;
       if (auth.user) {
         void startCloudUserSync();
+        void connectWatchTogether();
       } else {
         stopCloudUserSync();
+        void disconnectWatchTogether();
+        resetFriendsState();
       }
     } catch (err) {
       auth.error = err instanceof Error ? err.message : 'Failed to load session';
@@ -58,6 +63,7 @@ export async function loginWithGoogle(settleDelayMs = 1400): Promise<CloudUser |
     auth.user = session.user;
     auth.initialized = true;
     void startCloudUserSync();
+    void connectWatchTogether();
     return session.user;
   } catch (err) {
     auth.error = err instanceof Error ? err.message : 'Google sign-in failed';
@@ -75,6 +81,8 @@ export async function logout(): Promise<void> {
   auth.error = null;
   try {
     stopCloudUserSync();
+    await disconnectWatchTogether();
+    resetFriendsState();
     await cloudApi.logout();
     auth.user = null;
   } catch (err) {

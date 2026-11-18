@@ -54,10 +54,15 @@ type PingResult struct {
 // Client is the desktop controller for communicating with the mila-cloud server over pinned TLS.
 type Client struct {
 	baseURL    string
+	serverHost string
+	tlsCfg     *tls.Config
 	httpClient *http.Client
 
 	tokenMu sync.RWMutex
 	token   string
+
+	wtMu      sync.Mutex
+	wtSession *WTSession
 }
 
 func firstNonEmpty(values ...string) string {
@@ -139,7 +144,9 @@ func NewClient(cfg Config) (*Client, error) {
 	}
 
 	return &Client{
-		baseURL: baseURL,
+		baseURL:    baseURL,
+		serverHost: parsedURL.Hostname(),
+		tlsCfg:     tlsCfg,
 		httpClient: &http.Client{
 			Timeout: timeout,
 			Transport: &http.Transport{

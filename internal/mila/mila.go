@@ -535,10 +535,329 @@ func (m *Mila) CloudLogout() (string, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 
+	m.cloud.DisconnectQUIC()
 	if err := m.cloud.Logout(reqCtx); err != nil {
 		m.log.Warn("cloud.logout_remote_failed", "err", err.Error())
 	}
 	return `{"data":{"ok":true}}`, nil
+}
+
+func (m *Mila) callCloudEnvelope(fn func(context.Context) (any, error)) (string, error) {
+	if m.cloud == nil {
+		return `{"error":"cloud client unavailable"}`, fmt.Errorf("cloud client unavailable")
+	}
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	payload, err := fn(reqCtx)
+	if err != nil {
+		errJSON, _ := json.Marshal(map[string]string{"error": err.Error()})
+		return string(errJSON), err
+	}
+	raw, err := json.Marshal(map[string]any{"data": payload})
+	if err != nil {
+		return `{"error":"marshal failed"}`, err
+	}
+	return string(raw), nil
+}
+
+// CloudSetUsername updates the user's unique Telegram-style @username on mila-cloud.
+func (m *Mila) CloudSetUsername(username string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		user, err := m.cloud.SetUsername(ctx, username)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"user": user}, nil
+	})
+}
+
+// CloudSearchUsers searches mila-cloud users by @username, hidden public_id, or display name.
+func (m *Mila) CloudSearchUsers(query string, limit int) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		users, err := m.cloud.SearchUsers(ctx, query, limit)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"users": users}, nil
+	})
+}
+
+// CloudListFriends loads the current user's friends, pending requests, and blocked list.
+func (m *Mila) CloudListFriends() (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		return m.cloud.ListFriends(ctx)
+	})
+}
+
+// CloudSendFriendRequest sends a friend request by @username or hidden public_id (auto-accepts mutual requests).
+func (m *Mila) CloudSendFriendRequest(target string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		return m.cloud.SendFriendRequest(ctx, target)
+	})
+}
+
+// CloudAcceptFriendRequest accepts an incoming friend request.
+func (m *Mila) CloudAcceptFriendRequest(target string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		return m.cloud.AcceptFriendRequest(ctx, target)
+	})
+}
+
+// CloudDeclineFriendRequest declines an incoming or cancels an outgoing friend request.
+func (m *Mila) CloudDeclineFriendRequest(target string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		return m.cloud.DeclineFriendRequest(ctx, target)
+	})
+}
+
+// CloudRemoveFriend removes an existing friendship or pending request.
+func (m *Mila) CloudRemoveFriend(target string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		return m.cloud.RemoveFriend(ctx, target)
+	})
+}
+
+// CloudBlockUser blocks a user by @username or public_id.
+func (m *Mila) CloudBlockUser(target string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		return m.cloud.BlockUser(ctx, target)
+	})
+}
+
+// CloudUnblockUser unblocks a previously blocked user.
+func (m *Mila) CloudUnblockUser(target string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		return m.cloud.UnblockUser(ctx, target)
+	})
+}
+
+func (m *Mila) emitWatchTogetherEvent(ev cloud.WTWireMessage) {
+	if m.ctx == nil {
+		return
+	}
+	if ev.Type == "friend_presence" && ev.Friend != nil {
+		wailsRuntime.EventsEmit(m.ctx, "mila:friend-presence", ev.Friend)
+	}
+	wailsRuntime.EventsEmit(m.ctx, "mila:watch-together", ev)
+}
+
+// CloudConnectWatchTogether establishes a persistent QUIC connection to mila-cloud for presence and Watch Together rooms.
+func (m *Mila) CloudConnectWatchTogether(activity string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		if _, err := m.cloud.ConnectQUIC(ctx, activity, m.emitWatchTogetherEvent); err == nil {
+			rm, invites, _ := m.cloud.GetCurrentRoom(ctx)
+			return map[string]any{
+				"connected": true,
+				"transport": "quic",
+				"room":      rm,
+				"invites":   invites,
+			}, nil
+		}
+		// Fallback to HTTPS presence heartbeat if local firewall blocks UDP QUIC.
+		prof, err := m.cloud.HeartbeatPresence(ctx, "online", activity)
+		if err != nil {
+			return nil, err
+		}
+		rm, invites, _ := m.cloud.GetCurrentRoom(ctx)
+		return map[string]any{
+			"connected": true,
+			"transport": "https",
+			"presence":  prof,
+			"room":      rm,
+			"invites":   invites,
+		}, nil
+	})
+}
+
+// CloudDisconnectWatchTogether closes the active QUIC Watch Together session and marks presence offline.
+func (m *Mila) CloudDisconnectWatchTogether() (string, error) {
+	if m.cloud != nil {
+		ctx := m.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		reqCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		_, _ = m.cloud.HeartbeatPresence(reqCtx, "offline", "")
+		cancel()
+		m.cloud.DisconnectQUIC()
+	}
+	return `{"data":{"ok":true}}`, nil
+}
+
+// CloudHeartbeatPresence updates the user's online/offline status and optional activity string.
+func (m *Mila) CloudHeartbeatPresence(status, activity string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		prof, err := m.cloud.HeartbeatPresence(ctx, status, activity)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"presence": prof}, nil
+	})
+}
+
+// CloudGetWatchRoom returns the user's current Watch Together room snapshot and pending invites.
+func (m *Mila) CloudGetWatchRoom() (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		rm, invites, err := m.cloud.GetCurrentRoom(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"room":    rm,
+			"invites": invites,
+		}, nil
+	})
+}
+
+// CloudCreateWatchRoom creates a new Watch Together room over QUIC (with HTTPS fallback).
+func (m *Mila) CloudCreateWatchRoom(payloadJSON string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		var req cloud.CreateRoomRequest
+		if trimmed := strings.TrimSpace(payloadJSON); trimmed != "" {
+			if err := json.Unmarshal([]byte(trimmed), &req); err != nil {
+				return nil, err
+			}
+		}
+		rm, err := m.cloud.CreateWatchRoom(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"room": rm}, nil
+	})
+}
+
+// CloudJoinWatchRoom joins a Watch Together room by room_id, room_code, or friend_target (@username / public_id).
+func (m *Mila) CloudJoinWatchRoom(payloadJSON string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		var req cloud.JoinRoomRequest
+		if err := json.Unmarshal([]byte(strings.TrimSpace(payloadJSON)), &req); err != nil {
+			return nil, err
+		}
+		rm, err := m.cloud.JoinWatchRoom(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"room": rm}, nil
+	})
+}
+
+// CloudLeaveWatchRoom leaves the active Watch Together room.
+func (m *Mila) CloudLeaveWatchRoom() (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		if err := m.cloud.LeaveWatchRoom(ctx); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	})
+}
+
+// CloudSetWatchRoomMedia switches the anime, episode, or voice track inside the active Watch Together room.
+func (m *Mila) CloudSetWatchRoomMedia(payloadJSON string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		var media cloud.RoomMediaState
+		if err := json.Unmarshal([]byte(strings.TrimSpace(payloadJSON)), &media); err != nil {
+			return nil, err
+		}
+		rm, err := m.cloud.SetWatchRoomMedia(ctx, media)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"room": rm}, nil
+	})
+}
+
+// CloudSyncWatchRoomPlayback synchronizes pause/resume, seek position, and playback rate over QUIC.
+func (m *Mila) CloudSyncWatchRoomPlayback(payloadJSON string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		var req cloud.SyncPlaybackRequest
+		if err := json.Unmarshal([]byte(strings.TrimSpace(payloadJSON)), &req); err != nil {
+			return nil, err
+		}
+		pb, err := m.cloud.SyncWatchRoomPlayback(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"playback": pb}, nil
+	})
+}
+
+// CloudUpdateWatchRoomMember updates the current user's ready/buffering/position state in the room.
+func (m *Mila) CloudUpdateWatchRoomMember(payloadJSON string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		var req cloud.MemberStateRequest
+		if err := json.Unmarshal([]byte(strings.TrimSpace(payloadJSON)), &req); err != nil {
+			return nil, err
+		}
+		member, err := m.cloud.UpdateWatchRoomMemberState(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"member": member}, nil
+	})
+}
+
+// CloudSendWatchRoomChat sends a text message or reaction to the Watch Together room.
+func (m *Mila) CloudSendWatchRoomChat(text, kind string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		msg, err := m.cloud.SendWatchRoomChat(ctx, text, kind)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"message": msg}, nil
+	})
+}
+
+// CloudInviteFriendToWatchRoom sends a direct room invite to a friend by @username or public_id.
+func (m *Mila) CloudInviteFriendToWatchRoom(target string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		inv, err := m.cloud.InviteFriendToWatchRoom(ctx, target)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"invite": inv}, nil
+	})
+}
+
+// CloudKickWatchRoomMember kicks a member from the room (host only).
+func (m *Mila) CloudKickWatchRoomMember(target string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		rm, err := m.cloud.KickWatchRoomMember(ctx, target)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"room": rm}, nil
+	})
+}
+
+// CloudTransferWatchRoomHost transfers room host ownership to another member.
+func (m *Mila) CloudTransferWatchRoomHost(target string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		rm, err := m.cloud.TransferWatchRoomHost(ctx, target)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"room": rm}, nil
+	})
+}
+
+// CloudUpdateWatchRoomSettings updates room title, visibility, control mode, or max members.
+func (m *Mila) CloudUpdateWatchRoomSettings(payloadJSON string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		var req cloud.UpdateRoomSettingsRequest
+		if err := json.Unmarshal([]byte(strings.TrimSpace(payloadJSON)), &req); err != nil {
+			return nil, err
+		}
+		rm, err := m.cloud.UpdateWatchRoomSettings(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"room": rm}, nil
+	})
 }
 
 // SetFullscreen toggles true OS monitor fullscreen (covering the taskbar).

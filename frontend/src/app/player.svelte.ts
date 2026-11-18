@@ -919,6 +919,18 @@ export function toggleActivePlayback(): void {
   }
 }
 
+export function applyRemotePlaybackSync(paused: boolean, positionSec?: number): void {
+  if (typeof positionSec === 'number' && Number.isFinite(positionSec) && positionSec >= 0) {
+    player.resumeTime = positionSec;
+    seekControlCallback?.(positionSec);
+  }
+  if (paused) {
+    pauseControlCallback?.();
+  } else {
+    playControlCallback?.();
+  }
+}
+
 export function setPlayerPlaying(playing: boolean): void {
   player.isPlaying = playing;
   setMediaSessionPlaybackState(playing ? 'playing' : 'paused');

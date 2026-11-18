@@ -1,8 +1,8 @@
 ﻿<script lang="ts">
   import { fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
-  import ChevronLeft from '@lucide/svelte/icons/chevron-left';
-  import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import { MorphIcon } from 'morphicons/svelte';
+  import { ChevronLeft, ChevronRight } from 'lucide';
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../marlakit/button/SecondButton.svelte';
   import SocialButton from '../../marlakit/button/SocialButton.svelte';
@@ -292,7 +292,7 @@
               aria-label="Previous option"
               onclick={() => cycleCurrent(-1)}
             >
-              <ChevronLeft size={28} strokeWidth={2} />
+              <MorphIcon icon={ChevronLeft} size={28} strokeWidth={2} />
             </button>
 
             <div class="stepper-value-slot" aria-live="polite">
@@ -313,7 +313,7 @@
               aria-label="Next option"
               onclick={() => cycleCurrent(1)}
             >
-              <ChevronRight size={28} strokeWidth={2} />
+              <MorphIcon icon={ChevronRight} size={28} strokeWidth={2} />
             </button>
           </div>
 

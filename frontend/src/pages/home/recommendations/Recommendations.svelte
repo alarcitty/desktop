@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import ChevronDown from '@lucide/svelte/icons/chevron-down';
+  import { MorphIcon } from 'morphicons/svelte';
+  import { ChevronDown } from 'lucide';
   import LayerBlur from '../../../marlakit/blur/LayerBlur.svelte';
   import { getCachedHomeFeeds, loadHomeFeeds, type HomeRecommendationItem } from '../../../api/anime';
   import { openWatch } from '../../../app/player.svelte';
@@ -91,7 +92,7 @@
     aria-label={creditsOpen ? t('home.collapseCredits') : t('home.expandCredits')}
     onclick={() => onToggleCredits?.()}
   >
-    <ChevronDown size={18} strokeWidth={2} class="tab-arrow-icon" />
+    <MorphIcon icon={ChevronDown} size={18} strokeWidth={2} class="tab-arrow-icon" />
   </button>
 </section>
 

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import Star from '@lucide/svelte/icons/star';
+  import { MorphIcon } from 'morphicons/svelte';
+  import { Star } from 'lucide';
 
   interface Props {
     score?: number;
@@ -23,7 +24,7 @@
   <div class="mila-meta-line is-{size} {className}">
     {#if score && score > 0}
       <span class="meta-rating">
-        <Star size={iconSize} fill="currentColor" strokeWidth={0} />
+        <MorphIcon icon={Star} size={iconSize} fill="currentColor" strokeWidth={0} />
         <span>{score.toFixed(1)}</span>
       </span>
     {/if}

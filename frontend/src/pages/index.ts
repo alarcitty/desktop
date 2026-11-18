@@ -1,8 +1,5 @@
 import type { Component } from 'svelte';
-import House from '@lucide/svelte/icons/house';
-import Library from '@lucide/svelte/icons/library';
-import Newspaper from '@lucide/svelte/icons/newspaper';
-import Users from '@lucide/svelte/icons/users';
+import { House, Library, Newspaper, Users, type IconNode } from 'lucide';
 
 import Home from './home/Home.svelte';
 import LibraryPage from './library/Library.svelte';
@@ -16,8 +13,7 @@ export interface PageDef
 {
   id: PageId;
   name: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  icon: Component<any>;
+  icon: IconNode;
   component: Component;
 }
 

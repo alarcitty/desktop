@@ -2,26 +2,29 @@
   import { onDestroy, onMount } from 'svelte';
   import { fade, scale } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
-  import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-  import ArrowUp from '@lucide/svelte/icons/arrow-up';
-  import ArrowDown from '@lucide/svelte/icons/arrow-down';
-  import ArrowDownAZ from '@lucide/svelte/icons/arrow-down-a-z';
-  import ChevronLeft from '@lucide/svelte/icons/chevron-left';
-  import ChevronRight from '@lucide/svelte/icons/chevron-right';
-  import Crown from '@lucide/svelte/icons/crown';
-  import Play from '@lucide/svelte/icons/play';
-  import Bookmark from '@lucide/svelte/icons/bookmark';
-  import Check from '@lucide/svelte/icons/check';
-  import Share2 from '@lucide/svelte/icons/share-2';
-  import LayoutGrid from '@lucide/svelte/icons/layout-grid';
-  import LayoutList from '@lucide/svelte/icons/layout-list';
-  import ListOrdered from '@lucide/svelte/icons/list-ordered';
-  import Mic from '@lucide/svelte/icons/mic';
-  import Search from '@lucide/svelte/icons/search';
-  import Star from '@lucide/svelte/icons/star';
-  import User from '@lucide/svelte/icons/user';
-  import Users from '@lucide/svelte/icons/users';
-  import X from '@lucide/svelte/icons/x';
+  import { MorphIcon } from 'morphicons/svelte';
+  import {
+    ArrowLeft,
+    ArrowUp,
+    ArrowDown,
+    ArrowDownAZ,
+    ChevronLeft,
+    ChevronRight,
+    Crown,
+    Play,
+    Bookmark,
+    Check,
+    Share2,
+    LayoutGrid,
+    LayoutList,
+    ListOrdered,
+    Mic,
+    Search,
+    Star,
+    User,
+    Users,
+    X
+  } from 'lucide';
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../marlakit/button/SecondButton.svelte';
@@ -615,18 +618,19 @@
           <div class="overview-actions">
             <MainButton loading={player.loading} onclick={goToPlayer}>
               {#snippet icon()}
-                <Play size={16} fill="currentColor" strokeWidth={0} />
+                <MorphIcon icon={Play} size={16} fill="currentColor" strokeWidth={0} />
               {/snippet}
               {t('anime.watchEp', { n: currentEpisode?.ordinal ?? 1 })}
             </MainButton>
 
             <SecondButton loading={isPlanLoading} onclick={handlePlanToggle}>
               {#snippet icon()}
-                {#if inLibrary}
-                  <Check size={16} strokeWidth={2.2} />
-                {:else}
-                  <Bookmark size={16} strokeWidth={2} />
-                {/if}
+                <MorphIcon
+                  icon={inLibrary ? Check : Bookmark}
+                  size={16}
+                  strokeWidth={inLibrary ? 2.2 : 2}
+                  spring="snappy"
+                />
               {/snippet}
               {inLibrary ? t('anime.inPlanToWatch') : t('anime.planToWatch')}
             </SecondButton>
@@ -642,15 +646,14 @@
               title={shareCopied ? t('anime.shareCopied') : t('anime.share')}
             >
               <span class="share-icon-stack">
-                {#if shareCopied}
-                  <span class="share-icon-item is-check" transition:scale={{ start: 0.65, duration: 180, easing: cubicOut }}>
-                    <Check size={17} strokeWidth={2.2} />
-                  </span>
-                {:else}
-                  <span class="share-icon-item" transition:scale={{ start: 0.72, duration: 160, easing: cubicOut }}>
-                    <Share2 size={17} strokeWidth={1.9} />
-                  </span>
-                {/if}
+                <span class="share-icon-item" class:is-check={shareCopied}>
+                  <MorphIcon
+                    icon={shareCopied ? Check : Share2}
+                    size={17}
+                    strokeWidth={shareCopied ? 2.2 : 1.9}
+                    spring="bouncy"
+                  />
+                </span>
               </span>
             </button>
 
@@ -661,7 +664,7 @@
               aria-label="Go back"
               title="Go back"
             >
-              <ArrowLeft size={16} strokeWidth={2} />
+              <MorphIcon icon={ArrowLeft} size={16} strokeWidth={2} />
               <span>Back</span>
             </button>
           </div>
@@ -737,7 +740,7 @@
                 aria-pressed={trailerViewMode === 'list'}
                 onclick={() => setTrailerViewMode('list')}
               >
-                <LayoutList size={17} strokeWidth={1.7} />
+                <MorphIcon icon={LayoutList} size={17} strokeWidth={1.7} />
               </button>
               <button
                 type="button"
@@ -747,7 +750,7 @@
                 aria-pressed={trailerViewMode === 'grid'}
                 onclick={() => setTrailerViewMode('grid')}
               >
-                <LayoutGrid size={17} strokeWidth={1.7} />
+                <MorphIcon icon={LayoutGrid} size={17} strokeWidth={1.7} />
               </button>
             </div>
           {/if}
@@ -794,7 +797,7 @@
                   {/if}
                   <div class="trailer-scrim" aria-hidden="true"></div>
                   <div class="trailer-play-badge" aria-hidden="true">
-                    <Play size={20} fill="currentColor" strokeWidth={0} />
+                    <MorphIcon icon={Play} size={20} fill="currentColor" strokeWidth={0} />
                   </div>
                   <div class="trailer-meta">
                     <span class="trailer-kind">{video.kindLabel}</span>
@@ -904,7 +907,7 @@
                 title="All roles"
                 onclick={() => { charRoleFilter = 'all'; }}
               >
-                <Users size={14} strokeWidth={1.85} />
+                <MorphIcon icon={Users} size={14} strokeWidth={1.85} />
               </button>
               {#if hasMainCharacters}
                 <button
@@ -915,7 +918,7 @@
                   title="Main roles"
                   onclick={() => { charRoleFilter = 'main'; }}
                 >
-                  <Crown size={14} strokeWidth={1.85} />
+                  <MorphIcon icon={Crown} size={14} strokeWidth={1.85} />
                 </button>
               {/if}
               {#if hasSupportingCharacters}
@@ -927,7 +930,7 @@
                   title="Supporting roles"
                   onclick={() => { charRoleFilter = 'supporting'; }}
                 >
-                  <User size={14} strokeWidth={1.85} />
+                  <MorphIcon icon={User} size={14} strokeWidth={1.85} />
                 </button>
               {/if}
             </div>
@@ -943,7 +946,7 @@
                 title="Any gender"
                 onclick={() => { charGenderFilter = 'all'; }}
               >
-                <Users size={14} strokeWidth={1.85} />
+                <MorphIcon icon={Users} size={14} strokeWidth={1.85} />
               </button>
               <button
                 type="button"
@@ -983,9 +986,9 @@
               title="Order"
               onclick={() => toggleCharSort('default')}
             >
-              <ListOrdered size={14} strokeWidth={1.85} />
+              <MorphIcon icon={ListOrdered} size={14} strokeWidth={1.85} />
               {#if charSortBy === 'default' && charSortDir === 'desc'}
-                <ArrowDown size={11} strokeWidth={2.2} />
+                <MorphIcon icon={ArrowDown} size={11} strokeWidth={2.2} spring="snappy" />
               {/if}
             </button>
             <button
@@ -996,13 +999,14 @@
               title="Name"
               onclick={() => toggleCharSort('name')}
             >
-              <ArrowDownAZ size={14} strokeWidth={1.85} />
+              <MorphIcon icon={ArrowDownAZ} size={14} strokeWidth={1.85} />
               {#if charSortBy === 'name'}
-                {#if charSortDir === 'asc'}
-                  <ArrowUp size={11} strokeWidth={2.2} />
-                {:else}
-                  <ArrowDown size={11} strokeWidth={2.2} />
-                {/if}
+                <MorphIcon
+                  icon={charSortDir === 'asc' ? ArrowUp : ArrowDown}
+                  size={11}
+                  strokeWidth={2.2}
+                  spring="snappy"
+                />
               {/if}
             </button>
             <button
@@ -1013,19 +1017,20 @@
               title="Voice Cast"
               onclick={() => toggleCharSort('va')}
             >
-              <Mic size={14} strokeWidth={1.85} />
+              <MorphIcon icon={Mic} size={14} strokeWidth={1.85} />
               {#if charSortBy === 'va'}
-                {#if charSortDir === 'asc'}
-                  <ArrowUp size={11} strokeWidth={2.2} />
-                {:else}
-                  <ArrowDown size={11} strokeWidth={2.2} />
-                {/if}
+                <MorphIcon
+                  icon={charSortDir === 'asc' ? ArrowUp : ArrowDown}
+                  size={11}
+                  strokeWidth={2.2}
+                  spring="snappy"
+                />
               {/if}
             </button>
           </div>
 
           <label class="cast-search-box">
-            <Search size={14} strokeWidth={1.8} class="cast-search-icon" />
+            <MorphIcon icon={Search} size={14} strokeWidth={1.8} class="cast-search-icon" />
             <input
               type="text"
               bind:value={charQuery}
@@ -1045,7 +1050,7 @@
               aria-pressed={charViewMode === 'strip'}
               onclick={() => setCharViewMode('strip')}
             >
-              <LayoutList size={17} strokeWidth={1.7} />
+              <MorphIcon icon={LayoutList} size={17} strokeWidth={1.7} />
             </button>
             <button
               type="button"
@@ -1055,7 +1060,7 @@
               aria-pressed={charViewMode === 'grid'}
               onclick={() => setCharViewMode('grid')}
             >
-              <LayoutGrid size={17} strokeWidth={1.7} />
+              <MorphIcon icon={LayoutGrid} size={17} strokeWidth={1.7} />
             </button>
           </div>
         </div>
@@ -1121,7 +1126,7 @@
                 aria-label="Scroll characters left"
                 onclick={() => scrollCharStrip(-1)}
               >
-                <ChevronLeft size={20} strokeWidth={2} />
+                <MorphIcon icon={ChevronLeft} size={20} strokeWidth={2} />
               </button>
             {/if}
             {#if canScrollCharRight}
@@ -1131,7 +1136,7 @@
                 aria-label="Scroll characters right"
                 onclick={() => scrollCharStrip(1)}
               >
-                <ChevronRight size={20} strokeWidth={2} />
+                <MorphIcon icon={ChevronRight} size={20} strokeWidth={2} />
               </button>
             {/if}
           </div>
@@ -1248,7 +1253,7 @@
                 <span class="more-card-meta">
                   {#if rec.score}
                     <span class="more-card-score">
-                      <Star size={11} fill="currentColor" strokeWidth={0} />
+                      <MorphIcon icon={Star} size={11} fill="currentColor" strokeWidth={0} />
                       <span>{rec.score}</span>
                     </span>
                   {/if}
@@ -1271,7 +1276,7 @@
             aria-label="Previous recommendations"
             onclick={() => scrollMoreStrip(-1)}
           >
-            <ChevronLeft size={20} strokeWidth={2} />
+            <MorphIcon icon={ChevronLeft} size={20} strokeWidth={2} />
           </button>
         {/if}
         {#if canScrollMoreRight}
@@ -1281,7 +1286,7 @@
             aria-label="More recommendations"
             onclick={() => scrollMoreStrip(1)}
           >
-            <ChevronRight size={20} strokeWidth={2} />
+            <MorphIcon icon={ChevronRight} size={20} strokeWidth={2} />
           </button>
         {/if}
       </div>
@@ -1308,7 +1313,7 @@
       aria-label="Close frame preview"
       onclick={() => { lightboxUrl = null; }}
     >
-      <X size={20} strokeWidth={2} />
+      <MorphIcon icon={X} size={20} strokeWidth={2} />
     </button>
     <img
       src={lightboxUrl}
@@ -1338,7 +1343,7 @@
       aria-label="Close trailer preview"
       onclick={() => { activeTrailer = null; }}
     >
-      <X size={20} strokeWidth={2} />
+      <MorphIcon icon={X} size={20} strokeWidth={2} />
     </button>
     <div
       class="trailer-modal-shell"

@@ -4,13 +4,8 @@
   import { cubicOut } from 'svelte/easing';
   import type HlsType from 'hls.js';
   import { getLoadedHls, loadHls } from '../../../app/hlsLoader';
-  import ChevronLeft from '@lucide/svelte/icons/chevron-left';
-  import ChevronRight from '@lucide/svelte/icons/chevron-right';
-  import Play from '@lucide/svelte/icons/play';
-  import Bookmark from '@lucide/svelte/icons/bookmark';
-  import Check from '@lucide/svelte/icons/check';
-  import Volume2 from '@lucide/svelte/icons/volume-2';
-  import VolumeX from '@lucide/svelte/icons/volume-x';
+  import { MorphIcon } from 'morphicons/svelte';
+  import { ChevronLeft, ChevronRight, Play, Bookmark, Check, Volume2, VolumeX } from 'lucide';
   import MainButton from '../../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../../marlakit/button/SecondButton.svelte';
   import LikeButton from '../../../marlakit/button/LikeButton.svelte';
@@ -1009,7 +1004,7 @@
           aria-label="Next background frame"
           onclick={nextBgSlide}
         >
-          <ChevronRight size={22} strokeWidth={1.75} />
+          <MorphIcon icon={ChevronRight} size={22} strokeWidth={1.75} />
         </button>
       {/if}
 
@@ -1029,18 +1024,19 @@
               <div class="hero-actions">
                 <MainButton loading={isWatchLoading || player.loading} onclick={handleWatchClick}>
                   {#snippet icon()}
-                    <Play size={16} fill="currentColor" strokeWidth={0} />
+                    <MorphIcon icon={Play} size={16} fill="currentColor" strokeWidth={0} />
                   {/snippet}
                   {t('news.watch')}
                 </MainButton>
 
                 <SecondButton loading={isPlanLoading} onclick={handlePlanClick}>
                   {#snippet icon()}
-                    {#if activeHeroInPlan}
-                      <Check size={16} strokeWidth={2.2} />
-                    {:else}
-                      <Bookmark size={16} strokeWidth={2} />
-                    {/if}
+                    <MorphIcon
+                      icon={activeHeroInPlan ? Check : Bookmark}
+                      size={16}
+                      strokeWidth={activeHeroInPlan ? 2.2 : 2}
+                      spring="snappy"
+                    />
                   {/snippet}
                   {activeHeroInPlan ? t('anime.inPlanToWatch') : t('home.planToWatch')}
                 </SecondButton>
@@ -1069,11 +1065,12 @@
                       title={videoMuted ? 'Unmute opening' : `Volume: ${Math.round(effectiveVolume * 100)}%`}
                       onclick={togglePreviewMute}
                     >
-                      {#if videoMuted || videoVolume <= 0}
-                        <VolumeX size={16} strokeWidth={2} />
-                      {:else}
-                        <Volume2 size={16} strokeWidth={2} />
-                      {/if}
+                      <MorphIcon
+                        icon={videoMuted || videoVolume <= 0 ? VolumeX : Volume2}
+                        size={16}
+                        strokeWidth={2}
+                        spring="snappy"
+                      />
                     </button>
                     <div class="preview-volume-wrap">
                       <div
@@ -1200,7 +1197,7 @@
                         title="Previous opening"
                         onclick={(e) => stepHeroOpening(-1, e.currentTarget)}
                       >
-                        <ChevronLeft size={14} strokeWidth={2.2} />
+                        <MorphIcon icon={ChevronLeft} size={14} strokeWidth={2.2} />
                       </button>
                       <button
                         type="button"
@@ -1220,7 +1217,7 @@
                         title="Next opening"
                         onclick={(e) => stepHeroOpening(1, e.currentTarget)}
                       >
-                        <ChevronRight size={14} strokeWidth={2.2} />
+                        <MorphIcon icon={ChevronRight} size={14} strokeWidth={2.2} />
                       </button>
                     {/if}
                   </div>

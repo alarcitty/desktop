@@ -1,9 +1,8 @@
 <script lang="ts">
   import { cubicOut } from 'svelte/easing';
   import { fade, scale } from 'svelte/transition';
-  import Link2 from '@lucide/svelte/icons/link-2';
-  import Play from '@lucide/svelte/icons/play';
-  import ChevronDown from '@lucide/svelte/icons/chevron-down';
+  import { MorphIcon } from 'morphicons/svelte';
+  import { Link2, Play, ChevronDown } from 'lucide';
 
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import Input from '../../marlakit/input/Input.svelte';
@@ -241,7 +240,7 @@
           class="torrent-magnet-input"
         >
           {#snippet icon()}
-            <Link2 size={15} strokeWidth={1.9} />
+            <MorphIcon icon={Link2} size={15} strokeWidth={1.9} />
           {/snippet}
           {#snippet trailingIcon()}
             {#if isValidMagnet}
@@ -311,7 +310,7 @@
                 onclick={toggle}
               >
                 <span>{label}</span>
-                <ChevronDown size={12} strokeWidth={2} class="filter-chevron" />
+                <MorphIcon icon={ChevronDown} size={12} strokeWidth={2} class="filter-chevron" />
               </button>
             {/snippet}
           </ComboBox>
@@ -341,7 +340,7 @@
                 onclick={toggle}
               >
                 <span>{label}</span>
-                <ChevronDown size={12} strokeWidth={2} class="filter-chevron" />
+                <MorphIcon icon={ChevronDown} size={12} strokeWidth={2} class="filter-chevron" />
               </button>
             {/snippet}
           </ComboBox>
@@ -371,7 +370,7 @@
                 onclick={toggle}
               >
                 <span>{label}</span>
-                <ChevronDown size={12} strokeWidth={2} class="filter-chevron" />
+                <MorphIcon icon={ChevronDown} size={12} strokeWidth={2} class="filter-chevron" />
               </button>
             {/snippet}
           </ComboBox>
@@ -428,7 +427,7 @@
                     </div>
                   </div>
                   <span class="torrent-row-play" aria-hidden="true">
-                    <Play size={14} fill="currentColor" strokeWidth={0} />
+                    <MorphIcon icon={Play} size={14} fill="currentColor" strokeWidth={0} />
                   </span>
                 </button>
               {/each}

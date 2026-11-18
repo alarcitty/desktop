@@ -1,8 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Play from '@lucide/svelte/icons/play';
-  import Bookmark from '@lucide/svelte/icons/bookmark';
-  import Check from '@lucide/svelte/icons/check';
+  import { MorphIcon } from 'morphicons/svelte';
+  import { Play, Bookmark, Check } from 'lucide';
 
   import MainButton from '../../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../../marlakit/button/SecondButton.svelte';
@@ -180,18 +179,19 @@
           <div class="card-actions">
             <MainButton loading={isWatchLoading && activeIndex === index} onclick={handleWatchClick}>
               {#snippet icon()}
-                <Play size={16} fill="currentColor" strokeWidth={0} />
+                <MorphIcon icon={Play} size={16} fill="currentColor" strokeWidth={0} />
               {/snippet}
               {t('news.watch')}
             </MainButton>
 
             <SecondButton loading={isPlanLoading && activeIndex === index} onclick={handlePlanClick}>
               {#snippet icon()}
-                {#if itemInPlan}
-                  <Check size={16} strokeWidth={2.2} />
-                {:else}
-                  <Bookmark size={16} strokeWidth={2} />
-                {/if}
+                <MorphIcon
+                  icon={itemInPlan ? Check : Bookmark}
+                  size={16}
+                  strokeWidth={itemInPlan ? 2.2 : 2}
+                  spring="snappy"
+                />
               {/snippet}
               {itemInPlan ? t('anime.inPlanToWatch') : t('home.planToWatch')}
             </SecondButton>

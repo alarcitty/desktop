@@ -7,6 +7,9 @@ export { default as SocialButton, default as SocialBtn } from './button/SocialBu
 export { default as GitButton, default as GitBtn } from './button/GitButton.svelte';
 export { default as Input } from './input/Input.svelte';
 export { default as Slider } from './slider/Slider.svelte';
+export { default as RgbLine } from './slider/RgbLine.svelte';
+export { default as ArrowSwitcher } from './switcher/ArrowSwitcher.svelte';
+export { MorphIcon } from 'morphicons/svelte';
 export { default as Toggle } from './toggle/Toggle.svelte';
 export { default as ScrollArea } from './scroll/ScrollArea.svelte';
 export { default as LayerBlur } from './blur/LayerBlur.svelte';

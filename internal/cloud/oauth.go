@@ -29,6 +29,8 @@ const (
 
 type CloudUser struct {
 	ID        int64  `json:"id"`
+	PublicID  string `json:"public_id,omitempty"`
+	Username  string `json:"username,omitempty"`
 	Email     string `json:"email"`
 	Name      string `json:"name"`
 	AvatarURL string `json:"avatar_url"`
