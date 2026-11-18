@@ -52,6 +52,8 @@
     "watchEp": "Смотреть {n} серию",
     "planToWatch": "В планах",
     "inPlanToWatch": "Запланировано",
+    "share": "Скопировать ссылку",
+    "shareCopied": "Ссылка скопирована!",
     "episodes": "Серии",
     "episodeLabel": "Серия {n}",
     "frames": "Кадры",

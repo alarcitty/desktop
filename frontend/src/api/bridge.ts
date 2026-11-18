@@ -51,6 +51,7 @@ export interface WailsMilaGoBindings {
   GetAppVersion?: () => Promise<string>;
   GetUpdateStatus?: () => Promise<string>;
   CheckAndInstallUpdate?: () => Promise<string>;
+  ConsumePendingDeepLink?: () => Promise<string>;
 }
 
 export interface WailsRuntimeBridge {

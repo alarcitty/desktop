@@ -803,8 +803,8 @@
               class="share-icon-btn"
               class:is-copied={shareCopied}
               onclick={() => void handleShareCopy()}
-              aria-label={shareCopied ? 'Link copied' : 'Copy share link'}
-              title={shareCopied ? 'Copied!' : 'Copy link / code'}
+              aria-label={shareCopied ? t('anime.shareCopied') : t('anime.share')}
+              title={shareCopied ? t('anime.shareCopied') : t('anime.share')}
             >
               <span class="share-icon-stack">
                 {#if shareCopied}

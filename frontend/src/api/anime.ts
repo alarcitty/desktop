@@ -1235,10 +1235,39 @@ interface RawLibFeedItem {
 function franchiseKey(rawTitle: string): string {
   return rawTitle
     .toLowerCase()
-    .replace(/\b(\d+(st|nd|rd|th)\s+season|season\s+\d+|part\s+\d+|cour\s+\d+|arc)\b/gi, '')
+    .replace(
+      /(?<![a-z0-9а-яё])(\d+(st|nd|rd|th)\s+season|season\s+\d+|part\s+\d+|cour\s+\d+|the\s+final\s+season|the\s+final\s+chapters|final\s+season|сезон\s+\d+|\d+\s+сезон|часть\s+\d+|arc)(?![a-z0-9а-яё])/gi,
+      ''
+    )
     .replace(/\b(ii|iii|iv|v)\b$/gi, '')
     .replace(/[^a-z0-9а-яё]+/gi, ' ')
     .trim();
+}
+
+export function titleBasePart(rawTitle: string): string {
+  const stripped = stripSeasonSuffix(rawTitle);
+  const base = stripped.split(/:\s+|\s+[-–]\s+/)[0]?.trim() ?? '';
+  return base || stripped;
+}
+
+export function titleGroupVariants(rawTitle: string): string[] {
+  const variants = [
+    normalizeTitleText(rawTitle),
+    normalizeTitleText(stripSeasonSuffix(rawTitle)),
+    normalizeTitleText(titleBasePart(rawTitle))
+  ];
+  return Array.from(new Set(variants.filter(Boolean)));
+}
+
+export function computeTitleGroupKey(rawTitle: string, rootTitles?: ReadonlySet<string>): string {
+  const fKey = franchiseKey(rawTitle);
+  if (!fKey) return '';
+  const base = titleBasePart(rawTitle);
+  if (base && normalizeTitleText(base) !== normalizeTitleText(rawTitle)) {
+    const baseKey = franchiseKey(base);
+    if (baseKey && rootTitles?.has(normalizeTitleText(base))) return baseKey;
+  }
+  return fKey;
 }
 
 function splitTitleLines(title: string): string[] {
@@ -1769,9 +1798,12 @@ export async function loadFranchiseSeasons(releaseId: number): Promise<AnimeSeas
   return resolved?.seasons ?? [];
 }
 
-function stripSeasonSuffix(title: string): string {
+export function stripSeasonSuffix(title: string): string {
   return title
-    .replace(/\s*[:\-–]?\s*(\d+(?:st|nd|rd|th)\s+season|season\s+\d+|tv\s+\d+)\b.*$/i, '')
+    .replace(
+      /\s*[:\-–]?\s*(?:the\s+)?(\d+(?:st|nd|rd|th)\s+season|season\s+\d+|tv\s+\d+|part\s+\d+|cour\s+\d+|final\s+season|final\s+chapters|сезон\s+\d+|\d+\s+сезон|часть\s+\d+)(?![a-z0-9а-яё]).*$/i,
+      ''
+    )
     .replace(/\s+\b(II|III|IV|V)\b$/i, '')
     .trim();
 }
@@ -1795,7 +1827,7 @@ function releaseCandidateToSearchItem(
       r.name?.english ||
       r.name?.main ||
       'Anime';
-  const cleanTitle = rootSeason ? stripSeasonSuffix(baseTitle) || baseTitle : baseTitle;
+  const cleanTitle = stripSeasonSuffix(baseTitle) || baseTitle;
   const targetSeason = rootSeason ?? null;
 
   const poster =
@@ -2129,6 +2161,28 @@ export async function searchGroupedAnime(
 
   const candidates = rawHits.slice(0, 90);
 
+  // Prefetch franchise info so multi-season titles collapse into one root group.
+  // One request per distinct title key; resolveFranchiseByReleaseId caches every
+  // season of a franchise, so siblings resolve from cache afterwards.
+  const prefetchByTitleKey = new Map<string, number>();
+  for (const hit of candidates) {
+    if (franchiseByReleaseCache.has(hit.id)) continue;
+    const key = franchiseKey(hit.name?.english || hit.name?.main || '') || `rel:${hit.id}`;
+    if (!prefetchByTitleKey.has(key)) prefetchByTitleKey.set(key, hit.id);
+  }
+  const prefetchIds = Array.from(prefetchByTitleKey.values()).slice(0, 20);
+  if (prefetchIds.length > 0) {
+    await Promise.allSettled(prefetchIds.map((id) => resolveFranchiseByReleaseId(id)));
+  }
+  if (signal?.aborted) return [];
+
+  const rootTitles = new Set<string>();
+  for (const hit of candidates) {
+    const t = hit.name?.english || hit.name?.main || '';
+    const n = normalizeTitleText(stripSeasonSuffix(t));
+    if (n) rootTitles.add(n);
+  }
+
   // Batch-enrich any candidates missing ratings that have a Shikimori ID
   const missingScoreShikiIds = candidates
     .filter((hit) => !(hit.shikimori?.rating || hit.mal?.rating || hit.rating?.average) && hit.shikimori?.id)
@@ -2157,18 +2211,27 @@ export async function searchGroupedAnime(
       shikiToGroupKey.set(item.shikiId, groupKey);
     }
     for (const qTitle of [item.title, item.subTitle, ...(item.searchQueries ?? [])]) {
-      const n = normalizeTitleText(qTitle ?? '');
-      if (n && !normTitleToGroupKey.has(n)) {
-        normTitleToGroupKey.set(n, groupKey);
+      for (const n of titleGroupVariants(qTitle ?? '')) {
+        if (!normTitleToGroupKey.has(n)) {
+          normTitleToGroupKey.set(n, groupKey);
+        }
       }
     }
+  };
+
+  const findGroupKeyByTitle = (rawTitle: string): string | undefined => {
+    for (const n of titleGroupVariants(rawTitle)) {
+      const key = normTitleToGroupKey.get(n);
+      if (key) return key;
+    }
+    return undefined;
   };
 
   for (let i = 0; i < candidates.length; i += 1) {
     const hit = candidates[i];
     const franchise = franchiseByReleaseCache.get(hit.id) ?? null;
     const fallbackTitle = hit.name?.english || hit.name?.main || '';
-    const fKey = franchiseKey(fallbackTitle);
+    const fKey = computeTitleGroupKey(fallbackTitle, rootTitles);
     const groupKey = franchise
       ? `fr:${franchise.id}`
       : fKey
@@ -2232,7 +2295,7 @@ export async function searchGroupedAnime(
 
     const engTitle = (s.name ?? '').trim();
     const ruTitle = (s.russian ?? '').trim();
-    const title = engTitle || ruTitle || 'Anime';
+    const title = stripSeasonSuffix(engTitle || ruTitle) || engTitle || ruTitle || 'Anime';
     const subTitle = ruTitle && ruTitle !== title ? ruTitle : undefined;
     const queries = dedupeSearchQueries([ruTitle, engTitle]);
     const parsedScore = Number(s.score);
@@ -2244,8 +2307,8 @@ export async function searchGroupedAnime(
 
     const existingKey =
       shikiToGroupKey.get(s.id) ??
-      normTitleToGroupKey.get(normalizeTitleText(engTitle)) ??
-      normTitleToGroupKey.get(normalizeTitleText(ruTitle));
+      findGroupKeyByTitle(engTitle) ??
+      findGroupKeyByTitle(ruTitle);
 
     if (existingKey && groups.has(existingKey)) {
       const existing = groups.get(existingKey)!;
@@ -2293,10 +2356,7 @@ export async function searchGroupedAnime(
       const orig = (dc.original ?? '').trim();
       const title = orig || ru;
       if (!title) continue;
-      if (
-        normTitleToGroupKey.has(normalizeTitleText(ru)) ||
-        normTitleToGroupKey.has(normalizeTitleText(orig))
-      ) {
+      if (findGroupKeyByTitle(ru) || findGroupKeyByTitle(orig)) {
         continue;
       }
       const yearNum = Number(dc.dateissue) || undefined;
@@ -2333,9 +2393,7 @@ export async function searchGroupedAnime(
       const orig = parts[1] ?? '';
       const title = orig || ru;
       if (!title) continue;
-      if (
-        parts.some((p) => normTitleToGroupKey.has(normalizeTitleText(p)))
-      ) {
+      if (parts.some((p) => findGroupKeyByTitle(p))) {
         continue;
       }
       const yearNum = Number(av.year) || undefined;

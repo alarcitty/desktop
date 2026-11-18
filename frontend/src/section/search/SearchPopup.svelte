@@ -35,6 +35,7 @@
     loadCatalogGenres,
     resolveHeroOpeningPreview,
     searchGroupedAnime,
+    stripSeasonSuffix,
     warmHeroOpeningPreview,
     type CatalogGenreOption,
     type HeroOpeningPreview,
@@ -153,7 +154,7 @@
   }
 
   function normalizeTitle(title: string): string {
-    return title.trim().toLowerCase();
+    return (stripSeasonSuffix(title) || title).trim().toLowerCase();
   }
 
   function sameTarget(

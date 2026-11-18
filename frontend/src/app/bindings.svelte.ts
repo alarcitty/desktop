@@ -10,6 +10,7 @@ import {
   back,
   forward,
   getLastHistoryNavTimestamp,
+  parseMilaShareLink,
   router,
   stepToHistoryIndex
 } from './router.svelte';
@@ -432,6 +433,37 @@ export function mountBindingsController(): () => void {
       ? runtime.EventsOn('mila:before-close', onBeforeCloseFlush)
       : undefined;
 
+  const handleDeepLink = (link: unknown) => {
+    if (typeof link !== 'string' || !link.trim()) return;
+    const parsed = parseMilaShareLink(link);
+    if (!parsed || (!parsed.shikiId && !parsed.alias)) return;
+    if (search.open) closeSearch();
+    void import('./player.svelte').then(({ openWatch }) =>
+      openWatch(
+        {
+          title: parsed.title ?? '',
+          shikiId: parsed.shikiId,
+          releaseAlias: parsed.alias,
+          searchQueries: []
+        },
+        { episodeOrdinal: parsed.episodeOrdinal, autoPlay: true }
+      )
+    );
+  };
+
+  const offDeepLink =
+    typeof runtime?.EventsOn === 'function'
+      ? runtime.EventsOn('mila:deep-link', handleDeepLink)
+      : undefined;
+
+  const goMila = getWailsMilaBindings();
+  if (typeof goMila?.ConsumePendingDeepLink === 'function') {
+    void goMila
+      .ConsumePendingDeepLink()
+      .then(handleDeepLink)
+      .catch(() => {});
+  }
+
   window.addEventListener('mousedown', onMouseDown, { capture: true });
   window.addEventListener('mouseup', onMouseUp, { capture: true });
   window.addEventListener('auxclick', onAuxClick, { capture: true });
@@ -446,6 +478,7 @@ export function mountBindingsController(): () => void {
 
   return () => {
     offWailsBeforeClose?.();
+    offDeepLink?.();
     window.removeEventListener('mousedown', onMouseDown, { capture: true });
     window.removeEventListener('mouseup', onMouseUp, { capture: true });
     window.removeEventListener('auxclick', onAuxClick, { capture: true });

@@ -2,26 +2,37 @@ package anime
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"mila/internal/aniliberty"
+	"mila/internal/cache"
 	"mila/internal/logger"
 	"mila/internal/shikimori"
 )
 
 // Service orchestrates AniLiberty release/streaming data and Shikimori metadata/artwork enrichment.
 type Service struct {
-	lib   *aniliberty.Client
-	shiki *shikimori.Client
-	log   *logger.Logger
+	lib        *aniliberty.Client
+	shiki      *shikimori.Client
+	log        *logger.Logger
+	matchCache *cache.Cache[string, int]
 }
 
 // NewService constructs an anime service backed by AniLiberty and Shikimori clients.
 func NewService(lib *aniliberty.Client, shiki *shikimori.Client) *Service {
+	diskDir, err := cache.DefaultDiskCacheDir("anime_matches")
+	if err != nil {
+		diskDir = ""
+	}
 	return &Service{
 		lib:   lib,
 		shiki: shiki,
 		log:   logger.Make("anime"),
+		matchCache: cache.New[string, int](
+			cache.WithMaxEntries[string, int](2048),
+			cache.WithDiskDir[string, int](diskDir),
+		),
 	}
 }
 
@@ -70,6 +81,13 @@ func (s *Service) GetRelease(ctx context.Context, idOrAlias string) (Detail, err
 		} else {
 			shikiMeta = meta
 		}
+	} else if matchedID, ok, matchErr := s.MatchShikimori(ctx, matchInfoFromRelease(rel)); matchErr == nil && ok {
+		meta, err := s.shiki.GetByID(ctx, matchedID)
+		if err != nil {
+			s.log.Warn("shikimori.match_enrich_failed", "shiki_id", matchedID, "err", err.Error())
+		} else {
+			shikiMeta = meta
+		}
 	}
 
 	episodes := make([]Episode, 0, len(rel.Episodes))
@@ -83,8 +101,16 @@ func (s *Service) GetRelease(ctx context.Context, idOrAlias string) (Detail, err
 		Episodes: episodes,
 		Torrents: rel.Torrents,
 	}
-	if shikiMeta != nil && len(shikiMeta.Videos) > 0 {
-		detail.Videos = shikiMeta.Videos
+	if shikiMeta != nil {
+		if detail.ShikimoriID == 0 {
+			detail.ShikimoriID = shikiMeta.ID
+		}
+		if detail.MalID == 0 && shikiMeta.MalID > 0 {
+			detail.MalID = shikiMeta.MalID
+		}
+		if len(shikiMeta.Videos) > 0 {
+			detail.Videos = shikiMeta.Videos
+		}
 	}
 	return detail, nil
 }
@@ -404,4 +430,83 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// MatchShikimori resolves a cross-source title to a Shikimori ID via scoring,
+// caching confirmed links (24h) and misses (5m) in the L1/L2 cache.
+func (s *Service) MatchShikimori(ctx context.Context, target MatchInfo) (int, bool, error) {
+	key := matchCacheKey(target)
+	if key == "" {
+		return 0, false, nil
+	}
+	if id, ok := s.matchCache.Get(key); ok {
+		return id, id > 0, nil
+	}
+
+	query := ""
+	for _, t := range target.Titles {
+		if trimmed := strings.TrimSpace(t); trimmed != "" {
+			query = trimmed
+			break
+		}
+	}
+	if query == "" {
+		return 0, false, nil
+	}
+
+	results, err := s.shiki.Search(ctx, query, 10)
+	if err != nil {
+		return 0, false, err
+	}
+	cands := make([]MatchInfo, 0, len(results))
+	for _, a := range results {
+		cands = append(cands, MatchInfo{
+			ShikimoriID: a.ID,
+			MalID:       a.MalID,
+			Titles:      []string{a.Name, a.English, a.Russian},
+			Year:        a.Year,
+			Kind:        a.Kind,
+		})
+	}
+	best, score, ok := BestMatch(target, cands)
+	if ok {
+		s.matchCache.Set(key, best.ShikimoriID, cache.TTLMetadata)
+		s.log.Info("match.confirmed", "query", query, "shiki_id", best.ShikimoriID, "score", score)
+		return best.ShikimoriID, true, nil
+	}
+	s.matchCache.Set(key, 0, cache.TTLSearch)
+	return 0, false, nil
+}
+
+func matchCacheKey(target MatchInfo) string {
+	parts := make([]string, 0, len(target.Titles))
+	for _, t := range target.Titles {
+		if n := NormalizeTitle(t); n != "" {
+			parts = append(parts, n)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s|%d|%s", strings.Join(parts, "~"), target.Year, kindGroup(target.Kind))
+}
+
+func matchInfoFromRelease(rel aniliberty.Release) MatchInfo {
+	info := MatchInfo{
+		Titles: []string{rel.Name.Main, rel.Name.English},
+		Year:   rel.Year,
+	}
+	if rel.Name.Alternative != nil {
+		info.Titles = append(info.Titles, *rel.Name.Alternative)
+	}
+	if rel.Type != nil {
+		info.Kind = rel.Type.Value
+	}
+	if rel.Shikimori != nil {
+		info.ShikimoriID = rel.Shikimori.ID
+	}
+	if rel.MAL != nil {
+		info.MalID = rel.MAL.ID
+	}
+	return info
 }

@@ -6,6 +6,7 @@ require (
 	github.com/anacrolix/torrent v1.62.0
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/wailsapp/wails/v2 v2.17.1
+	golang.org/x/sys v0.48.0
 	modernc.org/sqlite v1.21.1
 )
 
@@ -112,7 +113,6 @@ require (
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect

@@ -52,6 +52,8 @@
     "watchEp": "Watch Ep {n}",
     "planToWatch": "Plan to Watch",
     "inPlanToWatch": "In Plan to Watch",
+    "share": "Copy share link",
+    "shareCopied": "Link copied!",
     "episodes": "Episodes",
     "episodeLabel": "Episode {n}",
     "frames": "Frames",

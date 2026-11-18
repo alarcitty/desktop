@@ -88,6 +88,7 @@ describe('T-020 close flush hooks & T-089 unified Go<->JS contract', () => {
       expect(windowListeners.has('beforeunload')).toBe(true);
       expect(windowListeners.has('pagehide')).toBe(true);
       expect(wailsEvents.has('mila:before-close')).toBe(true);
+      expect(wailsEvents.has('mila:deep-link')).toBe(true);
 
       for (const cb of windowListeners.get('beforeunload') ?? []) {
         if (typeof cb === 'function') cb({} as Event);
@@ -103,7 +104,8 @@ describe('T-020 close flush hooks & T-089 unified Go<->JS contract', () => {
       unregisterFlush();
     }
 
-    expect(unsubSpy).toHaveBeenCalledTimes(1);
+    expect(unsubSpy).toHaveBeenCalledTimes(2);
+    expect(wailsEvents.size).toBe(0);
     expect(windowListeners.get('beforeunload')?.size ?? 0).toBe(0);
     expect(windowListeners.get('pagehide')?.size ?? 0).toBe(0);
   });

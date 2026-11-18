@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"fmt"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -11,6 +12,7 @@ import (
 
 	"mila/internal/logger"
 	"mila/internal/mila"
+	"mila/internal/protocol"
 	"mila/internal/screen"
 )
 
@@ -29,6 +31,15 @@ func main() {
 	log := logger.Make("boot")
 	m := mila.New()
 
+	if exePath, exeErr := os.Executable(); exeErr == nil {
+		if regErr := protocol.Register(exePath); regErr != nil {
+			log.Warn("protocol.register_failed", "err", regErr.Error())
+		} else {
+			log.Info("protocol.registered", "scheme", "mila")
+		}
+	}
+	m.SetPendingDeepLink(protocol.FindLink(os.Args[1:]))
+
 	// 3/4 of work area
 	width, height := screen.ThreeQuarterSize()
 	log.Info("window.geometry", "size", fmt.Sprintf("%dx%d", width, height), "radius", 15)
@@ -45,9 +56,15 @@ func main() {
 			Handler: mila.NewProviderHandler(),
 		},
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0}, // transparent for rounded corners
-		OnStartup:        m.Startup,
-		OnBeforeClose:    m.BeforeClose,
-		OnShutdown:       m.Shutdown,
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: "com.mila.app",
+			OnSecondInstanceLaunch: func(data options.SecondInstanceData) {
+				m.HandleDeepLink(protocol.FindLink(data.Args))
+			},
+		},
+		OnStartup:     m.Startup,
+		OnBeforeClose: m.BeforeClose,
+		OnShutdown:    m.Shutdown,
 		Bind: []interface{}{
 			m,
 		},

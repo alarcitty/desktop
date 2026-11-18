@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 	"mila/internal/cloud"
 	"mila/internal/logger"
+	"mila/internal/protocol"
 	"mila/internal/screen"
 	"mila/internal/updater"
 	"mila/internal/version"
@@ -29,6 +31,8 @@ type Mila struct {
 	isPip            atomic.Bool
 	runtimeStarted   atomic.Bool
 	windowStatePath  string
+	deepLinkMu       sync.Mutex
+	pendingDeepLink  string
 	emitCloseEvent   func(ctx context.Context, eventName string)
 	emitUpdateStatus func(ctx context.Context, status updater.UpdateStatus)
 	quitApp          func(ctx context.Context)
@@ -184,6 +188,40 @@ func (m *Mila) SaveWindowState(x, y, width, height int, maximized bool) error {
 		Height:    height,
 		Maximized: maximized,
 	})
+}
+
+// SetPendingDeepLink stores a mila:// link received before the frontend is ready.
+func (m *Mila) SetPendingDeepLink(link string) {
+	if !protocol.IsDeepLink(link) {
+		return
+	}
+	m.deepLinkMu.Lock()
+	m.pendingDeepLink = link
+	m.deepLinkMu.Unlock()
+}
+
+// ConsumePendingDeepLink returns and clears the deep link captured at cold start.
+func (m *Mila) ConsumePendingDeepLink() string {
+	m.deepLinkMu.Lock()
+	defer m.deepLinkMu.Unlock()
+	link := m.pendingDeepLink
+	m.pendingDeepLink = ""
+	return link
+}
+
+// HandleDeepLink forwards a mila:// link from a second app instance to the frontend.
+func (m *Mila) HandleDeepLink(link string) {
+	if !protocol.IsDeepLink(link) {
+		return
+	}
+	m.log.Info("deeplink.received", "link", link)
+	if m.ctx == nil || !m.runtimeStarted.Load() {
+		m.SetPendingDeepLink(link)
+		return
+	}
+	wailsRuntime.WindowUnminimise(m.ctx)
+	wailsRuntime.WindowShow(m.ctx)
+	wailsRuntime.EventsEmit(m.ctx, "mila:deep-link", link)
 }
 
 // ExportDiagnosticsLogs exports sanitized rotating log archives to a ZIP bundle and returns a `{data}` envelope.
