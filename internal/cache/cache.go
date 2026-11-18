@@ -599,7 +599,7 @@ func (c *Cache[K, V]) writeDisk(key K, raw []byte) {
 	c.diskWriteCount++
 	c.diskApproxBytes += int64(len(raw))
 
-	if c.diskMaxBytes > 0 && (c.diskApproxBytes > c.diskMaxBytes || c.diskWriteCount%32 == 0) {
+	if c.diskMaxBytes > 0 && (c.diskApproxBytes > c.diskMaxBytes || c.diskWriteCount%128 == 0) {
 		c.enforceDiskQuotaLocked(c.now())
 	}
 }
@@ -666,7 +666,7 @@ type diskFileMeta struct {
 	modTime time.Time
 }
 
-func (c *Cache[K, V]) enforceDiskQuotaLocked(now time.Time) {
+func (c *Cache[K, V]) enforceDiskQuotaLocked(_ time.Time) {
 	entries, err := os.ReadDir(c.diskDir)
 	if err != nil {
 		return
@@ -690,16 +690,6 @@ func (c *Cache[K, V]) enforceDiskQuotaLocked(now time.Time) {
 		info, err := entry.Info()
 		if err != nil {
 			continue
-		}
-		raw, err := os.ReadFile(full)
-		if err == nil {
-			var header struct {
-				ExpiresAt time.Time `json:"expires_at"`
-			}
-			if json.Unmarshal(raw, &header) != nil || now.After(header.ExpiresAt) {
-				_ = os.Remove(full)
-				continue
-			}
 		}
 		totalBytes += info.Size()
 		files = append(files, diskFileMeta{

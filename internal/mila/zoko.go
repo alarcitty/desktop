@@ -268,9 +268,11 @@ func probeZokoRelease(
 
 	var episodes []int
 	resolvedMalID := malID
+	hiDiscoveryAttempted := false
 
 	// If malID or episodeCount is missing, query HiAnime catalog to discover episodes and/or malID.
 	if (resolvedMalID <= 0 || episodeCount <= 0) && len([]rune(cleanQuery)) >= 2 {
+		hiDiscoveryAttempted = true
 		hiMalID, hiEps, hiHasDub, hiHasSub, hiErr := discoverFromHiAnime(ctx, baseHiURL, cleanQuery)
 		if hiErr == nil {
 			if resolvedMalID <= 0 && hiMalID > 0 {
@@ -324,7 +326,7 @@ func probeZokoRelease(
 
 	if len(episodes) == 0 {
 		count := episodeCount
-		if count <= 0 && len([]rune(cleanQuery)) >= 2 {
+		if count <= 0 && !hiDiscoveryAttempted && len([]rune(cleanQuery)) >= 2 {
 			if _, hiEps, _, _, err := discoverFromHiAnime(ctx, baseHiURL, cleanQuery); err == nil && len(hiEps) > 0 {
 				episodes = hiEps
 			}

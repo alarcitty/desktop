@@ -161,6 +161,11 @@ const episodeProgressWriter = createDebouncedStorageWriter<Record<string, Episod
   (items) => {
     if (typeof localStorage === 'undefined') return;
     try {
+      const keys = Object.keys(items);
+      if (keys.length <= MAX_EPISODE_PROGRESS_KEYS) {
+        safeStorageSet(EPISODE_PROGRESS_KEY, JSON.stringify(items));
+        return;
+      }
       const entries = Object.entries(items)
         .sort((a, b) => (b[1]?.updatedAt ?? 0) - (a[1]?.updatedAt ?? 0))
         .slice(0, MAX_EPISODE_PROGRESS_KEYS);
@@ -274,29 +279,64 @@ export function recordHistoryEntry(input: RecordHistoryInput): void {
         ? prev.duration
         : 0;
 
-  const entry: WatchHistoryEntry = {
-    id: prev?.id && id.startsWith('shiki:') ? id : prev?.id || id,
-    shikiId: input.shikiId || prev?.shikiId,
-    releaseAlias: input.releaseAlias || prev?.releaseAlias,
-    searchQueries: input.searchQueries?.length ? input.searchQueries : prev?.searchQueries,
-    title: title || prev?.title || 'Anime',
-    description: input.description?.trim() || prev?.description || '',
-    poster: input.poster || prev?.poster || '',
-    posterPosition: input.posterPosition || prev?.posterPosition,
-    score: input.score && input.score > 0 ? input.score : prev?.score,
-    tags: input.tags && input.tags.length > 0 ? input.tags : prev?.tags || [],
-    episodeOrdinal: input.episodeOrdinal,
-    episodeIndex: input.episodeIndex,
-    totalEpisodes: input.totalEpisodes ?? prev?.totalEpisodes,
-    currentTime: nextTime,
-    duration: nextDuration,
-    updatedAt: Date.now()
-  };
+  const nowTs = Date.now();
+  const entryId = prev?.id && id.startsWith('shiki:') ? id : prev?.id || id;
+  const entryShikiId = input.shikiId || prev?.shikiId;
+  const entryReleaseAlias = input.releaseAlias || prev?.releaseAlias;
+  const entrySearchQueries = input.searchQueries?.length ? input.searchQueries : prev?.searchQueries;
+  const entryTitle = title || prev?.title || 'Anime';
+  const entryDescription = input.description?.trim() || prev?.description || '';
+  const entryPoster = input.poster || prev?.poster || '';
+  const entryPosterPosition = input.posterPosition || prev?.posterPosition;
+  const entryScore = input.score && input.score > 0 ? input.score : prev?.score;
+  const entryTags = input.tags && input.tags.length > 0 ? input.tags : prev?.tags || [];
+  const entryTotalEpisodes = input.totalEpisodes ?? prev?.totalEpisodes;
 
-  const remaining = watchHistory.entries.filter((_, idx) => idx !== existingIdx);
-  const next = [entry, ...remaining].slice(0, MAX_HISTORY_ENTRIES);
-  watchHistory.entries = next;
-  saveHistory(next);
+  let entry: WatchHistoryEntry;
+  if (existingIdx === 0 && prev) {
+    // Mutate top entry fields in-place to avoid replacing the whole 100-item array every 3s during playback.
+    prev.id = entryId;
+    prev.shikiId = entryShikiId;
+    prev.releaseAlias = entryReleaseAlias;
+    prev.searchQueries = entrySearchQueries;
+    prev.title = entryTitle;
+    prev.description = entryDescription;
+    prev.poster = entryPoster;
+    prev.posterPosition = entryPosterPosition;
+    prev.score = entryScore;
+    prev.tags = entryTags;
+    prev.episodeOrdinal = input.episodeOrdinal;
+    prev.episodeIndex = input.episodeIndex;
+    prev.totalEpisodes = entryTotalEpisodes;
+    prev.currentTime = nextTime;
+    prev.duration = nextDuration;
+    prev.updatedAt = nowTs;
+    entry = prev;
+    saveHistory(watchHistory.entries);
+  } else {
+    entry = {
+      id: entryId,
+      shikiId: entryShikiId,
+      releaseAlias: entryReleaseAlias,
+      searchQueries: entrySearchQueries,
+      title: entryTitle,
+      description: entryDescription,
+      poster: entryPoster,
+      posterPosition: entryPosterPosition,
+      score: entryScore,
+      tags: entryTags,
+      episodeOrdinal: input.episodeOrdinal,
+      episodeIndex: input.episodeIndex,
+      totalEpisodes: entryTotalEpisodes,
+      currentTime: nextTime,
+      duration: nextDuration,
+      updatedAt: nowTs
+    };
+    const remaining = watchHistory.entries.filter((_, idx) => idx !== existingIdx);
+    const next = [entry, ...remaining].slice(0, MAX_HISTORY_ENTRIES);
+    watchHistory.entries = next;
+    saveHistory(next);
+  }
 
   // Sync per-episode watched & progress markers
   if (input.episodeOrdinal > 0) {
@@ -320,13 +360,11 @@ export function recordHistoryEntry(input: RecordHistoryInput): void {
         currentTime: nextTime,
         duration: dur,
         watched: nextWatched,
-        updatedAt: Date.now()
+        updatedAt: nowTs
       };
-      const nextMap = { ...episodeProgressMap.items };
       for (const key of keys) {
-        nextMap[key] = mergedEp;
+        episodeProgressMap.items[key] = mergedEp;
       }
-      episodeProgressMap.items = nextMap;
       scheduleSaveEpisodeProgress();
       const partialProgress: Record<string, EpisodeProgressEntry> = {};
       for (const key of keys) {

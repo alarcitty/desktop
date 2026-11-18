@@ -162,7 +162,16 @@ func NewImageProxy(cfg ImageProxyConfig) (*ImageProxy, error) {
 		p.httpClient = &clone
 	} else {
 		p.httpClient = &http.Client{
-			Timeout:       20 * time.Second,
+			Timeout: 20 * time.Second,
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				MaxIdleConns:          128,
+				MaxIdleConnsPerHost:   32,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+				ForceAttemptHTTP2:     true,
+			},
 			CheckRedirect: p.checkRedirect,
 		}
 	}
@@ -308,28 +317,33 @@ func (p *ImageProxy) metaPath(hash string) string {
 
 func (p *ImageProxy) lookupFresh(hash string) (imageMeta, bool) {
 	nowUnix := p.now().UnixNano()
+	var stalePaths [2]string
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	elem, ok := p.entries[hash]
 	if !ok {
+		p.mu.Unlock()
 		return imageMeta{}, false
 	}
 	meta := elem.Value.(*imageMeta)
 	if nowUnix > meta.ExpiresAt {
-		p.removeElemLocked(elem)
+		stalePaths[0], stalePaths[1] = p.removeElemLocked(elem)
+		p.mu.Unlock()
+		removeFilePair(stalePaths[0], stalePaths[1])
 		return imageMeta{}, false
 	}
 	meta.LastAccess = nowUnix
 	p.lru.MoveToFront(elem)
-	return *meta, true
+	res := *meta
+	p.mu.Unlock()
+	return res, true
 }
 
 func (p *ImageProxy) serveFromDisk(w http.ResponseWriter, r *http.Request, meta imageMeta, xCache string) bool {
+	dataPath := p.dataPath(meta.Hash)
 	if etagMatches(r.Header.Get("If-None-Match"), meta.ETag) {
 		// Verify backing file still exists before claiming 304
-		if _, err := os.Stat(p.dataPath(meta.Hash)); err == nil {
+		if _, err := os.Stat(dataPath); err == nil {
 			p.notModified304.Add(1)
 			p.setCacheHeaders(w, meta, xCache)
 			w.WriteHeader(http.StatusNotModified)
@@ -339,13 +353,26 @@ func (p *ImageProxy) serveFromDisk(w http.ResponseWriter, r *http.Request, meta 
 		return false
 	}
 
-	raw, err := os.ReadFile(p.dataPath(meta.Hash))
+	f, err := os.Open(dataPath)
+	if err != nil {
+		p.evictHash(meta.Hash)
+		return false
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
 	if err != nil {
 		p.evictHash(meta.Hash)
 		return false
 	}
 
-	p.writeImageResponse(w, r, meta, raw, xCache)
+	p.setCacheHeaders(w, meta, xCache)
+	w.Header().Set("Content-Type", meta.ContentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(fi.Size(), 10))
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = io.Copy(w, f)
+	}
 	return true
 }
 
@@ -383,6 +410,7 @@ func (p *ImageProxy) fetchSingleflight(ctx context.Context, hash, targetURL stri
 		p.evictHash(hash)
 	}
 
+	var expiredPaths [2]string
 	p.mu.Lock()
 	if elem, ok := p.entries[hash]; ok {
 		meta := *elem.Value.(*imageMeta)
@@ -396,12 +424,13 @@ func (p *ImageProxy) fetchSingleflight(ctx context.Context, hash, targetURL stri
 			p.evictHash(hash)
 			p.mu.Lock()
 		} else {
-			p.removeElemLocked(elem)
+			expiredPaths[0], expiredPaths[1] = p.removeElemLocked(elem)
 		}
 	}
 
 	if fl, running := p.inflight[hash]; running {
 		p.mu.Unlock()
+		removeFilePair(expiredPaths[0], expiredPaths[1])
 		select {
 		case <-fl.done:
 			if fl.res.err == nil {
@@ -494,9 +523,9 @@ func (p *ImageProxy) downloadAndStore(ctx context.Context, hash, targetURL strin
 }
 
 func (p *ImageProxy) insertAndEnforceQuota(meta imageMeta) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	var evicted [][2]string
 
+	p.mu.Lock()
 	if elem, exists := p.entries[meta.Hash]; exists {
 		old := elem.Value.(*imageMeta)
 		p.totalBytes -= old.Size
@@ -515,20 +544,28 @@ func (p *ImageProxy) insertAndEnforceQuota(meta imageMeta) {
 		if victim == nil {
 			break
 		}
-		p.removeElemLocked(victim)
+		dp, mp := p.removeElemLocked(victim)
+		evicted = append(evicted, [2]string{dp, mp})
 		p.evictions.Add(1)
+	}
+	p.mu.Unlock()
+
+	for _, pair := range evicted {
+		removeFilePair(pair[0], pair[1])
 	}
 }
 
 func (p *ImageProxy) evictHash(hash string) {
+	var dp, mp string
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if elem, exists := p.entries[hash]; exists {
-		p.removeElemLocked(elem)
+		dp, mp = p.removeElemLocked(elem)
 	}
+	p.mu.Unlock()
+	removeFilePair(dp, mp)
 }
 
-func (p *ImageProxy) removeElemLocked(elem *list.Element) {
+func (p *ImageProxy) removeElemLocked(elem *list.Element) (string, string) {
 	meta := elem.Value.(*imageMeta)
 	delete(p.entries, meta.Hash)
 	p.lru.Remove(elem)
@@ -536,8 +573,16 @@ func (p *ImageProxy) removeElemLocked(elem *list.Element) {
 	if p.totalBytes < 0 {
 		p.totalBytes = 0
 	}
-	_ = os.Remove(p.dataPath(meta.Hash))
-	_ = os.Remove(p.metaPath(meta.Hash))
+	return p.dataPath(meta.Hash), p.metaPath(meta.Hash)
+}
+
+func removeFilePair(dataPath, metaPath string) {
+	if dataPath != "" {
+		_ = os.Remove(dataPath)
+	}
+	if metaPath != "" {
+		_ = os.Remove(metaPath)
+	}
 }
 
 func (p *ImageProxy) loadExistingFromDisk() {

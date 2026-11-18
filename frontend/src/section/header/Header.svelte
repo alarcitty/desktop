@@ -82,13 +82,28 @@
     };
 
     const unsub = subscribeAppUpdateStatus(applyStatus);
+    return unsub;
+  });
+
+  $effect(() => {
+    if (!updateChecking && updateProgress === null) return;
     const pollId = window.setInterval(() => {
-      if (!updateChecking && updateProgress === null) return;
-      void invokeGetUpdateStatus().then(applyStatus);
+      void invokeGetUpdateStatus().then((status) => {
+        if (!status) return;
+        if (status.state === "downloading" || status.state === "installing") {
+          updateChecking = false;
+          const pct = typeof status.progress === "number" ? status.progress : 0;
+          updateProgress = updateProgress !== null ? Math.max(updateProgress, pct) : pct;
+          return;
+        }
+        if (status.state === "up_to_date" || status.state === "error" || status.state === "idle") {
+          updateChecking = false;
+          updateProgress = null;
+        }
+      });
     }, 180);
 
     return () => {
-      unsub();
       window.clearInterval(pollId);
     };
   });
@@ -419,7 +434,7 @@
     user-select: none;
     z-index: 50;
     transition:
-      top 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.34s cubic-bezier(0.22, 1, 0.36, 1),
       opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -444,7 +459,7 @@
   }
 
   .header.is-hidden {
-    top: calc(var(--header-height, 48px) * -1 - 4px);
+    transform: translate3d(0, calc(var(--header-height, 48px) * -1 - 4px), 0);
     opacity: 0;
     pointer-events: none;
     --wails-draggable: no-drag;

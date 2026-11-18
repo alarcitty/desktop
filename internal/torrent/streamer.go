@@ -196,6 +196,7 @@ func (m *Manager) OpenMagnet(ctx context.Context, magnet string) (*TorrentReleas
 	select {
 	case <-t.GotInfo():
 	case <-waitCtx.Done():
+		t.Drop()
 		return nil, errors.New("timed out fetching torrent metadata from DHT/trackers")
 	}
 
@@ -355,7 +356,24 @@ func (m *Manager) ServeHTTPStream(w http.ResponseWriter, r *http.Request) {
 	file := files[fileIdx]
 
 	reader := file.NewReader()
-	defer reader.Close()
+	var closeOnce sync.Once
+	closeReader := func() {
+		closeOnce.Do(func() {
+			_ = reader.Close()
+		})
+	}
+	defer closeReader()
+
+	streamDone := make(chan struct{})
+	defer close(streamDone)
+	go func() {
+		select {
+		case <-r.Context().Done():
+			closeReader()
+		case <-streamDone:
+		}
+	}()
+
 	reader.SetResponsive()
 	reader.SetReadahead(32 << 20)
 

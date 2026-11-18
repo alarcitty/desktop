@@ -101,6 +101,8 @@
   let pendingDetachTimer: number | undefined;
   let warmNeighborsTimer: number | undefined;
   let audioFadeRaf: number | undefined;
+  let audioFadeTimer: number | undefined;
+  let volumePersistTimer: number | undefined;
   let unmuteFadeStartMs = 0;
   let switchFadeStartMs = 0;
   let skipNextUnmuteFade = false;
@@ -157,6 +159,10 @@
       window.cancelAnimationFrame(audioFadeRaf);
       audioFadeRaf = undefined;
     }
+    if (audioFadeTimer !== undefined) {
+      window.clearTimeout(audioFadeTimer);
+      audioFadeTimer = undefined;
+    }
   }
 
   function getPreviewEndSec(video: HTMLVideoElement, clip: HeroOpeningPreview): number {
@@ -197,6 +203,20 @@
     video.volume = Math.max(0, Math.min(1, clipIn * clipOut * unmuteFactor * switchOutFactor * videoVolume));
   }
 
+  function schedulePersistVolume(val: number) {
+    if (volumePersistTimer !== undefined) {
+      window.clearTimeout(volumePersistTimer);
+    }
+    volumePersistTimer = window.setTimeout(() => {
+      volumePersistTimer = undefined;
+      try {
+        window.localStorage.setItem(VOLUME_STORAGE_KEY, String(val));
+      } catch {
+        // Ignore storage write errors
+      }
+    }, 200);
+  }
+
   function setPreviewVolume(nextRaw: number) {
     const clamped = Math.max(0, Math.min(1, Math.round(nextRaw * 100) / 100));
     if (clamped <= 0) {
@@ -221,11 +241,7 @@
       skipNextUnmuteFade = true;
       videoMuted = false;
     }
-    try {
-      window.localStorage.setItem(VOLUME_STORAGE_KEY, String(clamped));
-    } catch {
-      // Ignore storage write errors
-    }
+    schedulePersistVolume(clamped);
 
     if (previewVideoEl) {
       previewVideoEl.muted = false;
@@ -234,7 +250,7 @@
       }
     }
     applyPreviewAudioEnvelope();
-    if (shouldPlayPreview && (wasMuted || audioFadeRaf === undefined)) {
+    if (shouldPlayPreview && (wasMuted || (audioFadeRaf === undefined && audioFadeTimer === undefined))) {
       startAudioFadeLoop();
     }
   }
@@ -263,12 +279,35 @@
     stopAudioFadeLoop();
     const tick = (now: number) => {
       const video = previewVideoEl;
-      if (!video || !previewClip || videoMuted || !shouldPlayPreview) {
+      const clip = previewClip;
+      if (!video || !clip || videoMuted || !shouldPlayPreview) {
         audioFadeRaf = undefined;
         return;
       }
       applyPreviewAudioEnvelope(now);
-      audioFadeRaf = window.requestAnimationFrame(tick);
+
+      const endSec = getPreviewEndSec(video, clip);
+      const elapsedInClip = Math.max(0, video.currentTime - clip.startSec);
+      const remaining = Math.max(0, endSec - 0.15 - video.currentTime);
+      const inFade =
+        !videoReady ||
+        video.paused ||
+        video.currentTime < clip.startSec - 0.15 ||
+        elapsedInClip < AUDIO_FADE_IN_SEC ||
+        remaining <= AUDIO_FADE_OUT_SEC + 0.12 ||
+        (unmuteFadeStartMs > 0 && now - unmuteFadeStartMs < UNMUTE_FADE_MS) ||
+        isSwitchingOpening;
+
+      if (inFade) {
+        audioFadeRaf = window.requestAnimationFrame(tick);
+      } else {
+        audioFadeRaf = undefined;
+        const sleepMs = Math.max(40, (remaining - AUDIO_FADE_OUT_SEC - 0.08) * 1000);
+        audioFadeTimer = window.setTimeout(() => {
+          audioFadeTimer = undefined;
+          audioFadeRaf = window.requestAnimationFrame(tick);
+        }, sleepMs);
+      }
     };
     audioFadeRaf = window.requestAnimationFrame(tick);
   }

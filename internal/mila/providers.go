@@ -33,13 +33,24 @@ const (
 var (
 	providerHTTPClient = &http.Client{
 		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			MaxIdleConns:        128,
+			MaxIdleConnsPerHost: 32,
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+			ForceAttemptHTTP2:   true,
+		},
 	}
 	mediaProxyHTTPClient = &http.Client{
 		Transport: &http.Transport{
 			Proxy:                 http.ProxyFromEnvironment,
+			MaxIdleConns:          128,
+			MaxIdleConnsPerHost:   32,
 			ResponseHeaderTimeout: 20 * time.Second,
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
+			ForceAttemptHTTP2:     true,
 		},
 	}
 )

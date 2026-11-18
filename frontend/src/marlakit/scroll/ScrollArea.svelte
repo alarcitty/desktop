@@ -20,6 +20,7 @@
 
   let cachedScrollHeight = 0;
   let cachedClientHeight = 0;
+  let cachedTrackHeight = 0;
   let thumbHeight = 0;
   let startY = 0;
   let startScrollTop = 0;
@@ -76,6 +77,7 @@
     if (!viewportRef) return;
     cachedScrollHeight = viewportRef.scrollHeight;
     cachedClientHeight = viewportRef.clientHeight;
+    cachedTrackHeight = trackRef?.clientHeight || cachedClientHeight;
     scheduleThumbUpdate(false);
   }
 
@@ -104,7 +106,11 @@
       stopWheelAnimation();
       return;
     }
-    const maxScroll = Math.max(0, viewportRef.scrollHeight - viewportRef.clientHeight);
+    if (cachedClientHeight <= 0 || cachedScrollHeight <= 0) {
+      cachedScrollHeight = viewportRef.scrollHeight;
+      cachedClientHeight = viewportRef.clientHeight;
+    }
+    const maxScroll = Math.max(0, cachedScrollHeight - cachedClientHeight);
     if (targetTop > maxScroll) targetTop = maxScroll;
     if (targetTop < 0) targetTop = 0;
 
@@ -132,14 +138,18 @@
     if (!viewportRef || e.ctrlKey || e.metaKey || e.deltaY === 0) return;
     if (hasInnerScrollable(e.target, e.deltaY)) return;
 
-    const maxScroll = Math.max(0, viewportRef.scrollHeight - viewportRef.clientHeight);
+    if (cachedClientHeight <= 0 || cachedScrollHeight <= 0) {
+      cachedScrollHeight = viewportRef.scrollHeight;
+      cachedClientHeight = viewportRef.clientHeight;
+    }
+    const maxScroll = Math.max(0, cachedScrollHeight - cachedClientHeight);
     if (maxScroll <= 0) return;
 
     e.preventDefault();
 
     let delta = e.deltaY;
     if (e.deltaMode === 1) delta *= 40;
-    else if (e.deltaMode === 2) delta *= viewportRef.clientHeight;
+    else if (e.deltaMode === 2) delta *= cachedClientHeight || viewportRef.clientHeight;
 
     if (!wheelRafId) {
       smoothTop = viewportRef.scrollTop;
@@ -181,7 +191,8 @@
 
     if (!hasOverflow) hasOverflow = true;
 
-    const trackHeight = trackRef?.clientHeight || clientHeight;
+    const trackHeight = cachedTrackHeight || trackRef?.clientHeight || clientHeight;
+    cachedTrackHeight = trackHeight;
     const nextThumbH = Math.max((clientHeight / scrollHeight) * trackHeight, 36);
     const availableTrack = Math.max(0, trackHeight - nextThumbH);
     const maxScroll = scrollHeight - clientHeight;
@@ -220,6 +231,7 @@
     const ro = new ResizeObserver(() => {
       cachedScrollHeight = viewport.scrollHeight;
       cachedClientHeight = viewport.clientHeight;
+      cachedTrackHeight = trackRef?.clientHeight || cachedClientHeight;
       scheduleThumbUpdate(false);
     });
     ro.observe(viewport);
@@ -228,6 +240,7 @@
     }
     cachedScrollHeight = viewport.scrollHeight;
     cachedClientHeight = viewport.clientHeight;
+    cachedTrackHeight = trackRef?.clientHeight || cachedClientHeight;
     scheduleThumbUpdate(false);
     viewport.addEventListener('wheel', handleWheel, { passive: false });
 

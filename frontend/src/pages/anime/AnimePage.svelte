@@ -80,7 +80,8 @@
   let canScrollCharRight = $state(false);
 
   let moreStripEl = $state<HTMLDivElement | null>(null);
-  let moreScrollLeft = $state(0);
+  let moreUnderlayTrackEl = $state<HTMLDivElement | null>(null);
+  let moreScrollRaf = 0;
   let canScrollMoreLeft = $state(false);
   let canScrollMoreRight = $state(false);
 
@@ -304,17 +305,30 @@
     charStripEl.scrollBy({ left: dir * step, behavior: 'smooth' });
   }
 
+  function applyMoreUnderlayTransform() {
+    if (!moreUnderlayTrackEl) return;
+    const x = moreStripEl ? -(moreStripEl.scrollLeft * 0.25) : 0;
+    moreUnderlayTrackEl.style.transform = `translate3d(${x.toFixed(2)}px, 0, 0)`;
+  }
+
   function updateMoreScrollFlags() {
     if (!moreStripEl) {
-      moreScrollLeft = 0;
       canScrollMoreLeft = false;
       canScrollMoreRight = false;
+      applyMoreUnderlayTransform();
       return;
     }
-    moreScrollLeft = moreStripEl.scrollLeft;
-    const maxScroll = Math.max(0, moreStripEl.scrollWidth - moreStripEl.clientWidth);
-    canScrollMoreLeft = moreStripEl.scrollLeft > 8;
-    canScrollMoreRight = moreStripEl.scrollLeft < maxScroll - 8;
+    if (!moreScrollRaf) {
+      moreScrollRaf = window.requestAnimationFrame(() => {
+        moreScrollRaf = 0;
+        applyMoreUnderlayTransform();
+        if (!moreStripEl) return;
+        const left = moreStripEl.scrollLeft;
+        const maxScroll = Math.max(0, moreStripEl.scrollWidth - moreStripEl.clientWidth);
+        canScrollMoreLeft = left > 8;
+        canScrollMoreRight = left < maxScroll - 8;
+      });
+    }
   }
 
   function scrollMoreStrip(dir: -1 | 1) {
@@ -1170,15 +1184,17 @@
 
       <div class="more-stage">
         <div class="more-underlay-blur" aria-hidden="true">
-          <div
-            class="more-underlay-track"
-            style:transform={`translate3d(${-moreScrollLeft}px, 0, 0)`}
-          >
-            {#each similarEntries as rec (`blur-${rec.id}`)}
-              <div class="more-underlay-tile" class:is-fewer={similarEntries.length < 3}>
-                <img src={rec.poster} alt="" class="more-underlay-img" decoding="async" />
-              </div>
-            {/each}
+          <div class="more-underlay-scale">
+            <div
+              class="more-underlay-track"
+              bind:this={moreUnderlayTrackEl}
+            >
+              {#each similarEntries as rec (`blur-${rec.id}`)}
+                <div class="more-underlay-tile" class:is-fewer={similarEntries.length < 3}>
+                  <img src={rec.poster} alt="" class="more-underlay-img" decoding="async" />
+                </div>
+              {/each}
+            </div>
           </div>
         </div>
 
@@ -2878,10 +2894,21 @@
     z-index: 0;
     pointer-events: none;
     overflow: hidden;
-    filter: blur(88px) saturate(1.24);
     opacity: 0.44;
     -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 28%, black 100%);
     mask-image: linear-gradient(to bottom, transparent 0%, black 28%, black 100%);
+  }
+
+  .more-underlay-scale {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 25%;
+    height: 25%;
+    transform-origin: 0 0;
+    transform: scale(4);
+    filter: blur(22px) saturate(1.24);
+    backface-visibility: hidden;
   }
 
   .more-underlay-track {
@@ -2889,7 +2916,7 @@
     flex-direction: row;
     width: 100%;
     height: 100%;
-    padding: 0 60px;
+    padding: 0 15px;
     box-sizing: content-box;
     will-change: transform;
   }

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"mila/internal/cache"
@@ -293,24 +294,51 @@ func (c *Client) Genres(ctx context.Context) ([]Genre, error) {
 	return refs.Genres, nil
 }
 
-// References fetches genres, sorting options, release types, and seasons.
+// References fetches genres, sorting options, release types, and seasons concurrently.
 func (c *Client) References(ctx context.Context) (References, error) {
 	return c.referencesCache.Do(ctx, "all", c.refTTL, func(ctx context.Context) (References, error) {
-		var refs References
-		if err := c.getJSON(ctx, "/anime/catalog/references/genres", &refs.Genres); err != nil {
-			return References{}, err
+		var (
+			refs     References
+			firstErr error
+			errOnce  sync.Once
+			wg       sync.WaitGroup
+		)
+		reqCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		recordErr := func(err error) {
+			if err != nil {
+				errOnce.Do(func() {
+					firstErr = err
+					cancel()
+				})
+			}
+		}
+
+		wg.Add(4)
+		go func() {
+			defer wg.Done()
+			recordErr(c.getJSON(reqCtx, "/anime/catalog/references/genres", &refs.Genres))
+		}()
+		go func() {
+			defer wg.Done()
+			recordErr(c.getJSON(reqCtx, "/anime/catalog/references/sorting", &refs.Sorting))
+		}()
+		go func() {
+			defer wg.Done()
+			recordErr(c.getJSON(reqCtx, "/anime/catalog/references/types", &refs.Types))
+		}()
+		go func() {
+			defer wg.Done()
+			recordErr(c.getJSON(reqCtx, "/anime/catalog/references/seasons", &refs.Seasons))
+		}()
+		wg.Wait()
+
+		if firstErr != nil {
+			return References{}, firstErr
 		}
 		for i := range refs.Genres {
 			c.normalizeImage(refs.Genres[i].Image)
-		}
-		if err := c.getJSON(ctx, "/anime/catalog/references/sorting", &refs.Sorting); err != nil {
-			return References{}, err
-		}
-		if err := c.getJSON(ctx, "/anime/catalog/references/types", &refs.Types); err != nil {
-			return References{}, err
-		}
-		if err := c.getJSON(ctx, "/anime/catalog/references/seasons", &refs.Seasons); err != nil {
-			return References{}, err
 		}
 		return refs, nil
 	})

@@ -205,6 +205,12 @@
   let lastHideArmMs = 0;
   let spaceHoldTimer: number | undefined;
   let pipClickTimer: number | undefined;
+  let volumePersistTimer: number | undefined;
+  let videoPrefsPersistTimer: number | undefined;
+  let seekHoverRaf = 0;
+  let pendingHoverSeekSec: number | null = null;
+  let cachedSeekRect: DOMRect | null = null;
+  let cachedSeekRectAt = 0;
   let spaceIsDown = false;
   let networkRetries = 0;
   let reparentingGuard = false;
@@ -274,15 +280,23 @@
     }
   }
 
+  function flushVideoPrefsStorage(next: VideoPrefs) {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(VIDEO_PREFS_KEY, JSON.stringify(next));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }
+
   function saveVideoPrefs(next: VideoPrefs) {
     videoPrefs = next;
-    if (typeof localStorage !== 'undefined') {
-      try {
-        localStorage.setItem(VIDEO_PREFS_KEY, JSON.stringify(next));
-      } catch {
-        // Ignore storage quota errors
-      }
-    }
+    if (typeof window === 'undefined') return;
+    window.clearTimeout(videoPrefsPersistTimer);
+    videoPrefsPersistTimer = window.setTimeout(() => {
+      videoPrefsPersistTimer = undefined;
+      flushVideoPrefsStorage(videoPrefs);
+    }, 180);
   }
 
   const progressPct = $derived(duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0);
@@ -945,13 +959,22 @@
 
       let cancelled = false;
       let ffPoll: number | undefined;
+      let ffSawDownloading = false;
+      const stopFfPoll = () => {
+        if (ffPoll !== undefined) {
+          window.clearInterval(ffPoll);
+          ffPoll = undefined;
+        }
+      };
       const onRemuxReady = () => {
         buffering = false;
         ffmpegNotice = '';
+        stopFfPoll();
       };
       const onRemuxErr = () => {
         buffering = false;
         ffmpegNotice = '';
+        stopFfPoll();
         errorText = 'Playback error: FFmpeg remux failed for torrent stream';
         onerror?.(errorText);
       };
@@ -981,9 +1004,13 @@
           void torrentMod.getFFmpegStatus().then((st) => {
             if (cancelled) return;
             if (st.downloading) {
+              ffSawDownloading = true;
               ffmpegNotice = `Preparing FFmpeg (${st.progressPct}%)…`;
             } else {
               ffmpegNotice = '';
+              if (ffSawDownloading) {
+                stopFfPoll();
+              }
             }
           });
         }, 600);
@@ -1661,6 +1688,11 @@
     });
   });
 
+  function flushVolumeStorage() {
+    safeStorageSet(VOLUME_KEY, String(volume));
+    safeStorageSet(MUTED_KEY, muted ? '1' : '0');
+  }
+
   function setVolume(val: number) {
     const clamped = Math.max(0, Math.min(1, val));
     volume = clamped;
@@ -1673,8 +1705,11 @@
       dubAudioEl.volume = clamped;
       dubAudioEl.muted = muted;
     }
-    safeStorageSet(VOLUME_KEY, String(clamped));
-    safeStorageSet(MUTED_KEY, muted ? '1' : '0');
+    window.clearTimeout(volumePersistTimer);
+    volumePersistTimer = window.setTimeout(() => {
+      volumePersistTimer = undefined;
+      flushVolumeStorage();
+    }, 180);
   }
 
   function toggleMute() {
@@ -1690,7 +1725,9 @@
       dubAudioEl.muted = muted;
       dubAudioEl.volume = volume;
     }
-    safeStorageSet(MUTED_KEY, muted ? '1' : '0');
+    window.clearTimeout(volumePersistTimer);
+    volumePersistTimer = undefined;
+    flushVolumeStorage();
     scheduleHideControls();
   }
 
@@ -1734,13 +1771,33 @@
     }, 80);
   }
 
+  function getSeekRect(): DOMRect | null {
+    if (!seekEl) return null;
+    const now = performance.now();
+    if (!cachedSeekRect || now - cachedSeekRectAt > 250) {
+      cachedSeekRect = seekEl.getBoundingClientRect();
+      cachedSeekRectAt = now;
+    }
+    return cachedSeekRect;
+  }
+
   function seekFromPointer(clientX: number) {
-    if (!seekEl || duration <= 0) return;
-    const rect = seekEl.getBoundingClientRect();
+    const rect = getSeekRect();
+    if (!rect || rect.width <= 0 || duration <= 0) return;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     hoverPct = ratio * 100;
     hoverTime = ratio * duration;
-    requestPreviewSeek(hoverTime);
+    pendingHoverSeekSec = hoverTime;
+    if (!seekHoverRaf) {
+      seekHoverRaf = window.requestAnimationFrame(() => {
+        seekHoverRaf = 0;
+        const sec = pendingHoverSeekSec;
+        pendingHoverSeekSec = null;
+        if (sec !== null) {
+          requestPreviewSeek(sec);
+        }
+      });
+    }
     if (draggingSeek) {
       seekTo(hoverTime);
     }
@@ -1748,6 +1805,8 @@
 
   function handleSeekPointerDown(e: PointerEvent) {
     if (!seekEl) return;
+    cachedSeekRect = seekEl.getBoundingClientRect();
+    cachedSeekRectAt = performance.now();
     draggingSeek = true;
     seekEl.setPointerCapture(e.pointerId);
     seekFromPointer(e.clientX);
@@ -1986,6 +2045,20 @@
     spaceHoldTimer = undefined;
     window.clearTimeout(pipClickTimer);
     pipClickTimer = undefined;
+    if (volumePersistTimer !== undefined) {
+      window.clearTimeout(volumePersistTimer);
+      volumePersistTimer = undefined;
+      flushVolumeStorage();
+    }
+    if (videoPrefsPersistTimer !== undefined) {
+      window.clearTimeout(videoPrefsPersistTimer);
+      videoPrefsPersistTimer = undefined;
+      flushVideoPrefsStorage(videoPrefs);
+    }
+    if (seekHoverRaf) {
+      window.cancelAnimationFrame(seekHoverRaf);
+      seekHoverRaf = 0;
+    }
     spaceIsDown = false;
     spaceHoldBoostActive = false;
     destroyHls();
@@ -2341,6 +2414,7 @@
       onpointermove={(e) => seekFromPointer(e.clientX)}
       onpointerup={handleSeekPointerUp}
       onpointerleave={() => {
+        cachedSeekRect = null;
         if (!draggingSeek) hoverTime = null;
       }}
     >

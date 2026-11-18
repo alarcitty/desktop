@@ -198,11 +198,23 @@
   let resultRefs: Array<HTMLButtonElement | undefined> = [];
 
   let popupDestroyed = false;
+  let searchBootWarmed = false;
 
   onMount(() => {
     loadCatalogGenres().then((list) => {
       if (!popupDestroyed && list.length > 0) genreOptions = list;
     });
+
+    return () => {
+      popupDestroyed = true;
+      resultRefs.length = 0;
+    };
+  });
+
+  // Defer HLS chunk load, artwork hydration and top-result stream prewarm until Search is first opened.
+  $effect(() => {
+    if (!search.open || searchBootWarmed) return;
+    searchBootWarmed = true;
 
     const seedShikiIds = [
       ...catalog.map((c) => c.shikiId),
@@ -219,20 +231,19 @@
 
     void loadHls().catch(() => {});
 
-    // Pre-warm opening streams + initial 480p HLS segments for top History/Library/Catalog titles so hover is instantaneous
     const prewarmSeen = new Set<string>();
     const prewarmTargets = [
-      ...watchHistory.entries.slice(0, 4).map((e) => ({
+      ...watchHistory.entries.slice(0, 3).map((e) => ({
         title: e.title,
         releaseAlias: e.releaseAlias,
         shikiId: e.shikiId
       })),
-      ...localLibrary.items.slice(0, 4).map((item) => ({
+      ...localLibrary.items.slice(0, 3).map((item) => ({
         title: item.title,
         releaseAlias: item.releaseAlias,
         shikiId: item.shikiId
       })),
-      ...catalog.slice(0, 8).map((entry) => ({
+      ...catalog.slice(0, 4).map((entry) => ({
         title: entry.title,
         releaseAlias: entry.releaseAlias,
         shikiId: entry.shikiId,
@@ -241,7 +252,7 @@
     ];
     let prewarmedCount = 0;
     for (const target of prewarmTargets) {
-      if (prewarmedCount >= 10) break;
+      if (prewarmedCount >= 4) break;
       const key =
         target.releaseAlias || (target.shikiId ? `s:${target.shikiId}` : target.title.toLowerCase());
       if (!key || prewarmSeen.has(key)) continue;
@@ -249,11 +260,6 @@
       prewarmedCount += 1;
       warmHeroOpeningPreview(target, { quality: 'fast', maxSeconds: 10 });
     }
-
-    return () => {
-      popupDestroyed = true;
-      resultRefs.length = 0;
-    };
   });
 
   const activeYearRange = $derived(
@@ -821,7 +827,7 @@
   $effect(() => {
     if (!search.open || results.length === 0) return;
     const idx = selected;
-    const warmIndices = new Set<number>([0, 1, 2, 3, 4, 5, 6, 7, idx - 1, idx, idx + 1, idx + 2, idx + 3]);
+    const warmIndices = new Set<number>([idx - 1, idx, idx + 1, idx + 2]);
     for (const i of warmIndices) {
       const candidate = results[i];
       if (!candidate) continue;

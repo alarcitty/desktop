@@ -18,6 +18,7 @@ import (
 	"mila/internal/logger"
 	"mila/internal/protocol"
 	"mila/internal/screen"
+	"mila/internal/torrent"
 	"mila/internal/updater"
 	"mila/internal/version"
 )
@@ -173,9 +174,10 @@ func (m *Mila) BeforeClose(ctx context.Context) (prevent bool) {
 	return false
 }
 
-// Shutdown finalizes background logging when the desktop host terminates.
+// Shutdown finalizes background logging and torrent runtime when the desktop host terminates.
 func (m *Mila) Shutdown(ctx context.Context) {
 	m.log.Info("runtime.shutdown")
+	torrent.DefaultManager().Close()
 	_ = logger.CloseDefaultSink()
 }
 

@@ -27,6 +27,8 @@ const (
 	maxExtractorBodySize = 8 * 1024 * 1024
 )
 
+var reHTMLTag = regexp.MustCompile(`<[^>]+>`)
+
 // AnimeGOSearchItem represents one matched anime entry from AnimeGO search HTML.
 type AnimeGOSearchItem struct {
 	ID            int    `json:"id"`
@@ -567,7 +569,7 @@ func normalizeEmbedURL(raw string) string {
 }
 
 func cleanHTMLText(raw string) string {
-	withoutTags := regexp.MustCompile(`<[^>]+>`).ReplaceAllString(raw, "")
+	withoutTags := reHTMLTag.ReplaceAllString(raw, "")
 	return strings.Join(strings.Fields(html.UnescapeString(withoutTags)), " ")
 }
 

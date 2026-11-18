@@ -127,6 +127,15 @@
     }
   }
 
+  let capturedBlobUrl = '';
+
+  function revokeCapturedFrame() {
+    if (capturedBlobUrl) {
+      URL.revokeObjectURL(capturedBlobUrl);
+      capturedBlobUrl = '';
+    }
+  }
+
   function tryCaptureVideoFrame(video: HTMLVideoElement, streamUrl: string) {
     if (capturedFrameUrl || episode.preview || !isSameOriginUrl(streamUrl)) return;
     if (!video.videoWidth || !video.videoHeight) return;
@@ -137,9 +146,22 @@
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-      if (dataUrl.startsWith('data:image/')) {
-        capturedFrameUrl = dataUrl;
+      if (typeof canvas.toBlob === 'function') {
+        canvas.toBlob(
+          (blob) => {
+            if (!blob || capturedFrameUrl) return;
+            const nextUrl = URL.createObjectURL(blob);
+            capturedBlobUrl = nextUrl;
+            capturedFrameUrl = nextUrl;
+          },
+          'image/jpeg',
+          0.82
+        );
+      } else {
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        if (dataUrl.startsWith('data:image/')) {
+          capturedFrameUrl = dataUrl;
+        }
       }
     } catch {
       // Ignore tainted canvas errors on third-party media CDNs
@@ -180,7 +202,6 @@
     window.clearTimeout(hoverTimer);
     hoverTimer = undefined;
     hoverActive = false;
-    cleanupPreview();
   }
 
   $effect(() => {
@@ -307,6 +328,7 @@
   onDestroy(() => {
     hoverActive = false;
     cleanupPreview();
+    revokeCapturedFrame();
   });
 </script>
 

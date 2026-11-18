@@ -1684,6 +1684,22 @@ interface ResolvedFranchise {
   seasons: AnimeSeasonEntry[];
 }
 
+function setBoundedCache<K, V>(cache: Map<K, V>, key: K, value: V, maxEntries: number): void {
+  if (cache.has(key)) {
+    cache.delete(key);
+  }
+  cache.set(key, value);
+  while (cache.size > maxEntries) {
+    const oldest = cache.keys().next();
+    if (oldest.done) break;
+    cache.delete(oldest.value);
+  }
+}
+
+const MAX_FRANCHISE_CACHE = 200;
+const MAX_GROUPED_SEARCH_CACHE = 60;
+const MAX_HERO_OPENING_CACHE = 120;
+
 const franchiseByReleaseCache = new Map<number, ResolvedFranchise | null>();
 const franchisePending = new Map<number, Promise<ResolvedFranchise | null>>();
 const groupedSearchCache = new Map<string, SearchGroupItem[]>();
@@ -1760,13 +1776,13 @@ async function resolveFranchiseByReleaseId(releaseId: number): Promise<ResolvedF
       );
       const raw = Array.isArray(payload) ? payload[0] : payload;
       if (!raw || !Array.isArray(raw.franchise_releases) || raw.franchise_releases.length === 0) {
-        franchiseByReleaseCache.set(releaseId, null);
+        setBoundedCache(franchiseByReleaseCache, releaseId, null, MAX_FRANCHISE_CACHE);
         return null;
       }
 
       const seasons = mapFranchiseSeasons(raw.franchise_releases);
       if (seasons.length === 0) {
-        franchiseByReleaseCache.set(releaseId, null);
+        setBoundedCache(franchiseByReleaseCache, releaseId, null, MAX_FRANCHISE_CACHE);
         return null;
       }
 
@@ -1777,9 +1793,9 @@ async function resolveFranchiseByReleaseId(releaseId: number): Promise<ResolvedF
         seasons
       };
 
-      franchiseByReleaseCache.set(releaseId, resolved);
+      setBoundedCache(franchiseByReleaseCache, releaseId, resolved, MAX_FRANCHISE_CACHE);
       for (const s of seasons) {
-        franchiseByReleaseCache.set(s.id, resolved);
+        setBoundedCache(franchiseByReleaseCache, s.id, resolved, MAX_FRANCHISE_CACHE);
       }
       return resolved;
     } catch {
@@ -2442,7 +2458,7 @@ export async function searchGroupedAnime(
 
   grouped = grouped.slice(0, 50);
   if (grouped.length > 0) {
-    groupedSearchCache.set(cacheKey, grouped);
+    setBoundedCache(groupedSearchCache, cacheKey, grouped, MAX_GROUPED_SEARCH_CACHE);
   }
   return grouped;
 }
@@ -3174,9 +3190,14 @@ export async function resolveHeroOpeningPreview(
             episodeOrdinal: opEp.ordinal,
             isDirectVideo: picked.isDirectVideo
           };
-          heroOpeningCache.set(key, result);
+          setBoundedCache(heroOpeningCache, key, result, MAX_HERO_OPENING_CACHE);
           if (previewAlias && rel.alias && rel.alias !== previewAlias) {
-            heroOpeningCache.set(buildOpeningCacheKey({ ...target, releaseAlias: rel.alias }), result);
+            setBoundedCache(
+              heroOpeningCache,
+              buildOpeningCacheKey({ ...target, releaseAlias: rel.alias }),
+              result,
+              MAX_HERO_OPENING_CACHE
+            );
           }
           return result;
         }
@@ -3196,7 +3217,7 @@ export async function resolveHeroOpeningPreview(
           episodeOrdinal: fallbackEp.ordinal,
           isDirectVideo: fallbackStream.isDirectVideo
         };
-        heroOpeningCache.set(key, result);
+        setBoundedCache(heroOpeningCache, key, result, MAX_HERO_OPENING_CACHE);
         return result;
       }
 
@@ -3281,12 +3302,29 @@ function hydrateAnimeExtrasCache(): void {
 }
 hydrateAnimeExtrasCache();
 
+let animeExtrasPersistTimer: number | undefined;
+
 function persistAnimeExtras(extras: AnimePageExtras): void {
   if (animeExtrasCache.has(extras.shikiId)) {
     animeExtrasCache.delete(extras.shikiId);
   }
   animeExtrasCache.set(extras.shikiId, extras);
-  writePersistedCache(ANIME_EXTRAS_CACHE_KEY, Array.from(animeExtrasCache.values()).slice(-ANIME_EXTRAS_MAX_ITEMS));
+  while (animeExtrasCache.size > ANIME_EXTRAS_MAX_ITEMS) {
+    const oldest = animeExtrasCache.keys().next();
+    if (oldest.done) break;
+    animeExtrasCache.delete(oldest.value);
+  }
+  if (typeof window === 'undefined' || typeof window.setTimeout !== 'function' || typeof window.clearTimeout !== 'function') {
+    writePersistedCache(ANIME_EXTRAS_CACHE_KEY, Array.from(animeExtrasCache.values()));
+    return;
+  }
+  if (animeExtrasPersistTimer !== undefined) {
+    window.clearTimeout(animeExtrasPersistTimer);
+  }
+  animeExtrasPersistTimer = window.setTimeout(() => {
+    animeExtrasPersistTimer = undefined;
+    writePersistedCache(ANIME_EXTRAS_CACHE_KEY, Array.from(animeExtrasCache.values()));
+  }, 350);
 }
 
 function formatRelationKindLabel(kind?: string | null): string {

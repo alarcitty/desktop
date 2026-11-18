@@ -209,6 +209,10 @@ function persistStorage(key: string, val: string): void {
   }
 }
 
+let hueApplyRaf = 0;
+let pendingHueApply: number | null = null;
+let huePersistTimer: number | undefined;
+
 export function setThemeMode(mode: ThemeMode): void {
   theme.mode = mode;
   persistStorage(THEME_STORAGE_KEY, mode);
@@ -218,9 +222,31 @@ export function setThemeMode(mode: ThemeMode): void {
 export function setCustomHue(hue: number): void {
   const safe = clampHue(hue);
   theme.hue = safe;
-  persistStorage(HUE_STORAGE_KEY, String(safe));
+  if (typeof window !== 'undefined' && typeof window.setTimeout === 'function' && typeof window.clearTimeout === 'function') {
+    window.clearTimeout(huePersistTimer);
+    huePersistTimer = window.setTimeout(() => {
+      huePersistTimer = undefined;
+      persistStorage(HUE_STORAGE_KEY, String(theme.hue));
+    }, 180);
+  } else {
+    persistStorage(HUE_STORAGE_KEY, String(safe));
+  }
   if (theme.mode === 'custom') {
-    applyThemeToDocument('custom', safe, theme.overrides);
+    pendingHueApply = safe;
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      if (!hueApplyRaf) {
+        hueApplyRaf = window.requestAnimationFrame(() => {
+          hueApplyRaf = 0;
+          const h = pendingHueApply;
+          pendingHueApply = null;
+          if (h !== null && theme.mode === 'custom') {
+            applyThemeToDocument('custom', h, theme.overrides);
+          }
+        });
+      }
+    } else {
+      applyThemeToDocument('custom', safe, theme.overrides);
+    }
   }
 }
 

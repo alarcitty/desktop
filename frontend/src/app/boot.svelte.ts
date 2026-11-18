@@ -89,16 +89,28 @@ export function initBootGate(): void {
   void (async () => {
     try {
       const fontsPromise = waitForFonts();
-      const [feedsRes, , newsRes] = await Promise.allSettled([
-        loadHomeFeeds(),
-        loadCatalogGenres(),
-        loadNewsFeed(),
-        enrichLibraryArtwork(),
-        enrichHistoryArtwork()
-      ]);
 
-      const feeds = feedsRes.status === 'fulfilled' ? feedsRes.value : null;
-      const newsFeed = newsRes.status === 'fulfilled' ? newsRes.value : null;
+      // Warm off-screen tabs and non-critical metadata in background without delaying first paint.
+      void loadCatalogGenres();
+      void loadNewsFeed().then((newsFeed) => {
+        if (!newsFeed) return;
+        const bgUrls: string[] = [];
+        for (const n of newsFeed.items.slice(0, 8)) {
+          if (n.image) bgUrls.push(n.image);
+          if (n.poster) bgUrls.push(n.poster);
+        }
+        for (const entry of watchHistory.entries.slice(0, 16)) {
+          if (entry.poster) bgUrls.push(entry.poster);
+        }
+        for (const item of localLibrary.items.slice(0, 16)) {
+          if (item.poster) bgUrls.push(item.poster);
+        }
+        void preloadCriticalImages(bgUrls, IMAGE_PRELOAD_TIMEOUT_MS);
+      });
+      void enrichLibraryArtwork();
+      void enrichHistoryArtwork();
+
+      const feeds = await loadHomeFeeds().catch(() => null);
 
       const criticalUrls: string[] = [];
       if (feeds) {
@@ -126,19 +138,6 @@ export function initBootGate(): void {
         }
         for (const rec of feeds.recommendations.slice(0, 6)) {
           if (rec.poster) criticalUrls.push(rec.poster);
-        }
-      }
-
-      for (const entry of watchHistory.entries.slice(0, 16)) {
-        if (entry.poster) criticalUrls.push(entry.poster);
-      }
-      for (const item of localLibrary.items.slice(0, 16)) {
-        if (item.poster) criticalUrls.push(item.poster);
-      }
-      if (newsFeed) {
-        for (const n of newsFeed.items.slice(0, 8)) {
-          if (n.image) criticalUrls.push(n.image);
-          if (n.poster) criticalUrls.push(n.poster);
         }
       }
 
