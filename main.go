@@ -19,6 +19,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed build/windows/icon.ico
+var trayIconICO []byte
+
 func main() {
 	// make_unique logger and app instance
 	_ = logger.EnableDefaultFileLogging()
@@ -30,6 +33,7 @@ func main() {
 
 	log := logger.Make("boot")
 	m := mila.New()
+	m.SetTrayIcon(trayIconICO)
 
 	if exePath, exeErr := os.Executable(); exeErr == nil {
 		if regErr := protocol.Register(exePath); regErr != nil {
@@ -40,17 +44,28 @@ func main() {
 	}
 	m.SetPendingDeepLink(protocol.FindLink(os.Args[1:]))
 
-	// 3/4 of work area
+	// Restore persisted multi-monitor-clamped geometry if available; otherwise use 3/4 work area.
 	width, height := screen.ThreeQuarterSize()
-	log.Info("window.geometry", "size", fmt.Sprintf("%dx%d", width, height), "radius", 15)
+	startState := options.Normal
+	if restored, ok := screen.LoadClampedWindowGeometry(""); ok {
+		width = restored.Width
+		height = restored.Height
+		if restored.Maximized {
+			startState = options.Maximised
+		}
+		log.Info("window.geometry_restored", "x", restored.X, "y", restored.Y, "size", fmt.Sprintf("%dx%d", width, height), "maximized", restored.Maximized)
+	} else {
+		log.Info("window.geometry", "size", fmt.Sprintf("%dx%d", width, height), "radius", 15)
+	}
 
 	err := wails.Run(&options.App{
-		Title:     "Mila",
-		Width:     width,
-		Height:    height,
-		MinWidth:  858,
-		MinHeight: 651,
-		Frameless: true,
+		Title:            "Mila",
+		Width:            width,
+		Height:           height,
+		MinWidth:         858,
+		MinHeight:        651,
+		WindowStartState: startState,
+		Frameless:        true,
 		AssetServer: &assetserver.Options{
 			Assets:  assets,
 			Handler: mila.NewProviderHandler(),

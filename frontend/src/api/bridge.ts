@@ -22,6 +22,8 @@ export interface WailsMilaGoBindings {
   SetFullscreenFocus?: (focused: boolean) => Promise<void>;
   SetPipMode?: (pip: boolean) => Promise<void>;
   StartPipDrag?: () => Promise<void>;
+  SetTrayPlaying?: (playing: boolean) => Promise<void>;
+  GetAniSkipTimes?: (malID: number, episode: number) => Promise<string>;
   SaveWindowState?: (
     x: number,
     y: number,

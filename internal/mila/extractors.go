@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"io"
 	"net"
-	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
@@ -16,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mila/internal/httpx"
 )
 
 const (
@@ -574,21 +574,18 @@ func cleanHTMLText(raw string) string {
 }
 
 func fetchTextWithHeaders(ctx context.Context, rawURL string, headers map[string]string) (string, int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	res, err := httpx.GetBytes(ctx, providerHTTPClient, providerLimiter, &providerGetFlights, rawURL, headers, httpx.RetryConfig{
+		MaxAttempts: 3,
+		BaseDelay:   200 * time.Millisecond,
+		MaxDelay:    3 * time.Second,
+		MaxBody:     maxExtractorBodySize,
+	})
 	if err != nil {
+		var statusErr *httpx.StatusError
+		if errors.As(err, &statusErr) {
+			return "", statusErr.StatusCode, err
+		}
 		return "", 0, err
 	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	resp, err := providerHTTPClient.Do(req)
-	if err != nil {
-		return "", 0, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxExtractorBodySize))
-	if err != nil {
-		return "", resp.StatusCode, err
-	}
-	return string(body), resp.StatusCode, nil
+	return string(res.Body), res.StatusCode, nil
 }

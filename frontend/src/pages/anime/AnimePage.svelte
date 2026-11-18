@@ -5,16 +5,22 @@
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import ArrowDown from '@lucide/svelte/icons/arrow-down';
+  import ArrowDownAZ from '@lucide/svelte/icons/arrow-down-a-z';
   import ChevronLeft from '@lucide/svelte/icons/chevron-left';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import Crown from '@lucide/svelte/icons/crown';
   import Play from '@lucide/svelte/icons/play';
   import Bookmark from '@lucide/svelte/icons/bookmark';
   import Check from '@lucide/svelte/icons/check';
   import Share2 from '@lucide/svelte/icons/share-2';
   import LayoutGrid from '@lucide/svelte/icons/layout-grid';
   import LayoutList from '@lucide/svelte/icons/layout-list';
+  import ListOrdered from '@lucide/svelte/icons/list-ordered';
+  import Mic from '@lucide/svelte/icons/mic';
   import Search from '@lucide/svelte/icons/search';
   import Star from '@lucide/svelte/icons/star';
+  import User from '@lucide/svelte/icons/user';
+  import Users from '@lucide/svelte/icons/users';
   import X from '@lucide/svelte/icons/x';
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
@@ -894,18 +900,22 @@
                 type="button"
                 class="sort-chip-btn"
                 class:active={charRoleFilter === 'all'}
+                aria-label="All roles"
+                title="All roles"
                 onclick={() => { charRoleFilter = 'all'; }}
               >
-                All
+                <Users size={14} strokeWidth={1.85} />
               </button>
               {#if hasMainCharacters}
                 <button
                   type="button"
                   class="sort-chip-btn"
                   class:active={charRoleFilter === 'main'}
+                  aria-label="Main roles"
+                  title="Main roles"
                   onclick={() => { charRoleFilter = 'main'; }}
                 >
-                  Main
+                  <Crown size={14} strokeWidth={1.85} />
                 </button>
               {/if}
               {#if hasSupportingCharacters}
@@ -913,9 +923,11 @@
                   type="button"
                   class="sort-chip-btn"
                   class:active={charRoleFilter === 'supporting'}
+                  aria-label="Supporting roles"
+                  title="Supporting roles"
                   onclick={() => { charRoleFilter = 'supporting'; }}
                 >
-                  Support
+                  <User size={14} strokeWidth={1.85} />
                 </button>
               {/if}
             </div>
@@ -927,25 +939,37 @@
                 type="button"
                 class="sort-chip-btn"
                 class:active={charGenderFilter === 'all'}
+                aria-label="Any gender"
+                title="Any gender"
                 onclick={() => { charGenderFilter = 'all'; }}
               >
-                Any
+                <Users size={14} strokeWidth={1.85} />
               </button>
               <button
                 type="button"
                 class="sort-chip-btn"
                 class:active={charGenderFilter === 'Female'}
+                aria-label="Female"
+                title="Female"
                 onclick={() => { charGenderFilter = 'Female'; }}
               >
-                Female
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="9" r="5" />
+                  <path d="M12 14v7M9 18h6" />
+                </svg>
               </button>
               <button
                 type="button"
                 class="sort-chip-btn"
                 class:active={charGenderFilter === 'Male'}
+                aria-label="Male"
+                title="Male"
                 onclick={() => { charGenderFilter = 'Male'; }}
               >
-                Male
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="10" cy="14" r="5" />
+                  <path d="M19 5l-5.4 5.4M15 5h4v4" />
+                </svg>
               </button>
             </div>
           {/if}
@@ -955,25 +979,29 @@
               type="button"
               class="sort-chip-btn"
               class:active={charSortBy === 'default'}
+              aria-label="Default order"
+              title="Order"
               onclick={() => toggleCharSort('default')}
             >
-              <span>Order</span>
+              <ListOrdered size={14} strokeWidth={1.85} />
               {#if charSortBy === 'default' && charSortDir === 'desc'}
-                <ArrowDown size={13} strokeWidth={2.1} />
+                <ArrowDown size={11} strokeWidth={2.2} />
               {/if}
             </button>
             <button
               type="button"
               class="sort-chip-btn"
               class:active={charSortBy === 'name'}
+              aria-label="Sort by name"
+              title="Name"
               onclick={() => toggleCharSort('name')}
             >
-              <span>Name</span>
+              <ArrowDownAZ size={14} strokeWidth={1.85} />
               {#if charSortBy === 'name'}
                 {#if charSortDir === 'asc'}
-                  <ArrowUp size={13} strokeWidth={2.1} />
+                  <ArrowUp size={11} strokeWidth={2.2} />
                 {:else}
-                  <ArrowDown size={13} strokeWidth={2.1} />
+                  <ArrowDown size={11} strokeWidth={2.2} />
                 {/if}
               {/if}
             </button>
@@ -981,14 +1009,16 @@
               type="button"
               class="sort-chip-btn"
               class:active={charSortBy === 'va'}
+              aria-label="Sort by voice actor"
+              title="Voice Cast"
               onclick={() => toggleCharSort('va')}
             >
-              <span>Cast</span>
+              <Mic size={14} strokeWidth={1.85} />
               {#if charSortBy === 'va'}
                 {#if charSortDir === 'asc'}
-                  <ArrowUp size={13} strokeWidth={2.1} />
+                  <ArrowUp size={11} strokeWidth={2.2} />
                 {:else}
-                  <ArrowDown size={13} strokeWidth={2.1} />
+                  <ArrowDown size={11} strokeWidth={2.2} />
                 {/if}
               {/if}
             </button>
@@ -1769,25 +1799,28 @@
   .lib-sort-group {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    height: 36px;
-    padding: 3px;
-    border-radius: 11px;
+    gap: 0;
+    height: 34px;
+    padding: 0;
+    border-radius: 10px;
+    overflow: hidden;
     background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
     box-sizing: border-box;
   }
 
   .sort-chip-btn {
-    height: 30px;
-    padding: 0 10px;
+    height: 34px;
+    min-width: 34px;
+    padding: 0 9px;
     border: none;
     outline: none;
-    border-radius: 8px;
+    border-radius: 10px;
     background: transparent;
     color: var(--mila-text-muted, rgba(255, 255, 255, 0.44));
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    justify-content: center;
+    gap: 3px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 12.5px;
     font-weight: 500;
@@ -1809,21 +1842,22 @@
     position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    height: 36px;
-    padding: 3px;
-    border-radius: 11px;
+    gap: 0;
+    height: 34px;
+    padding: 0;
+    border-radius: 10px;
+    overflow: hidden;
     background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
     box-sizing: border-box;
   }
 
   .ep-view-pill {
     position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
+    top: 0;
+    left: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
     background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.1));
     pointer-events: none;
     transition: transform 0.32s var(--ease-out);
@@ -1836,12 +1870,12 @@
   .ep-view-btn {
     position: relative;
     z-index: 1;
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     padding: 0;
     border: none;
     outline: none;
-    border-radius: 8px;
+    border-radius: 10px;
     background: transparent;
     color: var(--mila-text-dim, rgba(255, 255, 255, 0.42));
     display: flex;
@@ -1915,7 +1949,6 @@
     inset: 0;
     z-index: 4;
     background: linear-gradient(155deg, rgba(255, 255, 255, 0.085) 0%, rgba(255, 255, 255, 0) 46%);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.24);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.28s var(--ease-out);

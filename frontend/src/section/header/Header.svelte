@@ -602,15 +602,15 @@
   .header-avatar-ambient {
     position: absolute;
     top: 0;
-    right: 74px;
-    width: 380px;
+    right: 0;
+    width: 460px;
     height: 150px;
     pointer-events: none;
     user-select: none;
     z-index: 0;
     overflow: hidden;
     -webkit-mask-image: radial-gradient(
-      ellipse 88% 92% at 74% 0%,
+      ellipse 78% 92% at 64% 0%,
       rgba(0, 0, 0, 1) 0%,
       rgba(0, 0, 0, 0.65) 24%,
       rgba(0, 0, 0, 0.3) 48%,
@@ -618,7 +618,7 @@
       rgba(0, 0, 0, 0) 90%
     );
     mask-image: radial-gradient(
-      ellipse 88% 92% at 74% 0%,
+      ellipse 78% 92% at 64% 0%,
       rgba(0, 0, 0, 1) 0%,
       rgba(0, 0, 0, 0.65) 24%,
       rgba(0, 0, 0, 0.3) 48%,
@@ -631,7 +631,7 @@
     width: 100%;
     height: 100%;
     background: radial-gradient(
-      ellipse at 74% 10%,
+      ellipse at 64% 10%,
       rgba(166, 227, 161, 0.16) 0%,
       rgba(137, 220, 235, 0.08) 42%,
       rgba(12, 12, 12, 0) 78%

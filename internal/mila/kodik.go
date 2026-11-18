@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mila/internal/httpx"
 )
 
 const (
@@ -449,28 +450,31 @@ func requestKodikLinks(ctx context.Context, embedURL *url.URL, embedPageURL stri
 	form.Set("id", p.vID)
 	form.Set("info", "{}")
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(form.Encode()))
+	encodedForm := form.Encode()
+	res, err := httpx.DoWithRetry(ctx, providerHTTPClient, providerLimiter, httpx.RetryConfig{
+		MaxAttempts: 3,
+		BaseDelay:   250 * time.Millisecond,
+		MaxDelay:    4 * time.Second,
+		MaxBody:     maxExtractorBodySize,
+	}, func(rCtx context.Context) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(rCtx, http.MethodPost, apiURL, strings.NewReader(encodedForm))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+		req.Header.Set("User-Agent", defaultBrowserUA)
+		req.Header.Set("X-Requested-With", "XMLHttpRequest")
+		req.Header.Set("Origin", "https://"+embedURL.Host)
+		req.Header.Set("Referer", embedPageURL)
+		return req, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-	req.Header.Set("User-Agent", defaultBrowserUA)
-	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-	req.Header.Set("Origin", "https://"+embedURL.Host)
-	req.Header.Set("Referer", embedPageURL)
-
-	resp, err := providerHTTPClient.Do(req)
-	if err != nil {
-		return nil, err
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return nil, fmt.Errorf("kodik links API %s returned HTTP %d", endpoint, res.StatusCode)
 	}
-	defer resp.Body.Close()
-	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, maxExtractorBodySize))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("kodik links API %s returned HTTP %d", endpoint, resp.StatusCode)
-	}
+	rawBody := res.Body
 
 	var payload struct {
 		Links map[string][]struct {

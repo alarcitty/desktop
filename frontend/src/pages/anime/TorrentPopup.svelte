@@ -663,19 +663,20 @@
   .torrent-source-tabs {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
+    gap: 0;
     height: 34px;
-    padding: 3px;
+    padding: 0;
     border-radius: 10px;
+    overflow: hidden;
     background: rgba(255, 255, 255, 0.05);
   }
 
   .source-chip {
-    height: 28px;
+    height: 34px;
     padding: 0 12px;
     border: none;
     outline: none;
-    border-radius: 7px;
+    border-radius: 10px;
     background: transparent;
     color: rgba(255, 255, 255, 0.46);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;

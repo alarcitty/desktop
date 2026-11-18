@@ -46,3 +46,19 @@ func CurrentWindowGeometry(className, title string) (WindowGeometry, bool) {
 func SetAppUserModelID(id string) bool {
 	return true
 }
+
+// EnumMonitorBounds returns active monitor work areas (fallback single primary display on non-windows).
+func EnumMonitorBounds() []MonitorBounds {
+	w, h := Dimensions()
+	return []MonitorBounds{{X: 0, Y: 0, Width: w, Height: h, Primary: true}}
+}
+
+// SetWindowVisibility toggles native window visibility for tray hide/restore (no-op on non-windows).
+func SetWindowVisibility(className, title string, show bool) bool {
+	return true
+}
+
+// IsWindowCurrentlyVisible reports window visibility (always true on non-windows stub).
+func IsWindowCurrentlyVisible(className, title string) bool {
+	return true
+}

@@ -2,6 +2,7 @@ package mila
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,7 +16,9 @@ import (
 
 	"mila/internal/aniliberty"
 	"mila/internal/anime"
+	"mila/internal/aniskip"
 	"mila/internal/cache"
+	"mila/internal/httpx"
 	"mila/internal/server"
 	"mila/internal/shikimori"
 )
@@ -31,29 +34,21 @@ const (
 )
 
 var (
-	providerHTTPClient = &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			Proxy:               http.ProxyFromEnvironment,
-			MaxIdleConns:        128,
-			MaxIdleConnsPerHost: 32,
-			IdleConnTimeout:     90 * time.Second,
-			TLSHandshakeTimeout: 10 * time.Second,
-			ForceAttemptHTTP2:   true,
-		},
-	}
-	mediaProxyHTTPClient = &http.Client{
-		Transport: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			MaxIdleConns:          128,
-			MaxIdleConnsPerHost:   32,
-			ResponseHeaderTimeout: 20 * time.Second,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ForceAttemptHTTP2:     true,
-		},
-	}
+	providerHTTPClient   = httpx.NewClient(12 * time.Second)
+	mediaProxyHTTPClient = &http.Client{Transport: httpx.SharedTransport()}
+	providerLimiter      = httpx.NewDomainLimiter(httpx.HostRule{RatePerSec: 10, Burst: 6}, nil)
+	providerGetFlights   httpx.FlightGroup[httpx.ResponseResult]
+	aniSkipOnce          sync.Once
+	sharedAniSkip        *aniskip.Client
 )
+
+func getSharedAniSkipClient() *aniskip.Client {
+	aniSkipOnce.Do(func() {
+		dir, _ := cache.DefaultDiskCacheDir("aniskip")
+		sharedAniSkip = aniskip.New(aniskip.Config{CacheDir: dir})
+	})
+	return sharedAniSkip
+}
 
 type providerRoute struct {
 	prefix        string
@@ -72,26 +67,30 @@ func defaultProviderRoutes() []providerRoute {
 }
 
 func postProviderForm(endpoint string, params url.Values) (string, error) {
-	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(params.Encode()))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
-	resp, err := providerHTTPClient.Do(req)
+	encoded := params.Encode()
+	res, err := httpx.DoWithRetry(ctx, providerHTTPClient, providerLimiter, httpx.RetryConfig{
+		MaxAttempts: 3,
+		BaseDelay:   200 * time.Millisecond,
+		MaxDelay:    3 * time.Second,
+		MaxBody:     maxPlaylistBytes,
+	}, func(rCtx context.Context) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(rCtx, http.MethodPost, endpoint, strings.NewReader(encoded))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		return req, nil
+	})
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPlaylistBytes))
-	if err != nil {
-		return "", err
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return "", fmt.Errorf("provider returned HTTP %d", res.StatusCode)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("provider returned HTTP %d", resp.StatusCode)
-	}
-	return string(body), nil
+	return string(res.Body), nil
 }
 
 // AnimeVostSearch queries AnimeVost catalog from the desktop Go host (avoids browser CORS limits).
@@ -189,6 +188,10 @@ func newProviderProxyHandler(routes []providerRoute) http.Handler {
 			serveZokoMasterPlaylist(w, r)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/ext/aniskip/") || r.URL.Path == "/ext/aniskip" {
+			serveAniSkipTimes(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/torrent/") {
 			serveTorrentRoute(w, r)
 			return
@@ -227,6 +230,43 @@ func serveAnimeGOSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(items)
+}
+
+func serveAniSkipTimes(w http.ResponseWriter, r *http.Request) {
+	setProxyCORSHeaders(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	var malID, episode int
+	trimmed := strings.Trim(strings.TrimPrefix(r.URL.Path, "/ext/aniskip"), "/")
+	if trimmed != "" {
+		parts := strings.Split(trimmed, "/")
+		if len(parts) >= 2 {
+			malID, _ = strconv.Atoi(parts[0])
+			episode, _ = strconv.Atoi(parts[1])
+		}
+	}
+	if malID <= 0 {
+		malID, _ = strconv.Atoi(r.URL.Query().Get("malId"))
+	}
+	if episode <= 0 {
+		episode, _ = strconv.Atoi(r.URL.Query().Get("episode"))
+	}
+	if malID <= 0 || episode <= 0 {
+		http.Error(w, "invalid malId or episode", http.StatusBadRequest)
+		return
+	}
+
+	res, err := getSharedAniSkipClient().GetSkipTimes(r.Context(), malID, episode)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": res})
 }
 
 func serveAnimeGOPlayer(w http.ResponseWriter, r *http.Request) {

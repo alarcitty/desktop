@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mila/internal/httpx"
 )
 
 const (
@@ -476,26 +477,29 @@ func resolveSingleHentaiMamaEpisode(
 	form.Set("action", "get_player_contents")
 	form.Set("a", epID)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ajaxURL, strings.NewReader(form.Encode()))
+	encodedForm := form.Encode()
+	res, err := httpx.DoWithRetry(ctx, providerHTTPClient, providerLimiter, httpx.RetryConfig{
+		MaxAttempts: 3,
+		BaseDelay:   250 * time.Millisecond,
+		MaxDelay:    4 * time.Second,
+		MaxBody:     maxExtractorBodySize,
+	}, func(rCtx context.Context) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(rCtx, http.MethodPost, ajaxURL, strings.NewReader(encodedForm))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", defaultBrowserUA)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Referer", epURL)
+		return req, nil
+	})
 	if err != nil {
 		return HentaiEpisodeItem{}, err
 	}
-	req.Header.Set("User-Agent", defaultBrowserUA)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", epURL)
-
-	resp, err := providerHTTPClient.Do(req)
-	if err != nil {
-		return HentaiEpisodeItem{}, err
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return HentaiEpisodeItem{}, fmt.Errorf("hentaimama ajax HTTP %d", res.StatusCode)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return HentaiEpisodeItem{}, fmt.Errorf("hentaimama ajax HTTP %d", resp.StatusCode)
-	}
-	rawJSON, err := io.ReadAll(io.LimitReader(resp.Body, maxExtractorBodySize))
-	if err != nil {
-		return HentaiEpisodeItem{}, err
-	}
+	rawJSON := res.Body
 
 	var iframes []string
 	if err := json.Unmarshal(rawJSON, &iframes); err != nil {

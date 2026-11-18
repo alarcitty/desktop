@@ -15,6 +15,9 @@ import {
   type ShikiArtwork,
   type WatchTarget
 } from '../api/anime';
+import { getWailsMilaBridge } from '../api/bridge';
+import { fetchAniSkipTimes, hasSkipInterval, mergeEpisodeSkipFallback } from '../api/aniskip';
+import { NextEpisodePrefetcher } from './prefetch';
 import { createLazyModuleLoader } from '../api/providers/lazy';
 import type { TorrentSearchItem } from '../api/providers/torrent';
 
@@ -151,6 +154,52 @@ const failedVoiceIds = new Set<string>();
 const torrentReleaseCache = new Map<string, PlayableRelease>();
 const voiceReleaseCache = new Map<string, PlayableRelease>();
 
+function resolveCurrentMalId(): number {
+  return player.shikiArt?.id || player.target?.shikiId || 0;
+}
+
+async function applyEpisodeSkipByOrdinal(
+  malId: number,
+  episodeOrdinal: number,
+  signal?: AbortSignal
+): Promise<void> {
+  if (!malId || malId <= 0 || episodeOrdinal <= 0) return;
+  const rel = player.release;
+  if (!rel) return;
+  const idx = rel.episodes.findIndex((e) => e.ordinal === episodeOrdinal);
+  if (idx < 0) return;
+  const targetEp = rel.episodes[idx];
+  if (hasSkipInterval(targetEp.opening) && hasSkipInterval(targetEp.ending)) return;
+
+  const skip = await fetchAniSkipTimes(malId, episodeOrdinal, signal);
+  if (!skip || !skip.found || signal?.aborted) return;
+
+  const activeRel = player.release;
+  if (!activeRel || activeRel.alias !== rel.alias) return;
+  const activeIdx = activeRel.episodes.findIndex((e) => e.ordinal === episodeOrdinal);
+  if (activeIdx < 0) return;
+  const current = activeRel.episodes[activeIdx];
+  const merged = mergeEpisodeSkipFallback(current, skip);
+  if (merged === current) return;
+  current.opening = merged.opening;
+  current.ending = merged.ending;
+}
+
+function ensureCurrentEpisodeSkipFallback(): void {
+  const rel = player.release;
+  const malId = resolveCurrentMalId();
+  if (!rel || !malId) return;
+  const ep = rel.episodes[player.episodeIndex];
+  if (!ep) return;
+  if (hasSkipInterval(ep.opening) && hasSkipInterval(ep.ending)) return;
+  void applyEpisodeSkipByOrdinal(malId, ep.ordinal);
+}
+
+const episodePrefetcher = new NextEpisodePrefetcher({
+  onAniSkipPrefetch: (malId, episodeOrdinal, signal) =>
+    applyEpisodeSkipByOrdinal(malId, episodeOrdinal, signal)
+});
+
 // OS media keys / lock-screen controls are wired once per session; handlers stay dumb.
 installMediaSessionHandlers({
   play: () => playControlCallback?.(),
@@ -193,6 +242,16 @@ function syncPlayerHistory(currentTime?: number, duration?: number): void {
 }
 
 export function reportPlaybackProgress(currentTime: number, duration: number, force = false): void {
+  episodePrefetcher.maybePrefetch({
+    release: player.release,
+    episodeIndex: player.episodeIndex,
+    currentTime,
+    duration,
+    dubRelease: player.dubRelease,
+    dubVoiceId: player.dubVoiceId,
+    malId: resolveCurrentMalId()
+  });
+
   const now = Date.now();
   if (!force && now - lastHistorySyncMs < 3000) return;
   lastHistorySyncMs = now;
@@ -291,6 +350,7 @@ async function loadTargetIntoPlayer(
     autoplay?: boolean;
   }
 ): Promise<PlayableRelease | null> {
+  episodePrefetcher.reset();
   player.loading = true;
   player.error = '';
   player.title = target.title;
@@ -322,6 +382,7 @@ async function loadTargetIntoPlayer(
           refreshAnimeExtras(art.id);
           if (player.release) {
             syncPlayerHistory();
+            ensureCurrentEpisodeSkipFallback();
           }
         }
       })
@@ -368,6 +429,7 @@ async function loadTargetIntoPlayer(
     }
     syncPlayerHistory(player.resumeTime, activeEp?.duration ?? 0);
     lastHistorySyncMs = Date.now();
+    ensureCurrentEpisodeSkipFallback();
     return rel;
   } catch (err) {
     if (token !== activeRequestToken) return null;
@@ -391,6 +453,7 @@ export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Pr
     shikiId: player.shikiArt?.id
   };
   const token = ++activeRequestToken;
+  episodePrefetcher.reset();
 
   player.loading = true;
   player.error = '';
@@ -417,6 +480,7 @@ export async function switchVoice(voice: VoiceTrackOption, preserveTime = 0): Pr
       player.dubOffsetSec = readSavedDubOffset(nextRel.alias, player.dubVoiceId);
     }
     player.episodeIndex = applyPreservedEpisode(nextRel, prevOrdinal, prevIndex);
+    ensureCurrentEpisodeSkipFallback();
   } catch (err) {
     if (token !== activeRequestToken) return;
     if (baseRelease && baseRelease.episodes.length > 0) {
@@ -446,6 +510,7 @@ export async function openTorrentStream(
   const baseRelease = player.release;
   const shikiArt = player.shikiArt;
   const token = ++activeRequestToken;
+  episodePrefetcher.reset();
 
   player.loading = true;
   player.error = '';
@@ -506,6 +571,7 @@ export async function openTorrentStream(
     player.dubRelease = null;
     player.dubOffsetSec = 0;
     player.episodeIndex = applyPreservedEpisode(torrentRel, prevOrdinal, prevIndex);
+    ensureCurrentEpisodeSkipFallback();
   } catch (err) {
     if (token !== activeRequestToken) return;
     player.error = err instanceof Error ? err.message : 'Failed to open torrent stream';
@@ -518,6 +584,7 @@ export async function openTorrentStream(
 
 export async function selectDubVoice(voice: VoiceTrackOption | null): Promise<void> {
   const myDubToken = ++dubRequestToken;
+  episodePrefetcher.reset();
   if (!voice) {
     player.dubVoiceId = '';
     player.dubRelease = null;
@@ -713,7 +780,9 @@ async function restoreRouteTarget(params: RouteParams): Promise<void> {
       params.episode ?? player.episodeIndex
     );
     if (nextIdx !== player.episodeIndex) {
+      episodePrefetcher.reset();
       player.episodeIndex = nextIdx;
+      ensureCurrentEpisodeSkipFallback();
     }
     return;
   }
@@ -771,12 +840,14 @@ export function selectEpisode(index: number): void {
   const isSameEpisode = index === player.episodeIndex;
   failedVoiceIds.clear();
   if (!isSameEpisode) {
+    episodePrefetcher.reset();
     player.resumeTime = 0;
   }
   player.autoplay = true;
   player.pipDismissed = false;
   player.episodeIndex = index;
   syncNowPlaying();
+  ensureCurrentEpisodeSkipFallback();
   const ep = player.release.episodes[index];
   if (isSameEpisode) {
     playControlCallback?.();
@@ -803,12 +874,14 @@ export function prevEpisode(): void {
 export function nextEpisode(): void {
   if (!player.release) return;
   if (player.episodeIndex + 1 < player.release.episodes.length) {
+    episodePrefetcher.reset();
     failedVoiceIds.clear();
     player.resumeTime = 0;
     player.autoplay = true;
     player.pipDismissed = false;
     player.episodeIndex += 1;
     syncNowPlaying();
+    ensureCurrentEpisodeSkipFallback();
     const ep = player.release.episodes[player.episodeIndex];
     if (router.current === 'anime' || router.current === 'player') {
       updateCurrentRouteParams({
@@ -838,9 +911,21 @@ export function registerPlayerSeekControl(fn: ((seconds: number) => void) | null
   seekControlCallback = fn;
 }
 
+export function toggleActivePlayback(): void {
+  if (player.isPlaying) {
+    pauseControlCallback?.();
+  } else {
+    playControlCallback?.();
+  }
+}
+
 export function setPlayerPlaying(playing: boolean): void {
   player.isPlaying = playing;
   setMediaSessionPlaybackState(playing ? 'playing' : 'paused');
+  const goMila = getWailsMilaBridge();
+  if (typeof goMila?.SetTrayPlaying === 'function') {
+    void goMila.SetTrayPlaying(playing).catch(() => {});
+  }
   if (playing) {
     player.pipDismissed = false;
   }
@@ -895,6 +980,7 @@ export function closeCustomPip(): void {
 }
 
 export function resetPlayer(): void {
+  episodePrefetcher.reset();
   activeRequestToken += 1;
   dubRequestToken += 1;
   extrasRequestToken += 1;

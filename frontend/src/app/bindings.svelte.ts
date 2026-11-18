@@ -479,6 +479,13 @@ export function mountBindingsController(): () => void {
       ? runtime.EventsOn('mila:deep-link', handleDeepLink)
       : undefined;
 
+  const offTrayPlay =
+    typeof runtime?.EventsOn === 'function'
+      ? runtime.EventsOn('mila:tray-toggle-play', () => {
+          void import('./player.svelte').then(({ toggleActivePlayback }) => toggleActivePlayback());
+        })
+      : undefined;
+
   const goMila = getWailsMilaBindings();
   if (typeof goMila?.ConsumePendingDeepLink === 'function') {
     void goMila
@@ -502,6 +509,7 @@ export function mountBindingsController(): () => void {
   return () => {
     offWailsBeforeClose?.();
     offDeepLink?.();
+    offTrayPlay?.();
     window.removeEventListener('mousedown', onMouseDown, { capture: true });
     window.removeEventListener('mouseup', onMouseUp, { capture: true });
     window.removeEventListener('auxclick', onAuxClick, { capture: true });

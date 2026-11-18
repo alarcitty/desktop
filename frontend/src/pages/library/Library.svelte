@@ -2,10 +2,14 @@
   import { onMount } from 'svelte';
   import { cubicIn, cubicOut } from 'svelte/easing';
   import ArrowDown from '@lucide/svelte/icons/arrow-down';
+  import ArrowDownAZ from '@lucide/svelte/icons/arrow-down-a-z';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
+  import Calendar from '@lucide/svelte/icons/calendar';
+  import Clock from '@lucide/svelte/icons/clock';
   import LayoutList from '@lucide/svelte/icons/layout-list';
   import LayoutGrid from '@lucide/svelte/icons/layout-grid';
   import Search from '@lucide/svelte/icons/search';
+  import Star from '@lucide/svelte/icons/star';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import X from '@lucide/svelte/icons/x';
 
@@ -421,15 +425,25 @@
             type="button"
             class="sort-chip-btn"
             class:active
+            aria-label={opt.label}
+            title={opt.label}
             aria-pressed={active}
             onclick={() => toggleSort(opt.key)}
           >
-            <span>{opt.label}</span>
+            {#if opt.key === 'date'}
+              <Clock size={15} strokeWidth={1.85} />
+            {:else if opt.key === 'year'}
+              <Calendar size={15} strokeWidth={1.85} />
+            {:else if opt.key === 'rating'}
+              <Star size={15} strokeWidth={1.85} />
+            {:else}
+              <ArrowDownAZ size={15} strokeWidth={1.85} />
+            {/if}
             {#if active}
               {#if sortDir === 'desc'}
-                <ArrowDown size={12} strokeWidth={2} />
+                <ArrowDown size={11} strokeWidth={2.2} />
               {:else}
-                <ArrowUp size={12} strokeWidth={2} />
+                <ArrowUp size={11} strokeWidth={2.2} />
               {/if}
             {/if}
           </button>
@@ -622,8 +636,7 @@
   .library-page {
     position: relative;
     width: 100%;
-    min-height: 100vh;
-    padding: var(--header-height, 58px) 0 0 0;
+    padding: var(--header-height, 58px) 0 18px 0;
     box-sizing: border-box;
     background: var(--mila-app-canvas, #0c0c0c);
     color: var(--mila-text-primary, #ffffff);
@@ -868,20 +881,22 @@
   .library-sort-group {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    height: 36px;
-    padding: 3px;
+    gap: 0;
+    height: 34px;
+    padding: 0;
     margin-bottom: 2px;
-    border-radius: 11px;
+    border-radius: 10px;
+    overflow: hidden;
     background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
     box-sizing: border-box;
   }
 
   .sort-chip-btn {
-    height: 30px;
-    padding: 0 10px;
+    height: 34px;
+    min-width: 34px;
+    padding: 0 9px;
     border: none;
-    border-radius: 8px;
+    border-radius: 10px;
     background: transparent;
     color: var(--mila-text-muted, rgba(255, 255, 255, 0.44));
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
@@ -889,7 +904,8 @@
     font-weight: 500;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    justify-content: center;
+    gap: 3px;
     cursor: pointer;
     white-space: nowrap;
     transition: color 0.2s ease, background-color 0.2s ease, transform 0.1s ease;
@@ -912,20 +928,22 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 3px;
-    border-radius: 11px;
+    gap: 0;
+    height: 34px;
+    padding: 0;
+    border-radius: 10px;
+    overflow: hidden;
     background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
     margin-bottom: 2px;
   }
 
   .view-pill {
     position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
+    top: 0;
+    left: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
     background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.1));
     pointer-events: none;
     transition: transform 0.32s var(--ease-out);
@@ -938,13 +956,13 @@
   .view-btn {
     position: relative;
     z-index: 1;
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     margin: 0;
     padding: 0;
     background: transparent;
     border: none;
-    border-radius: 8px;
+    border-radius: 10px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1008,7 +1026,7 @@
     position: relative;
     min-width: 0;
     list-style: none;
-    margin: 0 var(--page-pad-x) 48px var(--page-pad-x);
+    margin: 0 var(--page-pad-x);
     padding: 0;
     display: flex;
     flex-direction: column;
@@ -1101,7 +1119,6 @@
     z-index: 3;
     border-radius: inherit;
     background: linear-gradient(155deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 40%);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.2);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.28s var(--ease-out);
@@ -1236,7 +1253,7 @@
     position: relative;
     min-width: 0;
     list-style: none;
-    margin: 0 var(--page-pad-x) 48px var(--page-pad-x);
+    margin: 0 var(--page-pad-x);
     padding: 0;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(clamp(200px, 22vw, 260px), 1fr));
@@ -1276,7 +1293,6 @@
     inset: 0;
     z-index: 3;
     background: linear-gradient(155deg, rgba(255, 255, 255, 0.085) 0%, rgba(255, 255, 255, 0) 46%);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.24);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.28s var(--ease-out);

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import Play from '@lucide/svelte/icons/play';
   import Bookmark from '@lucide/svelte/icons/bookmark';
   import Check from '@lucide/svelte/icons/check';
@@ -207,18 +206,13 @@
       </div>
     {/each}
   </div>
-
-  <!-- Bottom Chevron Down -->
-  <div class="releases-bottom-arrow">
-    <ChevronDown size={18} strokeWidth={2} class="arrow-icon" />
-  </div>
 </section>
 
 <style>
   .releases-section {
     position: relative;
     width: 100%;
-    height: 710px;
+    height: 646px;
     background: var(--mila-app-canvas, #0c0c0c);
     overflow-x: clip;
     overflow-y: visible;
@@ -331,7 +325,6 @@
     inset: 0;
     z-index: 4;
     background: linear-gradient(155deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 45%);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.24);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.28s var(--ease-out);
@@ -536,42 +529,13 @@
     transition: opacity 0.38s cubic-bezier(0.16, 1, 0.3, 1) 0.42s, background-color 0.15s ease, color 0.2s ease, transform 0.1s ease;
   }
 
-  /* Centered bottom arrow */
-  .releases-bottom-arrow {
-    position: absolute;
-    top: 668px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    opacity: 0.65;
-    transition: opacity 0.15s ease, transform 0.15s ease;
-    z-index: 5;
-  }
-
-  .releases-bottom-arrow:hover {
-    opacity: 1;
-    transform: translateX(-50%) translateY(2px);
-  }
-
-  .releases-bottom-arrow :global(.arrow-icon) {
-    color: var(--mila-cards-notchArrow, #D0D0D0);
-    transition: color 0.2s ease;
-  }
-
-  .releases-bottom-arrow:hover :global(.arrow-icon) {
-    color: var(--mila-cards-notchArrowHover, #ffffff);
-  }
-
   @media (max-width: 1120px) {
     .releases-section {
-      height: 620px;
+      height: 560px;
     }
 
     .releases-underlay-blur {
-      height: 680px;
+      height: 620px;
     }
 
     .releases-strip {
@@ -582,19 +546,15 @@
     .card {
       height: 460px;
     }
-
-    .releases-bottom-arrow {
-      top: 578px;
-    }
   }
 
   @media (max-width: 960px) {
     .releases-section {
-      height: 560px;
+      height: 506px;
     }
 
     .releases-underlay-blur {
-      height: 600px;
+      height: 546px;
     }
 
     .releases-strip {
@@ -609,10 +569,6 @@
     .card-description {
       line-clamp: 5;
       -webkit-line-clamp: 5;
-    }
-
-    .releases-bottom-arrow {
-      top: 522px;
     }
   }
 </style>

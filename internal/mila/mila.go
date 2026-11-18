@@ -19,6 +19,7 @@ import (
 	"mila/internal/protocol"
 	"mila/internal/screen"
 	"mila/internal/torrent"
+	"mila/internal/tray"
 	"mila/internal/updater"
 	"mila/internal/version"
 )
@@ -28,6 +29,8 @@ type Mila struct {
 	log              *logger.Logger
 	cloud            *cloud.Client
 	updater          *updater.Manager
+	trayMgr          *tray.Manager
+	trayIconICO      []byte
 	isFullscreen     atomic.Bool
 	isPip            atomic.Bool
 	runtimeStarted   atomic.Bool
@@ -39,6 +42,18 @@ type Mila struct {
 	quitApp          func(ctx context.Context)
 	captureGeometry  func(ctx context.Context) (screen.WindowGeometry, bool)
 	openBrowser      func(ctx context.Context, url string)
+}
+
+// SetTrayIcon stores the embedded .ico payload used for the native system tray icon.
+func (m *Mila) SetTrayIcon(ico []byte) {
+	m.trayIconICO = ico
+}
+
+// SetTrayPlaying updates the system tray playback label (Pause vs Resume).
+func (m *Mila) SetTrayPlaying(playing bool) {
+	if m.trayMgr != nil {
+		m.trayMgr.SetPlaying(playing)
+	}
 }
 
 // make_unique mila instance
@@ -109,42 +124,111 @@ func (m *Mila) Startup(ctx context.Context) {
 	m.runtimeStarted.Store(true)
 	m.log.Info("runtime.init", "go_os", runtime.GOOS, "arch", runtime.GOARCH, "cpus", runtime.NumCPU())
 
-	screens, err := wailsRuntime.ScreenGetAll(ctx)
-	if err == nil && len(screens) > 0 {
-		for i, s := range screens {
-			if s.IsCurrent || s.IsPrimary {
-				sw := s.Size.Width
-				sh := s.Size.Height
-				if sw == 0 || sh == 0 {
-					sw = s.Width
-					sh = s.Height
-				}
-				if sw > 0 && sh > 0 {
-					// 3/4 of screen size
-					w := (sw * 3) / 4
-					h := (sh * 3) / 4
-					wailsRuntime.WindowSetSize(ctx, w, h)
-					wailsRuntime.WindowSetMinSize(ctx, 858, 651)
-					wailsRuntime.WindowCenter(ctx)
-
-					m.log.Ok("display.ready",
-						"index", i,
-						"screen", fmt.Sprintf("%dx%d", sw, sh),
-						"window", fmt.Sprintf("%dx%d", w, h),
-						"radius", 15,
-					)
-				}
-				break
-			}
+	wailsRuntime.WindowSetMinSize(ctx, 858, 651)
+	if restored, ok := screen.LoadClampedWindowGeometry(m.windowStatePath); ok {
+		wailsRuntime.WindowSetSize(ctx, restored.Width, restored.Height)
+		wailsRuntime.WindowSetPosition(ctx, restored.X, restored.Y)
+		if restored.Maximized {
+			wailsRuntime.WindowMaximise(ctx)
 		}
+		m.log.Ok("display.restored",
+			"x", restored.X,
+			"y", restored.Y,
+			"window", fmt.Sprintf("%dx%d", restored.Width, restored.Height),
+			"maximized", restored.Maximized,
+		)
 	} else {
-		m.log.Warn("display.fallback", "screens", len(screens), "err", err)
+		screens, err := wailsRuntime.ScreenGetAll(ctx)
+		if err == nil && len(screens) > 0 {
+			for i, s := range screens {
+				if s.IsCurrent || s.IsPrimary {
+					sw := s.Size.Width
+					sh := s.Size.Height
+					if sw == 0 || sh == 0 {
+						sw = s.Width
+						sh = s.Height
+					}
+					if sw > 0 && sh > 0 {
+						w := (sw * 3) / 4
+						h := (sh * 3) / 4
+						wailsRuntime.WindowSetSize(ctx, w, h)
+						wailsRuntime.WindowCenter(ctx)
+						m.log.Ok("display.ready",
+							"index", i,
+							"screen", fmt.Sprintf("%dx%d", sw, sh),
+							"window", fmt.Sprintf("%dx%d", w, h),
+							"radius", 15,
+						)
+					}
+					break
+				}
+			}
+		} else {
+			m.log.Warn("display.fallback", "screens", len(screens), "err", err)
+		}
 	}
+
+	m.trayMgr = tray.NewManager(tray.Config{
+		Tooltip: "Mila",
+		IconICO: m.trayIconICO,
+		Playing: false,
+		Visible: true,
+		Callbacks: tray.Callbacks{
+			OnTogglePlay: func() {
+				if m.ctx != nil && m.runtimeStarted.Load() {
+					wailsRuntime.EventsEmit(m.ctx, "mila:tray-toggle-play")
+				}
+			},
+			OnToggleShow: func() {
+				if m.ctx == nil || !m.runtimeStarted.Load() {
+					return
+				}
+				currentlyVisible := screen.IsWindowCurrentlyVisible("MilaWindow", "Mila")
+				if currentlyVisible {
+					if m.captureGeometry != nil {
+						if geom, ok := m.captureGeometry(m.ctx); ok {
+							_ = screen.SaveWindowGeometry(m.windowStatePath, geom)
+						}
+					}
+					wailsRuntime.WindowHide(m.ctx)
+					screen.SetWindowVisibility("MilaWindow", "Mila", false)
+					if m.trayMgr != nil {
+						m.trayMgr.SetVisible(false)
+					}
+				} else {
+					wailsRuntime.WindowShow(m.ctx)
+					wailsRuntime.WindowUnminimise(m.ctx)
+					screen.SetWindowVisibility("MilaWindow", "Mila", true)
+					if m.trayMgr != nil {
+						m.trayMgr.SetVisible(true)
+					}
+				}
+			},
+			OnCheckUpdate: func() {
+				if m.ctx == nil || !m.runtimeStarted.Load() {
+					return
+				}
+				wailsRuntime.WindowShow(m.ctx)
+				screen.SetWindowVisibility("MilaWindow", "Mila", true)
+				if m.trayMgr != nil {
+					m.trayMgr.SetVisible(true)
+				}
+				go func() {
+					_, _ = m.CheckAndInstallUpdate()
+				}()
+			},
+			OnQuit: func() {
+				if m.quitApp != nil {
+					m.quitApp(m.ctx)
+				}
+			},
+		},
+	})
 
 	// clear dwm blur to achieve pure transparent corners
 	go func() {
 		for i := 0; i < 15; i++ {
-			if screen.ClearWindowBlur("milaWindow", "mila") {
+			if screen.ClearWindowBlur("MilaWindow", "Mila") {
 				m.log.Ok("window.blur_cleared", "attempt", i+1)
 				return
 			}
@@ -174,9 +258,12 @@ func (m *Mila) BeforeClose(ctx context.Context) (prevent bool) {
 	return false
 }
 
-// Shutdown finalizes background logging and torrent runtime when the desktop host terminates.
+// Shutdown finalizes background logging, system tray, and torrent runtime when the desktop host terminates.
 func (m *Mila) Shutdown(ctx context.Context) {
 	m.log.Info("runtime.shutdown")
+	if m.trayMgr != nil {
+		m.trayMgr.Close()
+	}
 	torrent.DefaultManager().Close()
 	_ = logger.CloseDefaultSink()
 }
@@ -249,7 +336,7 @@ func (m *Mila) GetContractInfo() (string, error) {
 			"apiBase":      "/api/v1",
 			"extBase":      "/ext",
 			"version":      version.Current(),
-			"capabilities": []string{"anime", "shikimori", "image", "providers", "torrent", "diagnostics", "cloud", "updater"},
+			"capabilities": []string{"anime", "shikimori", "image", "providers", "torrent", "diagnostics", "cloud", "updater", "aniskip"},
 		},
 	})
 	if err != nil {
@@ -509,4 +596,24 @@ func (m *Mila) StartPipDrag() {
 		return
 	}
 	screen.StartWindowDrag("MilaWindow", "Mila")
+}
+
+// GetAniSkipTimes queries AniSkip (with local L1/L2 cache) for OP/ED skip ranges by MAL ID and episode.
+func (m *Mila) GetAniSkipTimes(malID int, episode int) (string, error) {
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+
+	res, err := getSharedAniSkipClient().GetSkipTimes(reqCtx, malID, episode)
+	if err != nil {
+		return `{"error":"aniskip lookup failed"}`, err
+	}
+	raw, err := json.Marshal(map[string]any{"data": res})
+	if err != nil {
+		return `{"error":"marshal failed"}`, err
+	}
+	return string(raw), nil
 }

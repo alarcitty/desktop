@@ -5,9 +5,17 @@
   import type HlsType from 'hls.js';
   import { getLoadedHls, loadHls } from '../../app/hlsLoader';
   import { createDeferredDestroyQueue, releaseVideoElementBuffers } from '../../app/lifecycle';
+  import ArrowUpDown from '@lucide/svelte/icons/arrow-up-down';
+  import Calendar from '@lucide/svelte/icons/calendar';
+  import ChevronDown from '@lucide/svelte/icons/chevron-down';
+  import Hash from '@lucide/svelte/icons/hash';
+  import Layers from '@lucide/svelte/icons/layers';
+  import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
   import Search from '@lucide/svelte/icons/search';
   import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
-  import ChevronDown from '@lucide/svelte/icons/chevron-down';
+  import Star from '@lucide/svelte/icons/star';
+  import Tag from '@lucide/svelte/icons/tag';
+  import Tv from '@lucide/svelte/icons/tv';
 
   import MorphPopup from '../../marlakit/popup/MorphPopup.svelte';
   import Input from '../../marlakit/input/Input.svelte';
@@ -1328,10 +1336,12 @@
                   class="combo-pill"
                   class:is-open={open}
                   class:is-filtered={hasScopeFilter}
+                  aria-label={label}
+                  title={label}
                   onclick={toggle}
                 >
-                  <span>{label}</span>
-                  <ChevronDown size={12} strokeWidth={2} class="combo-chevron" />
+                  <Layers size={14} strokeWidth={1.85} />
+                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1356,10 +1366,12 @@
                   class="combo-pill"
                   class:is-open={open}
                   class:is-filtered={hasTypeFilter}
+                  aria-label={label}
+                  title={label}
                   onclick={toggle}
                 >
-                  <span>{label}</span>
-                  <ChevronDown size={12} strokeWidth={2} class="combo-chevron" />
+                  <Tv size={14} strokeWidth={1.85} />
+                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1383,10 +1395,12 @@
                   class="combo-pill"
                   class:is-open={open}
                   class:is-filtered={hasGenreFilter}
+                  aria-label={label}
+                  title={label}
                   onclick={toggle}
                 >
-                  <span>{label}</span>
-                  <ChevronDown size={12} strokeWidth={2} class="combo-chevron" />
+                  <Tag size={14} strokeWidth={1.85} />
+                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1411,10 +1425,12 @@
                   class="combo-pill"
                   class:is-open={open}
                   class:is-filtered={hasYearFilter}
+                  aria-label={label}
+                  title={label}
                   onclick={toggle}
                 >
-                  <span>{label}</span>
-                  <ChevronDown size={12} strokeWidth={2} class="combo-chevron" />
+                  <Calendar size={14} strokeWidth={1.85} />
+                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1439,10 +1455,12 @@
                   class="combo-pill"
                   class:is-open={open}
                   class:is-filtered={hasScoreFilter}
+                  aria-label={label}
+                  title={label}
                   onclick={toggle}
                 >
-                  <span>{label}</span>
-                  <ChevronDown size={12} strokeWidth={2} class="combo-chevron" />
+                  <Star size={14} strokeWidth={1.85} />
+                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1467,10 +1485,12 @@
                   class="combo-pill"
                   class:is-open={open}
                   class:is-filtered={hasEpisodeFilter}
+                  aria-label={label}
+                  title={label}
                   onclick={toggle}
                 >
-                  <span>{label}</span>
-                  <ChevronDown size={12} strokeWidth={2} class="combo-chevron" />
+                  <Hash size={14} strokeWidth={1.85} />
+                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
@@ -1495,18 +1515,26 @@
                   class="combo-pill"
                   class:is-open={open}
                   class:is-filtered={hasSortFilter}
+                  aria-label={label}
+                  title={label}
                   onclick={toggle}
                 >
-                  <span>{label}</span>
-                  <ChevronDown size={12} strokeWidth={2} class="combo-chevron" />
+                  <ArrowUpDown size={14} strokeWidth={1.85} />
+                  <ChevronDown size={11} strokeWidth={2} class="combo-chevron" />
                 </button>
               {/snippet}
             </ComboBox>
           </div>
 
           {#if hasAnyCustomFilter}
-            <button type="button" class="reset-inline-btn" onclick={resetCustomFilters}>
-              Reset
+            <button
+              type="button"
+              class="reset-inline-btn"
+              aria-label="Reset filters"
+              title="Reset filters"
+              onclick={resetCustomFilters}
+            >
+              <RotateCcw size={13} strokeWidth={2} />
             </button>
           {/if}
         </div>
@@ -1825,7 +1853,7 @@
 
   .combo-pill {
     height: 30px;
-    padding: 0 10px;
+    padding: 0 9px;
     border: none;
     outline: none;
     border-radius: 9px;
@@ -1837,7 +1865,7 @@
     white-space: nowrap;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     cursor: pointer;
     transition:
       background-color 0.16s var(--ease-out),
@@ -2165,22 +2193,22 @@
     border: none;
     border-radius: 0;
     background: transparent;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 11.5px;
-    font-weight: 500;
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
     letter-spacing: 0.015em;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.46);
     line-height: 1;
     transition: color 0.2s var(--ease-out);
   }
 
   .source-badge.is-history {
     background: transparent;
-    color: rgba(166, 227, 161, 0.78);
+    color: rgba(255, 255, 255, 0.56);
   }
 
-  .result.selected .source-badge:not(.is-history) {
-    color: rgba(255, 255, 255, 0.7);
+  .result.selected .source-badge {
+    color: rgba(255, 255, 255, 0.78);
   }
 
   .empty {

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"path/filepath"
 	"regexp"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"mila/internal/cache"
+	"mila/internal/httpx"
 )
 
 const (
@@ -56,10 +56,11 @@ type Client struct {
 	cacheTTL    time.Duration
 	searchTTL   time.Duration
 
-	rateMu  sync.Mutex
-	nextAt  time.Time
-	byID    *cache.Cache[int, Anime]
-	byQuery *cache.Cache[string, []Anime]
+	rateMu       sync.Mutex
+	nextAt       time.Time
+	queryFlights httpx.FlightGroup[[]Anime]
+	byID         *cache.Cache[int, Anime]
+	byQuery      *cache.Cache[string, []Anime]
 }
 
 // New creates a new Shikimori client with sensible production defaults.
@@ -74,7 +75,7 @@ func New(cfg Config) *Client {
 	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 12 * time.Second}
+		httpClient = httpx.NewClient(12 * time.Second)
 	}
 	minInterval := cfg.MinInterval
 	if minInterval <= 0 {
@@ -339,55 +340,41 @@ func (c *Client) queryAnimes(ctx context.Context, query string, vars map[string]
 	}
 
 	endpoint := c.baseURL + "/api/graphql"
-	var lastErr error
-
-	for attempt := 0; attempt < maxRetryAttempts; attempt++ {
-		if err := c.waitRateLimit(ctx); err != nil {
-			return nil, err
-		}
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	flightKey := endpoint + "|" + string(payload)
+	return c.queryFlights.Do(ctx, flightKey, func(flightCtx context.Context) ([]Anime, error) {
+		res, err := httpx.DoWithRetry(flightCtx, c.http, nil, httpx.RetryConfig{
+			MaxAttempts: maxRetryAttempts,
+			BaseDelay:   400 * time.Millisecond,
+			MaxDelay:    5 * time.Second,
+			MaxBody:     4 << 20,
+		}, func(rCtx context.Context) (*http.Request, error) {
+			if err := c.waitRateLimit(rCtx); err != nil {
+				return nil, err
+			}
+			req, err := http.NewRequestWithContext(rCtx, http.MethodPost, endpoint, bytes.NewReader(payload))
+			if err != nil {
+				return nil, fmt.Errorf("shikimori: create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json")
+			req.Header.Set("User-Agent", c.userAgent)
+			if c.token != "" {
+				req.Header.Set("Authorization", "Bearer "+c.token)
+			}
+			return req, nil
+		})
 		if err != nil {
-			return nil, fmt.Errorf("shikimori: create request: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("User-Agent", c.userAgent)
-		if c.token != "" {
-			req.Header.Set("Authorization", "Bearer "+c.token)
-		}
-
-		resp, err := c.http.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("shikimori: request failed: %w", err)
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
 			}
-			if !sleepBackoff(ctx, retryDelay(attempt, "")) {
-				return nil, ctx.Err()
-			}
-			continue
+			return nil, fmt.Errorf("shikimori: request failed: %w", err)
 		}
-
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-		resp.Body.Close()
-
-		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-			lastErr = fmt.Errorf("shikimori: upstream status %d", resp.StatusCode)
-			if !sleepBackoff(ctx, retryDelay(attempt, resp.Header.Get("Retry-After"))) {
-				return nil, ctx.Err()
-			}
-			continue
-		}
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return nil, fmt.Errorf("shikimori: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-		}
-		if readErr != nil {
-			return nil, fmt.Errorf("shikimori: read body: %w", readErr)
+		if res.StatusCode < 200 || res.StatusCode >= 300 {
+			return nil, fmt.Errorf("shikimori: unexpected status %d: %s", res.StatusCode, strings.TrimSpace(string(res.Body)))
 		}
 
 		var parsed gqlResponse
-		if err := json.Unmarshal(body, &parsed); err != nil {
+		if err := json.Unmarshal(res.Body, &parsed); err != nil {
 			return nil, fmt.Errorf("shikimori: decode response: %w", err)
 		}
 		if len(parsed.Errors) > 0 {
@@ -399,12 +386,7 @@ func (c *Client) queryAnimes(ctx context.Context, query string, vars map[string]
 			out = append(out, c.normalizeAnime(raw))
 		}
 		return out, nil
-	}
-
-	if lastErr != nil {
-		return nil, lastErr
-	}
-	return nil, errors.New("shikimori: request failed after retries")
+	})
 }
 
 func (c *Client) normalizeAnime(raw gqlRawAnime) Anime {
@@ -505,22 +487,4 @@ func CleanDescription(s string) string {
 	s = multiSpace.ReplaceAllString(s, " ")
 	s = multiNewline.ReplaceAllString(s, "\n\n")
 	return strings.TrimSpace(s)
-}
-
-func retryDelay(attempt int, retryAfter string) time.Duration {
-	if secs, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && secs > 0 && secs <= 30 {
-		return time.Duration(secs) * time.Second
-	}
-	return time.Duration(400*(1<<attempt)) * time.Millisecond
-}
-
-func sleepBackoff(ctx context.Context, d time.Duration) bool {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
 }

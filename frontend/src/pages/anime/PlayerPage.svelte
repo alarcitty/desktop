@@ -5,8 +5,11 @@
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import ArrowDown from '@lucide/svelte/icons/arrow-down';
+  import Clock from '@lucide/svelte/icons/clock';
+  import EyeOff from '@lucide/svelte/icons/eye-off';
   import LayoutGrid from '@lucide/svelte/icons/layout-grid';
   import LayoutList from '@lucide/svelte/icons/layout-list';
+  import ListOrdered from '@lucide/svelte/icons/list-ordered';
   import PictureInPicture2 from '@lucide/svelte/icons/picture-in-picture-2';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import HardDriveDownload from '@lucide/svelte/icons/hard-drive-download';
@@ -368,14 +371,16 @@
                 type="button"
                 class="sort-chip-btn"
                 class:active={epSortBy === 'order'}
+                aria-label="Order"
+                title="Order"
                 onclick={() => toggleEpSort('order')}
               >
-                <span>Order</span>
+                <ListOrdered size={14} strokeWidth={1.85} />
                 {#if epSortBy === 'order'}
                   {#if epSortDir === 'asc'}
-                    <ArrowUp size={13} strokeWidth={2.1} />
+                    <ArrowUp size={11} strokeWidth={2.2} />
                   {:else}
-                    <ArrowDown size={13} strokeWidth={2.1} />
+                    <ArrowDown size={11} strokeWidth={2.2} />
                   {/if}
                 {/if}
               </button>
@@ -383,14 +388,16 @@
                 type="button"
                 class="sort-chip-btn"
                 class:active={epSortBy === 'duration'}
+                aria-label="Duration"
+                title="Duration"
                 onclick={() => toggleEpSort('duration')}
               >
-                <span>Duration</span>
+                <Clock size={14} strokeWidth={1.85} />
                 {#if epSortBy === 'duration'}
                   {#if epSortDir === 'asc'}
-                    <ArrowUp size={13} strokeWidth={2.1} />
+                    <ArrowUp size={11} strokeWidth={2.2} />
                   {:else}
-                    <ArrowDown size={13} strokeWidth={2.1} />
+                    <ArrowDown size={11} strokeWidth={2.2} />
                   {/if}
                 {/if}
               </button>
@@ -398,14 +405,16 @@
                 type="button"
                 class="sort-chip-btn"
                 class:active={epSortBy === 'unwatched'}
+                aria-label="Unwatched"
+                title="Unwatched"
                 onclick={() => toggleEpSort('unwatched')}
               >
-                <span>Unwatched</span>
+                <EyeOff size={14} strokeWidth={1.85} />
                 {#if epSortBy === 'unwatched'}
                   {#if epSortDir === 'asc'}
-                    <ArrowUp size={13} strokeWidth={2.1} />
+                    <ArrowUp size={11} strokeWidth={2.2} />
                   {:else}
-                    <ArrowDown size={13} strokeWidth={2.1} />
+                    <ArrowDown size={11} strokeWidth={2.2} />
                   {/if}
                 {/if}
               </button>
@@ -712,25 +721,28 @@
   .lib-sort-group {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    height: 36px;
-    padding: 3px;
-    border-radius: 11px;
+    gap: 0;
+    height: 34px;
+    padding: 0;
+    border-radius: 10px;
+    overflow: hidden;
     background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
     box-sizing: border-box;
   }
 
   .sort-chip-btn {
-    height: 30px;
-    padding: 0 10px;
+    height: 34px;
+    min-width: 34px;
+    padding: 0 9px;
     border: none;
     outline: none;
-    border-radius: 8px;
+    border-radius: 10px;
     background: transparent;
     color: var(--mila-text-muted, rgba(255, 255, 255, 0.44));
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    justify-content: center;
+    gap: 3px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 12.5px;
     font-weight: 500;
@@ -752,21 +764,22 @@
     position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    height: 36px;
-    padding: 3px;
-    border-radius: 11px;
+    gap: 0;
+    height: 34px;
+    padding: 0;
+    border-radius: 10px;
+    overflow: hidden;
     background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.04));
     box-sizing: border-box;
   }
 
   .ep-view-pill {
     position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
+    top: 0;
+    left: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
     background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.1));
     pointer-events: none;
     transition: transform 0.32s var(--ease-out);
@@ -779,12 +792,12 @@
   .ep-view-btn {
     position: relative;
     z-index: 1;
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     padding: 0;
     border: none;
     outline: none;
-    border-radius: 8px;
+    border-radius: 10px;
     background: transparent;
     color: var(--mila-text-dim, rgba(255, 255, 255, 0.42));
     display: flex;

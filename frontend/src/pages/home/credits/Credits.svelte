@@ -14,6 +14,7 @@
     href?: string;
     action?: () => void;
     muted?: boolean;
+    icon?: 'telegram' | 'discord' | 'github';
   }
 
   interface CreditGroup {
@@ -101,10 +102,9 @@
       {
         title: t('home.socials'),
         items: [
-          // Replace with project links when ready
-          { label: 'Telegram', href: 'https://t.me' },
-          { label: 'Discord', href: 'https://discord.com' },
-          { label: 'GitHub', href: 'https://github.com' },
+          { label: '@mila_watcher', href: 'https://t.me/mila_watcher', icon: 'telegram' },
+          { label: 'Discord', href: 'https://discord.gg/kAM9gqMsEq', icon: 'discord' },
+          { label: 'GitHub', href: 'https://github.com/mila-desktop/desktop', icon: 'github' },
           ...(appVersion ? [{ label: `Mila ${appVersion}`, muted: true }] : [])
         ]
       }
@@ -180,7 +180,20 @@
                           class="credits-link"
                           onclick={() => openExternal(item.href!)}
                         >
-                          {item.label}
+                          {#if item.icon === 'telegram'}
+                            <svg class="credits-social-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                              <path d="M21.94 4.66c.24-1.08-.4-1.5-1.36-1.15L2.76 10.38c-1.2.47-1.18 1.14-.21 1.44l4.57 1.43 10.6-6.68c.5-.31.95-.14.58.19l-8.59 7.75-.32 4.74c.47 0 .68-.21.94-.46l2.26-2.19 4.7 3.47c.87.48 1.49.23 1.71-.8l3.94-14.61Z" />
+                            </svg>
+                          {:else if item.icon === 'discord'}
+                            <svg class="credits-social-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                              <path d="M20.32 4.37A19.8 19.8 0 0 0 15.42 2.85c-.21.38-.46.89-.63 1.29a18.27 18.27 0 0 0-5.58 0c-.17-.4-.42-.91-.63-1.29A19.74 19.74 0 0 0 3.68 4.37C.58 9.02-.26 13.56.16 18.03a19.9 19.9 0 0 0 6.01 3.04c.48-.66.91-1.36 1.28-2.1-.7-.26-1.37-.58-2-.96.17-.12.33-.25.49-.38 3.85 1.79 8.03 1.79 11.84 0 .16.13.32.26.49.38-.63.38-1.3.7-2 .96.37.74.8 1.44 1.28 2.1a19.84 19.84 0 0 0 6.02-3.04c.5-5.19-.85-9.69-3.25-13.66ZM8.02 15.27c-1.18 0-2.15-1.08-2.15-2.42 0-1.33.95-2.42 2.15-2.42s2.17 1.09 2.15 2.42c0 1.34-.95 2.42-2.15 2.42Zm7.96 0c-1.18 0-2.15-1.08-2.15-2.42 0-1.33.95-2.42 2.15-2.42s2.17 1.09 2.15 2.42c0 1.34-.95 2.42-2.15 2.42Z" />
+                            </svg>
+                          {:else if item.icon === 'github'}
+                            <svg class="credits-social-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                              <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.13-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.74.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11.03 11.03 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.77.11 3.06.74.8 1.19 1.83 1.19 3.09 0 4.42-2.69 5.4-5.26 5.68.42.36.79 1.07.79 2.16 0 1.56-.01 2.82-.01 3.2 0 .31.21.67.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
+                            </svg>
+                          {/if}
+                          <span>{item.label}</span>
                         </button>
                       {:else if item.action}
                         <button
@@ -288,13 +301,27 @@
 
   .credits-link,
   .credits-label {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 14px;
     font-weight: 400;
     line-height: 1.38;
     color: var(--mila-text-secondary, rgba(255, 255, 255, 0.88));
     text-align: left;
+  }
+
+  .credits-social-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    opacity: 0.78;
+    transition: opacity 0.16s var(--ease-out);
+  }
+
+  .credits-link:hover .credits-social-icon {
+    opacity: 1;
   }
 
   .credits-link {

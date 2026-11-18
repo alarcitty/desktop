@@ -929,7 +929,6 @@
     z-index: 4;
     border-radius: var(--radius-card);
     background: linear-gradient(155deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 45%);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.24);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.28s var(--ease-out);

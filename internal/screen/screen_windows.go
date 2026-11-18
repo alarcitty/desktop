@@ -4,6 +4,7 @@ package screen
 
 import (
 	"runtime"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -111,8 +112,11 @@ var (
 	setWindowLongW                          = user32.NewProc("SetWindowLongW")
 	monitorFromWindow                       = user32.NewProc("MonitorFromWindow")
 	getMonitorInfoW                         = user32.NewProc("GetMonitorInfoW")
+	enumDisplayMonitors                     = user32.NewProc("EnumDisplayMonitors")
 	getWindowRect                           = user32.NewProc("GetWindowRect")
 	setWindowPos                            = user32.NewProc("SetWindowPos")
+	showWindow                              = user32.NewProc("ShowWindow")
+	isWindowVisible                         = user32.NewProc("IsWindowVisible")
 	setForegroundWindow                     = user32.NewProc("SetForegroundWindow")
 	releaseCapture                          = user32.NewProc("ReleaseCapture")
 	postMessageW                            = user32.NewProc("PostMessageW")
@@ -477,4 +481,67 @@ func ClearWindowBlur(className, title string) bool {
 	}
 	ret, _, _ := setWindowCompositionAttribute.Call(hwnd, uintptr(unsafe.Pointer(&data)))
 	return ret != 0
+}
+
+var (
+	enumMonMu      sync.Mutex
+	enumMonResults []MonitorBounds
+	enumMonCb      = syscall.NewCallback(func(hMon uintptr, _ uintptr, _ *rect, _ uintptr) uintptr {
+		var mi monitorInfo
+		mi.cbSize = uint32(unsafe.Sizeof(mi))
+		if ok, _, _ := getMonitorInfoW.Call(hMon, uintptr(unsafe.Pointer(&mi))); ok != 0 {
+			w := int(mi.rcWork.right - mi.rcWork.left)
+			h := int(mi.rcWork.bottom - mi.rcWork.top)
+			if w > 0 && h > 0 {
+				enumMonResults = append(enumMonResults, MonitorBounds{
+					X:       int(mi.rcWork.left),
+					Y:       int(mi.rcWork.top),
+					Width:   w,
+					Height:  h,
+					Primary: (mi.dwFlags & 1) != 0,
+				})
+			}
+		}
+		return 1
+	})
+)
+
+// EnumMonitorBounds returns work-area coordinates for all currently attached displays.
+func EnumMonitorBounds() []MonitorBounds {
+	enumMonMu.Lock()
+	defer enumMonMu.Unlock()
+	enumMonResults = nil
+	_, _, _ = enumDisplayMonitors.Call(0, 0, enumMonCb, 0)
+	if len(enumMonResults) == 0 {
+		w, h := Dimensions()
+		return []MonitorBounds{{X: 0, Y: 0, Width: w, Height: h, Primary: true}}
+	}
+	out := make([]MonitorBounds, len(enumMonResults))
+	copy(out, enumMonResults)
+	return out
+}
+
+// SetWindowVisibility shows or hides the native window and brings it to foreground when restoring.
+func SetWindowVisibility(className, title string, show bool) bool {
+	hwnd := findAppWindow(className, title)
+	if hwnd == 0 {
+		return false
+	}
+	if show {
+		_, _, _ = showWindow.Call(hwnd, 9) // SW_RESTORE
+		_, _, _ = setForegroundWindow.Call(hwnd)
+	} else {
+		_, _, _ = showWindow.Call(hwnd, 0) // SW_HIDE
+	}
+	return true
+}
+
+// IsWindowCurrentlyVisible reports whether the native HWND is currently visible on screen.
+func IsWindowCurrentlyVisible(className, title string) bool {
+	hwnd := findAppWindow(className, title)
+	if hwnd == 0 {
+		return false
+	}
+	r, _, _ := isWindowVisible.Call(hwnd)
+	return r != 0
 }

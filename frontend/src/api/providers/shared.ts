@@ -47,7 +47,7 @@ export async function fetchJsonWithTimeout<T>(
   }
   const onAbort = () => ctrl.abort();
   extSignal?.addEventListener('abort', onAbort, { once: true });
-  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+  const timer = globalThis.setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, { ...init, signal: ctrl.signal });
     if (!res.ok) {
@@ -55,7 +55,7 @@ export async function fetchJsonWithTimeout<T>(
     }
     return (await res.json()) as T;
   } finally {
-    window.clearTimeout(timer);
+    globalThis.clearTimeout(timer);
     extSignal?.removeEventListener('abort', onAbort);
   }
 }

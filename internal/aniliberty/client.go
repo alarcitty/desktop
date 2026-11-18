@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"mila/internal/cache"
+	"mila/internal/httpx"
 )
 
 const (
@@ -53,6 +53,8 @@ type Client struct {
 	mediaRoot   string
 	userAgent   string
 	http        *http.Client
+	limiter     *httpx.DomainLimiter
+	getFlights  httpx.FlightGroup[httpx.ResponseResult]
 	listTTL     time.Duration
 	scheduleTTL time.Duration
 	searchTTL   time.Duration
@@ -83,7 +85,7 @@ func New(cfg Config) *Client {
 	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 12 * time.Second}
+		httpClient = httpx.NewClient(12 * time.Second)
 	}
 	listTTL := cfg.ListTTL
 	if listTTL <= 0 {
@@ -120,6 +122,7 @@ func New(cfg Config) *Client {
 		mediaRoot:       originFromBase(baseURL),
 		userAgent:       userAgent,
 		http:            httpClient,
+		limiter:         httpx.NewDomainLimiter(httpx.HostRule{RatePerSec: 12, Burst: 8}, nil),
 		listTTL:         listTTL,
 		scheduleTTL:     scheduleTTL,
 		searchTTL:       searchTTL,
@@ -350,54 +353,38 @@ func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 		bases = append(bases, c.mirrorURL)
 	}
 
+	headers := map[string]string{
+		"Accept":     "application/json",
+		"User-Agent": c.userAgent,
+	}
+	retryCfg := httpx.RetryConfig{
+		MaxAttempts: maxRetryAttempts,
+		BaseDelay:   250 * time.Millisecond,
+		MaxDelay:    5 * time.Second,
+		MaxBody:     8 << 20,
+	}
+
 	var lastErr error
 	for _, base := range bases {
 		endpoint := base + path
-		for attempt := 0; attempt < maxRetryAttempts; attempt++ {
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-			if err != nil {
-				return fmt.Errorf("aniliberty: create request: %w", err)
+		res, err := httpx.GetBytes(ctx, c.http, c.limiter, &c.getFlights, endpoint, headers, retryCfg)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
 			}
-			req.Header.Set("Accept", "application/json")
-			req.Header.Set("User-Agent", c.userAgent)
-
-			resp, err := c.http.Do(req)
-			if err != nil {
-				lastErr = fmt.Errorf("aniliberty: request %s failed: %w", path, err)
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
-				}
-				continue
-			}
-
-			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-			resp.Body.Close()
-
-			if resp.StatusCode == http.StatusNotFound {
-				return ErrNotFound
-			}
-			if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-				lastErr = fmt.Errorf("aniliberty: %s status %d", path, resp.StatusCode)
-				timer := time.NewTimer(time.Duration(250*(attempt+1)) * time.Millisecond)
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-					return ctx.Err()
-				case <-timer.C:
-				}
-				continue
-			}
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				return fmt.Errorf("aniliberty: %s status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(body)))
-			}
-			if readErr != nil {
-				return fmt.Errorf("aniliberty: read body: %w", readErr)
-			}
-			if err := json.Unmarshal(body, out); err != nil {
-				return fmt.Errorf("aniliberty: decode %s: %w", path, err)
-			}
-			return nil
+			lastErr = fmt.Errorf("aniliberty: request %s failed: %w", path, err)
+			continue
 		}
+		if res.StatusCode == http.StatusNotFound {
+			return ErrNotFound
+		}
+		if res.StatusCode < 200 || res.StatusCode >= 300 {
+			return fmt.Errorf("aniliberty: %s status %d: %s", path, res.StatusCode, strings.TrimSpace(string(res.Body)))
+		}
+		if err := json.Unmarshal(res.Body, out); err != nil {
+			return fmt.Errorf("aniliberty: decode %s: %w", path, err)
+		}
+		return nil
 	}
 
 	if lastErr != nil {
