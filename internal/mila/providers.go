@@ -316,7 +316,7 @@ func serveAniboomMasterPlaylist(w http.ResponseWriter, r *http.Request) {
 	embed := strings.TrimSpace(q.Get("embed"))
 	ep, _ := strconv.Atoi(strings.TrimSpace(q.Get("ep")))
 	resolved, err := resolveAniboomEpisode(r.Context(), embed, ep)
-	var masterURL string
+	var masterURL *url.URL
 	if err == nil {
 		masterURL, err = validatePublicStreamURL(resolved.MasterURL)
 	}
