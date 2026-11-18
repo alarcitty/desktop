@@ -69,16 +69,21 @@ type RoomChatMessage struct {
 }
 
 type RoomInvite struct {
-	InviteID       string `json:"invite_id"`
-	RoomID         string `json:"room_id"`
-	RoomCode       string `json:"room_code"`
-	FromPublicID   string `json:"from_public_id"`
-	FromUsername   string `json:"from_username"`
-	FromName       string `json:"from_name"`
-	FromAvatarURL  string `json:"from_avatar_url"`
-	AnimeTitle     string `json:"anime_title,omitempty"`
-	EpisodeOrdinal int    `json:"episode_ordinal,omitempty"`
-	CreatedAtMs    int64  `json:"created_at_ms"`
+	InviteID       string   `json:"invite_id"`
+	RoomID         string   `json:"room_id"`
+	RoomCode       string   `json:"room_code"`
+	RoomTitle      string   `json:"room_title,omitempty"`
+	FromPublicID   string   `json:"from_public_id"`
+	FromUsername   string   `json:"from_username"`
+	FromName       string   `json:"from_name"`
+	FromAvatarURL  string   `json:"from_avatar_url"`
+	AnimeTitle     string   `json:"anime_title,omitempty"`
+	AnimePoster    string   `json:"anime_poster,omitempty"`
+	EpisodeOrdinal int      `json:"episode_ordinal,omitempty"`
+	MemberCount    int      `json:"member_count,omitempty"`
+	MaxMembers     int      `json:"max_members,omitempty"`
+	MemberAvatars  []string `json:"member_avatars,omitempty"`
+	CreatedAtMs    int64    `json:"created_at_ms"`
 }
 
 type WatchRoomSnapshot struct {
@@ -94,6 +99,7 @@ type WatchRoomSnapshot struct {
 	Media        RoomMediaState    `json:"media"`
 	Playback     RoomPlaybackState `json:"playback"`
 	Members      []RoomMember      `json:"members"`
+	Pending      []FriendProfile   `json:"pending,omitempty"`
 	Chat         []RoomChatMessage `json:"chat"`
 	CreatedAt    int64             `json:"created_at"`
 	UpdatedAtMs  int64             `json:"updated_at_ms"`
@@ -587,6 +593,37 @@ func (c *Client) InviteFriendToWatchRoom(ctx context.Context, target string) (*R
 		return nil, err
 	}
 	return &out.Invite, nil
+}
+
+func (c *Client) CancelWatchRoomInvite(ctx context.Context, target string) (*WatchRoomSnapshot, error) {
+	if sess := c.ActiveQUICSession(); sess != nil {
+		resp, err := sess.RoundTrip(ctx, WTWireMessage{
+			Type:   "cancel_invite",
+			Target: target,
+		})
+		if err == nil && resp.Room != nil {
+			return resp.Room, nil
+		}
+	}
+	var out struct {
+		Room WatchRoomSnapshot `json:"room"`
+	}
+	if err := c.PostJSON(ctx, "/api/v1/rooms/invite/cancel", map[string]string{"target": target}, &out); err != nil {
+		return nil, err
+	}
+	return &out.Room, nil
+}
+
+func (c *Client) DeclineWatchRoomInvite(ctx context.Context, target string) error {
+	if sess := c.ActiveQUICSession(); sess != nil {
+		if _, err := sess.RoundTrip(ctx, WTWireMessage{
+			Type:   "decline_invite",
+			Target: target,
+		}); err == nil {
+			return nil
+		}
+	}
+	return c.PostJSON(ctx, "/api/v1/rooms/invite/decline", map[string]string{"target": target}, nil)
 }
 
 func (c *Client) KickWatchRoomMember(ctx context.Context, target string) (*WatchRoomSnapshot, error) {

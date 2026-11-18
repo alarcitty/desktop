@@ -1,6 +1,13 @@
 <script lang="ts">
   import { untrack, type Component } from 'svelte';
-  import { pages, getPage, loadAnimePage, loadPlayerPage, type PageId } from '../pages';
+  import {
+    pages,
+    getPage,
+    loadAnimePage,
+    loadPlayerPage,
+    loadWatchTogetherPlayerPage,
+    type PageId
+  } from '../pages';
   import { router } from './router.svelte';
 
   interface Props {
@@ -10,9 +17,10 @@
   let { onBeforeEnter }: Props = $props();
 
   const CACHED_PAGES = new Set<PageId>(pages.map((p) => p.id));
-  const DETAIL_PAGES: PageId[] = ['anime', 'player'];
+  const DETAIL_PAGES: PageId[] = ['anime', 'player', 'watch-together-player'];
   let animePageComponent = $state<Component | null>(loadAnimePage.getLoaded());
   let playerPageComponent = $state<Component | null>(loadPlayerPage.getLoaded());
+  let wtPlayerPageComponent = $state<Component | null>(loadWatchTogetherPlayerPage.getLoaded());
   const LEAVE_MS = 130;
   const MORPH_MS = 560;
   const ENTER_SETTLE_MS = 300;
@@ -52,6 +60,11 @@
     if (next === 'player' && !playerPageComponent) {
       void loadPlayerPage.load().then((Comp) => {
         playerPageComponent = Comp;
+      });
+    }
+    if (next === 'watch-together-player' && !wtPlayerPageComponent) {
+      void loadWatchTogetherPlayerPage.load().then((Comp) => {
+        wtPlayerPageComponent = Comp;
       });
     }
     if (CACHED_PAGES.has(next) && !visited.includes(next)) {
@@ -133,7 +146,12 @@
   {#each DETAIL_PAGES as detailId (detailId)}
     {@const active = router.current === detailId}
     {@const leaving = leavingId === detailId && !active}
-    {@const DetailPage = detailId === 'anime' ? animePageComponent : playerPageComponent}
+    {@const DetailPage =
+      detailId === 'anime'
+        ? animePageComponent
+        : detailId === 'watch-together-player'
+          ? wtPlayerPageComponent
+          : playerPageComponent}
     {#if (active || leaving) && DetailPage}
       <div
         class="page-slot"

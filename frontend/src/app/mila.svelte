@@ -97,7 +97,10 @@
   class:is-os-pip={bindings.osPipActive}
 >
   <div class="content-layer" class:is-setup-active={setupOpen}>
-    <Header hidden={headerHidden || router.current === 'player'} scrolled={headerScrolled} />
+    <Header
+      hidden={headerHidden || router.current === 'player' || router.current === 'watch-together-player'}
+      scrolled={headerScrolled}
+    />
     <ScrollArea bind:this={scrollArea} onscroll={handleViewportScroll}>
       <PageHost onBeforeEnter={handlePageBeforeEnter} />
     </ScrollArea>

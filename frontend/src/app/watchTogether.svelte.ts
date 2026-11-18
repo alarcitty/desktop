@@ -37,6 +37,7 @@ export interface WatchTogetherStoreState {
   connecting: boolean;
   transport: 'quic' | 'https' | 'none';
   room: WatchRoomSnapshot | null;
+  roomStarted: boolean;
   invites: RoomInvite[];
   error: string | null;
   draftTitle: string;
@@ -52,6 +53,7 @@ export const watchTogetherState = $state<WatchTogetherStoreState>({
   connecting: false,
   transport: 'none',
   room: null,
+  roomStarted: false,
   invites: [],
   error: null,
   draftTitle: '',
@@ -64,6 +66,10 @@ export const watchTogetherState = $state<WatchTogetherStoreState>({
 
 let unbindEvents: (() => void) | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let syncPollTimer: ReturnType<typeof setInterval> | null = null;
+let syncInFlight = false;
+let syncTickCount = 0;
+const declinedInviteIds = new Set<string>();
 
 function ensureEventListeners(): void {
   if (unbindEvents) return;
@@ -87,10 +93,20 @@ function ensureEventListeners(): void {
   };
 }
 
+function appendUniqueChatMessage(list: RoomChatMessage[], msg: RoomChatMessage): RoomChatMessage[] {
+  if (list.some((m) => m.id === msg.id)) {
+    return list;
+  }
+  return [...list, msg].slice(-50);
+}
+
 export function handleIncomingWTEvent(ev: WTWireEvent): void {
   switch (ev.type) {
     case 'room_snapshot':
       watchTogetherState.room = ev.room ?? null;
+      if (!ev.room) {
+        watchTogetherState.roomStarted = false;
+      }
       break;
     case 'room_media':
       if (ev.room) {
@@ -123,15 +139,18 @@ export function handleIncomingWTEvent(ev: WTWireEvent): void {
       break;
     case 'room_chat':
       if (watchTogetherState.room && ev.chat) {
-        const next = [...watchTogetherState.room.chat, ev.chat];
-        watchTogetherState.room.chat = next.slice(-50);
+        watchTogetherState.room.chat = appendUniqueChatMessage(
+          watchTogetherState.room.chat ?? [],
+          ev.chat
+        );
       }
       break;
     case 'room_closed':
       watchTogetherState.room = null;
+      watchTogetherState.roomStarted = false;
       break;
     case 'room_invite':
-      if (ev.invite) {
+      if (ev.invite && !declinedInviteIds.has(ev.invite.invite_id)) {
         const filtered = watchTogetherState.invites.filter(
           (i) => i.room_id !== ev.invite!.room_id
         );
@@ -146,9 +165,47 @@ export function handleIncomingWTEvent(ev: WTWireEvent): void {
   }
 }
 
+async function pollRoomAndInvitesOnce(): Promise<void> {
+  if (!auth.user || syncInFlight) return;
+  syncInFlight = true;
+  try {
+    const res = await watchTogetherApi.getCurrentRoom();
+    if (res.room) {
+      watchTogetherState.room = res.room;
+      if (res.room.members.length > 1) {
+        // Keep room live
+      }
+    } else if (watchTogetherState.room) {
+      watchTogetherState.room = null;
+      watchTogetherState.roomStarted = false;
+    }
+    const freshInvites = (res.invites ?? []).filter(
+      (inv) => !declinedInviteIds.has(inv.invite_id)
+    );
+    watchTogetherState.invites = freshInvites;
+
+    syncTickCount += 1;
+    if (syncTickCount % 3 === 0) {
+      void refreshFriends();
+    }
+  } catch {
+    // Transient network error
+  } finally {
+    syncInFlight = false;
+  }
+}
+
+function startBackgroundSyncLoop(): void {
+  if (syncPollTimer) clearInterval(syncPollTimer);
+  syncPollTimer = setInterval(() => {
+    void pollRoomAndInvitesOnce();
+  }, 1500);
+}
+
 export async function connectWatchTogether(activity = ''): Promise<void> {
   if (!auth.user || watchTogetherState.connecting) return;
   ensureEventListeners();
+  startBackgroundSyncLoop();
   watchTogetherState.connecting = true;
   watchTogetherState.error = null;
   try {
@@ -156,13 +213,15 @@ export async function connectWatchTogether(activity = ''): Promise<void> {
     watchTogetherState.connected = res.connected;
     watchTogetherState.transport = res.transport;
     watchTogetherState.room = res.room ?? null;
-    watchTogetherState.invites = res.invites ?? [];
+    watchTogetherState.invites = (res.invites ?? []).filter(
+      (inv) => !declinedInviteIds.has(inv.invite_id)
+    );
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = setInterval(() => {
       if (auth.user) {
         void watchTogetherApi.heartbeat('online').catch(() => {});
       }
-    }, 25_000);
+    }, 20_000);
     void refreshFriends();
   } catch (err) {
     watchTogetherState.error = err instanceof Error ? err.message : 'Failed to connect Watch Together';
@@ -176,24 +235,38 @@ export async function disconnectWatchTogether(): Promise<void> {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
   }
+  if (syncPollTimer) {
+    clearInterval(syncPollTimer);
+    syncPollTimer = null;
+  }
   unbindEvents?.();
   unbindEvents = null;
   watchTogetherState.connected = false;
   watchTogetherState.transport = 'none';
   watchTogetherState.room = null;
+  watchTogetherState.roomStarted = false;
   watchTogetherState.invites = [];
   await watchTogetherApi.disconnect().catch(() => {});
 }
 
-export async function createWatchRoom(input: CreateRoomInput = {}): Promise<WatchRoomSnapshot> {
+export async function createWatchRoom(
+  input: CreateRoomInput = {},
+  startWatching = true
+): Promise<WatchRoomSnapshot> {
   const room = await watchTogetherApi.createRoom(input);
   watchTogetherState.room = room;
+  watchTogetherState.roomStarted = startWatching;
   return room;
+}
+
+export function markWatchRoomStarted(): void {
+  watchTogetherState.roomStarted = true;
 }
 
 export async function joinWatchRoom(input: JoinRoomInput): Promise<WatchRoomSnapshot> {
   const room = await watchTogetherApi.joinRoom(input);
   watchTogetherState.room = room;
+  watchTogetherState.roomStarted = true;
   watchTogetherState.invites = watchTogetherState.invites.filter((i) => i.room_id !== room.room_id);
   return room;
 }
@@ -205,6 +278,8 @@ export async function joinFriendWatchRoom(friendHandleOrPublicId: string): Promi
 export async function leaveWatchRoom(): Promise<void> {
   await watchTogetherApi.leaveRoom();
   watchTogetherState.room = null;
+  watchTogetherState.roomStarted = false;
+  watchTogetherState.draftInvitedIds = [];
 }
 
 export async function setWatchRoomMedia(media: RoomMediaState): Promise<WatchRoomSnapshot> {
@@ -229,11 +304,64 @@ export async function sendWatchRoomChat(
   text: string,
   kind: 'chat' | 'reaction' = 'chat'
 ): Promise<RoomChatMessage> {
-  return watchTogetherApi.sendChat(text, kind);
+  const msg = await watchTogetherApi.sendChat(text, kind);
+  if (watchTogetherState.room && msg) {
+    watchTogetherState.room.chat = appendUniqueChatMessage(
+      watchTogetherState.room.chat ?? [],
+      msg
+    );
+  }
+  return msg;
 }
 
 export async function inviteFriendToWatchRoom(target: string): Promise<RoomInvite> {
-  return watchTogetherApi.inviteFriend(target);
+  if (!watchTogetherState.room) {
+    const draft = watchTogetherState.draftAnime;
+    await createWatchRoom(
+      {
+        title:
+          watchTogetherState.draftTitle.trim() ||
+          draft?.title ||
+          (auth.user?.username ? `${auth.user.username}'s room` : 'Room'),
+        visibility: watchTogetherState.draftVisibility,
+        control_mode: watchTogetherState.draftControlMode,
+        max_members: watchTogetherState.draftMaxMembers,
+        media: draft
+          ? {
+              shiki_id: draft.shikiId,
+              release_alias: draft.releaseAlias,
+              title: draft.title,
+              poster: draft.poster,
+              episode_ordinal: 1,
+              episode_index: 0,
+              search_queries: draft.searchQueries
+            }
+          : undefined
+      },
+      false
+    );
+  }
+  const inv = await watchTogetherApi.inviteFriend(target);
+  void pollRoomAndInvitesOnce();
+  return inv;
+}
+
+export async function cancelWatchRoomInvite(target: string): Promise<void> {
+  watchTogetherState.draftInvitedIds = watchTogetherState.draftInvitedIds.filter(
+    (id) => id !== target
+  );
+  if (watchTogetherState.room) {
+    const room = await watchTogetherApi.cancelInvite(target);
+    watchTogetherState.room = room;
+  }
+}
+
+export async function declineWatchRoomInvite(invite: RoomInvite): Promise<void> {
+  declinedInviteIds.add(invite.invite_id);
+  watchTogetherState.invites = watchTogetherState.invites.filter(
+    (i) => i.invite_id !== invite.invite_id && i.room_id !== invite.room_id
+  );
+  await watchTogetherApi.declineInvite(invite.room_id || invite.invite_id).catch(() => {});
 }
 
 export async function kickWatchRoomMember(target: string): Promise<WatchRoomSnapshot> {

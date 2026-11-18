@@ -658,6 +658,7 @@ export async function openWatch(
     resumeTime?: number;
     autoPlay?: boolean;
     directPlayer?: boolean;
+    targetPage?: 'anime' | 'player' | 'watch-together-player';
   }
 ): Promise<void> {
   const token = ++activeRequestToken;
@@ -667,7 +668,7 @@ export async function openWatch(
   player.pipManual = false;
   player.pipDismissed = false;
   navigate({
-    page: opts?.directPlayer ? 'player' : 'anime',
+    page: opts?.targetPage ?? (opts?.directPlayer ? 'player' : 'anime'),
     shikiId: target.shikiId,
     alias: target.releaseAlias,
     title: target.title,
@@ -969,7 +970,7 @@ export function expandCustomPip(): void {
   player.pipMode = false;
   player.pipManual = false;
   player.pipDismissed = false;
-  if (router.current !== 'player') {
+  if (router.current !== 'player' && router.current !== 'watch-together-player') {
     navigate({
       page: 'player',
       shikiId: player.shikiArt?.id ?? player.target?.shikiId,

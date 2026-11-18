@@ -71,6 +71,8 @@ export interface WailsMilaGoBindings {
   CloudUpdateWatchRoomMember?: (payloadJSON: string) => Promise<string>;
   CloudSendWatchRoomChat?: (text: string, kind: string) => Promise<string>;
   CloudInviteFriendToWatchRoom?: (target: string) => Promise<string>;
+  CloudCancelWatchRoomInvite?: (target: string) => Promise<string>;
+  CloudDeclineWatchRoomInvite?: (target: string) => Promise<string>;
   CloudKickWatchRoomMember?: (target: string) => Promise<string>;
   CloudTransferWatchRoomHost?: (target: string) => Promise<string>;
   CloudUpdateWatchRoomSettings?: (payloadJSON: string) => Promise<string>;

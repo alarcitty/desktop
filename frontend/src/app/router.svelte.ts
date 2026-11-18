@@ -37,7 +37,7 @@ const scrollByPage = new Map<PageId, number>();
 let lastHistoryNavTs = 0;
 
 function isDetailPage(page: PageId): boolean {
-  return page === 'anime' || page === 'player';
+  return page === 'anime' || page === 'player' || page === 'watch-together-player';
 }
 
 function cloneParams(params?: RouteParams): RouteParams | undefined {

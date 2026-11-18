@@ -16,7 +16,9 @@
   import { search, openSearch, setSearchAnchor } from "../../app/search.svelte";
   import { auth, initAuth, loginWithGoogle, logout } from "../../app/auth.svelte";
   import { friendsState, openFriendsPopup } from "../../app/friends.svelte";
+  import { connectWatchTogether, watchTogetherState } from "../../app/watchTogether.svelte";
   import FriendsPopup from "../friends/FriendsPopup.svelte";
+  import RoomInvitePopup from "../friends/RoomInvitePopup.svelte";
   import {
     bindings,
     closeAppWindow,
@@ -71,6 +73,12 @@
 
   $effect(() => {
     void initAuth();
+  });
+
+  $effect(() => {
+    if (auth.user && !watchTogetherState.connected && !watchTogetherState.connecting) {
+      void connectWatchTogether();
+    }
   });
 
   $effect(() => {
@@ -485,6 +493,7 @@
 </header>
 
 <FriendsPopup />
+<RoomInvitePopup />
 
 <style>
   .header {

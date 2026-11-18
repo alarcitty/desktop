@@ -1455,16 +1455,29 @@
 
   let nativeFsActive = false;
 
+  function resolveFullscreenContainer(): HTMLElement | null {
+    return (rootEl?.closest('[data-player-fs-root]') as HTMLElement | null) ?? rootEl;
+  }
+
   async function setNativeWindowFullscreen(next: boolean) {
     if (typeof window === 'undefined') return;
+    const fsContainer = resolveFullscreenContainer();
     if (typeof document !== 'undefined') {
       document.body.classList.toggle('is-player-fullscreen', next);
       document.body.classList.toggle('is-window-fullscreen', next);
+      document.querySelectorAll('[data-player-fs-root].is-fs-active').forEach((el) => {
+        if (!next || el !== fsContainer) {
+          el.classList.remove('is-fs-active');
+        }
+      });
+      if (fsContainer && fsContainer !== rootEl) {
+        fsContainer.classList.toggle('is-fs-active', next);
+      }
     }
     if (nativeFsActive === next) return;
     nativeFsActive = next;
     const { setAppFullscreen } = await import('../../app/bindings.svelte');
-    await setAppFullscreen(next, { playerMode: true, domTarget: rootEl });
+    await setAppFullscreen(next, { playerMode: true, domTarget: fsContainer });
   }
 
   async function enterFullscreen() {
@@ -1480,7 +1493,10 @@
 
   $effect(() => {
     function onFsChange() {
-      const domFs = document.fullscreenElement === rootEl;
+      const fsContainer = resolveFullscreenContainer();
+      const domFs =
+        document.fullscreenElement !== null &&
+        (document.fullscreenElement === rootEl || document.fullscreenElement === fsContainer);
       if (domFs) {
         isFullscreen = true;
         setNativeWindowFullscreen(true);
@@ -1490,7 +1506,13 @@
       }
     }
     function onWinKeydown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && isFullscreen && document.fullscreenElement !== rootEl) {
+      const fsContainer = resolveFullscreenContainer();
+      if (
+        e.key === 'Escape' &&
+        isFullscreen &&
+        document.fullscreenElement !== rootEl &&
+        document.fullscreenElement !== fsContainer
+      ) {
         e.preventDefault();
         void exitFullscreen();
       }
@@ -2799,6 +2821,15 @@
     position: fixed !important;
     inset: 0 !important;
     z-index: 99999 !important;
+  }
+
+  :global([data-player-fs-root].is-fs-active) .hls-player.is-fullscreen,
+  :global([data-player-fs-root]:fullscreen) .hls-player.is-fullscreen {
+    position: relative !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: 100% !important;
+    z-index: 1 !important;
   }
 
   .hls-player.is-pip {

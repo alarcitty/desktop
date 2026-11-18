@@ -19,6 +19,7 @@
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import { portal } from '../../marlakit/portal';
   import { auth } from '../../app/auth.svelte';
+  import { revealBlur } from '../../app/reveal';
   import { navigate } from '../../app/router.svelte';
   import {
     acceptFriendRequest,
@@ -48,6 +49,7 @@
   let searchResults = $state<FriendProfile[]>([]);
   let searchLoading = $state(false);
   let activeTab = $state<'friends' | 'requests'>('friends');
+  let listBodyHeight = $state(0);
   let actionBusy = $state<Record<string, boolean>>({});
   let invitedNotice = $state<Record<string, boolean>>({});
 
@@ -231,7 +233,11 @@
             </div>
 
             {#if editingHandle}
-              <form class="handle-edit-form" onsubmit={saveHandle}>
+              <form
+                class="handle-edit-form"
+                onsubmit={saveHandle}
+                in:revealBlur={{ duration: 220, y: 2, scale: 0.97, blur: 6 }}
+              >
                 <span class="handle-at">@</span>
                 <!-- svelte-ignore a11y_autofocus -->
                 <input
@@ -258,7 +264,13 @@
                 </button>
               </form>
             {:else}
-              <button type="button" class="self-handle-btn" onclick={startEditHandle} title="Change @username">
+              <button
+                type="button"
+                class="self-handle-btn"
+                onclick={startEditHandle}
+                title="Change @username"
+                in:revealBlur={{ duration: 200, y: -2, scale: 0.98, blur: 5 }}
+              >
                 <span class="handle-text">@{myHandle}</span>
                 <MorphIcon icon={Pencil} size={12} strokeWidth={2} class="handle-pencil" />
               </button>
@@ -401,8 +413,17 @@
           </button>
         </div>
 
-        <div class="list-section">
+        <div
+          class="list-section list-section-animated"
+          style:height={listBodyHeight > 0 ? `${Math.min(300, listBodyHeight)}px` : undefined}
+        >
           <ScrollArea maxHeight={300}>
+            <div class="list-body-measure" bind:clientHeight={listBodyHeight}>
+            {#key activeTab}
+              <div
+                class="tab-pane-wrap"
+                in:revealBlur={{ duration: 220, y: 4, scale: 0.99, blur: 6 }}
+              >
             {#if activeTab === 'friends'}
               {#if friendsState.friends.length === 0}
                 <div class="empty-hint">
@@ -552,6 +573,9 @@
                 </div>
               {/if}
             {/if}
+              </div>
+            {/key}
+            </div>
           </ScrollArea>
         </div>
       {/if}
@@ -763,73 +787,101 @@
     color: #ff6b6b;
   }
 
-  .close-btn,
-  .clear-query-btn {
+  .close-btn {
     width: 30px;
     height: 30px;
     border: none;
     border-radius: 9px;
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.72);
+    background: transparent;
+    color: rgba(255, 255, 255, 0.48);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background-color 0.18s ease, color 0.18s ease;
+    transition: color 0.18s ease;
+  }
+
+  .close-btn:hover {
+    background: transparent;
+    color: #ffffff;
   }
 
   .clear-query-btn {
     width: 22px;
     height: 22px;
+    border: none;
     border-radius: 6px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.56);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: color 0.18s ease;
   }
 
-  .close-btn:hover,
   .clear-query-btn:hover {
-    background: rgba(255, 255, 255, 0.11);
     color: #ffffff;
   }
 
   .tabs-bar {
     display: flex;
-    align-items: center;
-    gap: 6px;
+    align-items: baseline;
+    gap: 16px;
+    padding: 0 2px;
   }
 
   .tab-chip {
     display: inline-flex;
-    align-items: center;
+    align-items: baseline;
     gap: 6px;
-    height: 30px;
-    padding: 0 12px;
+    height: 28px;
+    padding: 0;
     border: none;
-    border-radius: 9px;
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.6));
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 600;
+    border-radius: 0;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.36);
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: -0.015em;
     cursor: pointer;
-    transition: background-color 0.18s ease, color 0.18s ease;
+    transition: color 0.18s ease, font-weight 0.18s ease;
+  }
+
+  .tab-chip:hover {
+    color: rgba(255, 255, 255, 0.68);
   }
 
   .tab-chip.active {
-    background: var(--mila-accent-muted, rgba(217, 255, 112, 0.14));
-    color: var(--mila-accent, #d9ff70);
+    background: transparent;
+    color: #ffffff;
+    font-weight: 700;
   }
 
   .tab-count {
     font-size: 11.5px;
-    opacity: 0.75;
+    font-weight: 400;
+    opacity: 0.62;
+  }
+
+  .tab-chip.active .tab-count {
+    font-weight: 700;
+    opacity: 0.78;
   }
 
   .tab-count.is-highlight {
     padding: 1px 6px;
     border-radius: 999px;
-    background: var(--mila-accent, #d9ff70);
-    color: #0b0b0c;
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
     font-weight: 700;
     opacity: 1;
+  }
+
+  .list-section-animated {
+    overflow: hidden;
+    transition: height 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .section-caption {

@@ -823,6 +823,27 @@ func (m *Mila) CloudInviteFriendToWatchRoom(target string) (string, error) {
 	})
 }
 
+// CloudCancelWatchRoomInvite cancels a pending room invite for a friend.
+func (m *Mila) CloudCancelWatchRoomInvite(target string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		rm, err := m.cloud.CancelWatchRoomInvite(ctx, target)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"room": rm}, nil
+	})
+}
+
+// CloudDeclineWatchRoomInvite declines an incoming room invite.
+func (m *Mila) CloudDeclineWatchRoomInvite(target string) (string, error) {
+	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {
+		if err := m.cloud.DeclineWatchRoomInvite(ctx, target); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, nil
+	})
+}
+
 // CloudKickWatchRoomMember kicks a member from the room (host only).
 func (m *Mila) CloudKickWatchRoomMember(target string) (string, error) {
 	return m.callCloudEnvelope(func(ctx context.Context) (any, error) {

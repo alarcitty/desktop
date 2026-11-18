@@ -59,12 +59,17 @@ export interface RoomInvite {
   invite_id: string;
   room_id: string;
   room_code: string;
+  room_title?: string;
   from_public_id: string;
   from_username: string;
   from_name: string;
   from_avatar_url: string;
   anime_title?: string;
+  anime_poster?: string;
   episode_ordinal?: number;
+  member_count?: number;
+  max_members?: number;
+  member_avatars?: string[];
   created_at_ms: number;
 }
 
@@ -81,6 +86,7 @@ export interface WatchRoomSnapshot {
   media: RoomMediaState;
   playback: RoomPlaybackState;
   members: RoomMember[];
+  pending?: FriendProfile[];
   chat: RoomChatMessage[];
   created_at: number;
   updated_at_ms: number;
@@ -324,6 +330,27 @@ export const watchTogetherApi = {
     }
     const res = await cloudApi.post<{ invite: RoomInvite }>('/api/v1/rooms/invite', { target });
     return res.invite;
+  },
+
+  async cancelInvite(target: string): Promise<WatchRoomSnapshot> {
+    const bridge = getWailsMilaBridge();
+    if (bridge?.CloudCancelWatchRoomInvite) {
+      const res = unwrapEnvelope<{ room: WatchRoomSnapshot }>(
+        await bridge.CloudCancelWatchRoomInvite(target)
+      );
+      return res.room;
+    }
+    const res = await cloudApi.post<{ room: WatchRoomSnapshot }>('/api/v1/rooms/invite/cancel', { target });
+    return res.room;
+  },
+
+  async declineInvite(target: string): Promise<void> {
+    const bridge = getWailsMilaBridge();
+    if (bridge?.CloudDeclineWatchRoomInvite) {
+      unwrapEnvelope<{ ok: boolean }>(await bridge.CloudDeclineWatchRoomInvite(target));
+      return;
+    }
+    await cloudApi.post('/api/v1/rooms/invite/decline', { target });
   },
 
   async kickMember(target: string): Promise<WatchRoomSnapshot> {

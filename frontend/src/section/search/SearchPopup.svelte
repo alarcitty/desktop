@@ -38,7 +38,7 @@
     getSearchAnchorRect
   } from '../../app/search.svelte';
   import { openWatch } from '../../app/player.svelte';
-  import { navigate } from '../../app/router.svelte';
+  import { navigate, router } from '../../app/router.svelte';
   import { selectAnimeForWatchTogether } from '../../app/watchTogether.svelte';
   import { parseMilaShareLink } from '../../app/router.svelte';
   import {
@@ -1183,6 +1183,10 @@
     if (!aItem) {
       return;
     }
+    if (router.current === 'watch-together' || router.current === 'watch-together-player') {
+      pickForWatchTogether(aItem);
+      return;
+    }
     closeSearch();
     void openWatch(
       {
@@ -1198,6 +1202,7 @@
   function pickForWatchTogether(aItem: UnifiedSearchItem | undefined, e?: MouseEvent) {
     e?.stopPropagation();
     if (!aItem) return;
+    const stayInWtPlayer = router.current === 'watch-together-player';
     closeSearch();
     void selectAnimeForWatchTogether({
       title: aItem.title,
@@ -1208,6 +1213,23 @@
       tags: formatMetaTags(aItem),
       searchQueries: aItem.searchQueries
     });
+    if (stayInWtPlayer) {
+      void openWatch(
+        {
+          title: aItem.title,
+          shikiId: aItem.shikiId,
+          releaseAlias: aItem.releaseAlias,
+          searchQueries: aItem.searchQueries
+        },
+        {
+          targetPage: 'watch-together-player',
+          autoPlay: true,
+          episodeOrdinal: 1,
+          resumeTime: 0
+        }
+      );
+      return;
+    }
     navigate('watch-together');
   }
 

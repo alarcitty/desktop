@@ -1,7 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { cubicOut } from 'svelte/easing';
-  import { fade, fly, scale } from 'svelte/transition';
   import { MorphIcon } from 'morphicons/svelte';
   import {
     Check,
@@ -11,17 +9,10 @@
     Globe,
     Lock,
     LogOut,
-    MessageSquare,
-    Pause,
     Pencil,
     Play,
-    Plus,
-    Minus,
-    Search,
-    Send,
-    Settings,
     Shield,
-    Sparkles,
+    Star,
     User,
     UserPlus,
     Users,
@@ -29,153 +20,317 @@
   } from 'lucide';
 
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
-  import MetaLine from '../../marlakit/meta/MetaLine.svelte';
-  import ScrollArea from '../../marlakit/scroll/ScrollArea.svelte';
+  import ComboBox from '../../marlakit/combo/ComboBox.svelte';
+  import type { ComboOption } from '../../marlakit/combo/types';
+  import { portal } from '../../marlakit/portal';
+  import { getCachedArtwork } from '../../api/anime';
+  import type { FriendProfile } from '../../api/friends';
+  import type { RoomControlMode, RoomVisibility } from '../../api/watchTogether';
   import { auth, loginWithGoogle } from '../../app/auth.svelte';
-  import {
-    friendsState,
-    openFriendsPopup,
-    refreshFriends
-  } from '../../app/friends.svelte';
-  import {
-    applyRemotePlaybackSync,
-    openWatch,
-    player,
-    selectEpisode
-  } from '../../app/player.svelte';
+  import { friendsState, openFriendsPopup, refreshFriends } from '../../app/friends.svelte';
+  import { watchHistory } from '../../app/history.svelte';
+  import { openWatch, player } from '../../app/player.svelte';
+  import { revealBlur } from '../../app/reveal';
   import { navigate } from '../../app/router.svelte';
   import { openSearch } from '../../app/search.svelte';
   import {
+    cancelWatchRoomInvite,
     connectWatchTogether,
     createWatchRoom,
     inviteFriendToWatchRoom,
     joinFriendWatchRoom,
-    joinWatchRoom,
     kickWatchRoomMember,
     leaveWatchRoom,
-    sendWatchRoomChat,
-    setWatchRoomMedia,
-    syncWatchRoomPlayback,
-    toggleDraftInviteFriend,
+    markWatchRoomStarted,
+    selectAnimeForWatchTogether,
     transferWatchRoomHost,
-    updateWatchRoomMemberState,
     updateWatchRoomSettings,
     watchTogetherState
   } from '../../app/watchTogether.svelte';
-  import {
-    computeLiveRoomPosition,
-    type RoomControlMode,
-    type RoomVisibility
-  } from '../../api/watchTogether';
-  import type { FriendProfile } from '../../api/friends';
-
-  const QUICK_REACTIONS = ['🔥', '😂', '😭', '❤️', '⚡'] as const;
 
   let editingTitle = $state(false);
-  let titleInputValue = $state('');
-  let settingsExpanded = $state(false);
-  let joinCodeOpen = $state(false);
-  let joinCodeValue = $state('');
+  let titleInput = $state('');
   let codeCopied = $state(false);
-  let chatInput = $state('');
-  let actionBusy = $state(false);
-  let hoveredFriend = $state<FriendProfile | null>(null);
-  let invitedToastMap = $state<Record<string, boolean>>({});
+  let busy = $state(false);
+  let brokenAvatars = $state<Record<string, boolean>>({});
 
-  let lastAppliedSeq = 0;
-  let suppressOutboundUntil = 0;
+  let visibilityMenuOpen = $state(false);
+  let controlMenuOpen = $state(false);
+  let seatsMenuOpen = $state(false);
 
-  const myUser = $derived(auth.user);
+  interface ContextMenuState {
+    kind: 'friend' | 'slot-invited' | 'slot-member';
+    x: number;
+    y: number;
+    id: string;
+    name: string;
+    username: string;
+    statusLabel: string;
+    statusKind: 'online' | 'in_room' | 'offline' | 'pending';
+    canJoinRoom: boolean;
+    alreadyInvited: boolean;
+  }
+
+  let ctxMenu = $state<ContextMenuState | null>(null);
+
   const activeRoom = $derived(watchTogetherState.room);
-  const draftAnime = $derived(watchTogetherState.draftAnime);
-
-  const defaultRoomName = $derived(
-    myUser?.name ? `${myUser.name}’s room` : 'Name'
+  const myPublicId = $derived(auth.user?.public_id || '');
+  const isHost = $derived(
+    Boolean(activeRoom && myPublicId && activeRoom.host_public_id === myPublicId)
   );
 
-  const displayRoomName = $derived(
-    activeRoom
-      ? activeRoom.title || defaultRoomName
-      : watchTogetherState.draftTitle.trim() || defaultRoomName
-  );
+  // Selected anime: room media > explicit draftAnime > currently loaded player > most recent watchHistory
+  const selectedAnime = $derived.by(() => {
+    if (activeRoom && activeRoom.media?.title) {
+      const shikiId = activeRoom.media.shiki_id;
+      const art = shikiId ? getCachedArtwork(shikiId) : undefined;
+      const draftMatch =
+        watchTogetherState.draftAnime &&
+        (watchTogetherState.draftAnime.shikiId === shikiId ||
+          watchTogetherState.draftAnime.title === activeRoom.media.title)
+          ? watchTogetherState.draftAnime
+          : null;
+      const poster =
+        activeRoom.media.poster ||
+        draftMatch?.poster ||
+        art?.posterOriginal ||
+        art?.posterMain ||
+        '';
+      const backdrop =
+        draftMatch?.backdrop ||
+        art?.screenshots?.[0] ||
+        poster;
+      const description =
+        draftMatch?.description ||
+        art?.description ||
+        '';
+      return {
+        title: activeRoom.media.title,
+        description,
+        poster,
+        backdrop,
+        shikiId,
+        releaseAlias: activeRoom.media.release_alias || draftMatch?.releaseAlias,
+        score: draftMatch?.score ?? art?.score,
+        tags: [
+          art?.year ? String(art.year) : '',
+          art?.episodes ? `${art.episodes} ep` : ''
+        ].filter(Boolean),
+        episodeLabel: `EP ${activeRoom.media.episode_ordinal || 1}`,
+        searchQueries: activeRoom.media.search_queries ?? [activeRoom.media.title]
+      };
+    }
 
-  const amHost = $derived(
-    Boolean(
-      activeRoom &&
-        myUser &&
-        (activeRoom.host_public_id === myUser.public_id ||
-          activeRoom.host_username === myUser.username)
-    )
-  );
+    if (watchTogetherState.draftAnime) {
+      const d = watchTogetherState.draftAnime;
+      const art = d.shikiId ? getCachedArtwork(d.shikiId) : undefined;
+      return {
+        ...d,
+        description: d.description || art?.description || '',
+        backdrop: d.backdrop || art?.screenshots?.[0] || d.poster,
+        score: d.score ?? art?.score,
+        tags:
+          d.tags.length > 0
+            ? d.tags
+            : [
+                art?.year ? String(art.year) : '',
+                art?.episodes ? `${art.episodes} ep` : ''
+              ].filter(Boolean),
+        episodeLabel: ''
+      };
+    }
 
-  const canControlActiveRoom = $derived(
-    Boolean(
-      activeRoom &&
-        (amHost ||
-          activeRoom.control_mode === 'everyone' ||
-          activeRoom.members.some(
-            (m) => m.public_id === myUser?.public_id && (m.role === 'host' || m.role === 'cohost')
-          ))
-    )
-  );
+    if (player.release || player.shikiArt) {
+      const title =
+        player.shikiArt?.english ||
+        player.shikiArt?.name ||
+        player.release?.title ||
+        player.title;
+      if (title) {
+        const poster =
+          player.shikiArt?.posterOriginal ||
+          player.shikiArt?.posterMain ||
+          player.release?.poster ||
+          '';
+        const backdrop =
+          player.shikiArt?.screenshots?.[0] ||
+          player.release?.banner ||
+          poster;
+        const description =
+          player.shikiArt?.description ||
+          '';
+        return {
+          title,
+          description,
+          poster,
+          backdrop,
+          shikiId: player.shikiArt?.id ?? player.target?.shikiId,
+          releaseAlias: player.release?.alias ?? player.target?.releaseAlias,
+          score: player.shikiArt?.score,
+          tags: [
+            player.shikiArt?.year || player.release?.year
+              ? String(player.shikiArt?.year || player.release?.year)
+              : '',
+            player.release?.episodes?.length ? `${player.release.episodes.length} ep` : ''
+          ].filter(Boolean),
+          episodeLabel: '',
+          searchQueries: player.target?.searchQueries ?? [title]
+        };
+      }
+    }
 
-  // Lobby & active room circular slots (aligned on one row with "Create room Name")
-  const maxSeats = $derived(
+    const recent = watchHistory.entries[0];
+    if (recent) {
+      const art = recent.shikiId ? getCachedArtwork(recent.shikiId) : undefined;
+      const poster = art?.posterOriginal || art?.posterMain || recent.poster || '';
+      const backdrop = art?.screenshots?.[0] || poster;
+      return {
+        title: recent.title,
+        description: art?.description || '',
+        poster,
+        backdrop,
+        shikiId: recent.shikiId,
+        releaseAlias: recent.releaseAlias,
+        score: art?.score,
+        tags: [
+          art?.year ? String(art.year) : '',
+          recent.totalEpisodes ? `${recent.totalEpisodes} ep` : ''
+        ].filter(Boolean),
+        episodeLabel: `Ep ${recent.episodeOrdinal}`,
+        searchQueries: recent.searchQueries ?? [recent.title]
+      };
+    }
+
+    return null;
+  });
+
+  const displayRoomName = $derived.by(() => {
+    if (activeRoom) {
+      return activeRoom.title || 'Name';
+    }
+    return watchTogetherState.draftTitle.trim() || 'смотрелка';
+  });
+
+  const currentVisibility = $derived<RoomVisibility>(
+    activeRoom ? activeRoom.visibility : watchTogetherState.draftVisibility
+  );
+  const currentControlMode = $derived<RoomControlMode>(
+    activeRoom ? activeRoom.control_mode : watchTogetherState.draftControlMode
+  );
+  const currentMaxMembers = $derived<number>(
     activeRoom ? activeRoom.max_members : watchTogetherState.draftMaxMembers
   );
 
-  const invitedFriendsInDraft = $derived(
-    watchTogetherState.draftInvitedIds
-      .map((id) => friendsState.friends.find((f) => f.public_id === id))
-      .filter((f): f is FriendProfile => Boolean(f))
-  );
+  const visibilityOptions: ComboOption[] = [
+    { value: 'public', label: 'Public', sublabel: 'Anyone can join' },
+    { value: 'friends', label: 'Friends', sublabel: 'Friends can join' },
+    { value: 'private', label: 'Private', sublabel: 'Invite only' }
+  ];
+
+  const controlOptions: ComboOption[] = [
+    { value: 'host_only', label: 'Host only', sublabel: 'Only host controls playback' },
+    { value: 'everyone', label: 'Everyone controls', sublabel: 'All members can pause & seek' }
+  ];
+
+  const seatsOptions: ComboOption[] = [2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({
+    value: n,
+    label: `${n} seats`
+  }));
+
+  // Pending invited friends (combines server room.pending + local draftInvitedIds)
+  const pendingFriends = $derived.by<FriendProfile[]>(() => {
+    const memberIds = new Set((activeRoom?.members ?? []).map((m) => m.public_id));
+    const map = new Map<string, FriendProfile>();
+    for (const p of activeRoom?.pending ?? []) {
+      if (p.public_id && !memberIds.has(p.public_id)) {
+        map.set(p.public_id, p);
+      }
+    }
+    for (const id of watchTogetherState.draftInvitedIds) {
+      if (!memberIds.has(id) && !map.has(id)) {
+        const found = friendsState.friends.find((f) => f.public_id === id);
+        if (found) {
+          map.set(id, found);
+        }
+      }
+    }
+    return Array.from(map.values());
+  });
+
+  interface SlotCircle {
+    key: string;
+    kind: 'host' | 'member' | 'invited' | 'empty';
+    id?: string;
+    name: string;
+    username: string;
+    avatarUrl: string;
+  }
+
+  const slotCircles = $derived.by<SlotCircle[]>(() => {
+    const max = Math.max(2, Math.min(10, currentMaxMembers));
+    const out: SlotCircle[] = [];
+
+    if (activeRoom) {
+      for (const m of activeRoom.members) {
+        out.push({
+          key: `mem-${m.public_id}`,
+          kind: m.role === 'host' ? 'host' : 'member',
+          id: m.public_id,
+          name: m.name,
+          username: m.username,
+          avatarUrl: m.avatar_url
+        });
+      }
+    } else if (auth.user) {
+      out.push({
+        key: `host-${auth.user.public_id || 'me'}`,
+        kind: 'host',
+        id: auth.user.public_id,
+        name: auth.user.name,
+        username: auth.user.username || 'me',
+        avatarUrl: auth.user.avatar_url
+      });
+    }
+
+    for (const f of pendingFriends) {
+      if (out.length >= max) break;
+      out.push({
+        key: `inv-${f.public_id}`,
+        kind: 'invited',
+        id: f.public_id,
+        name: f.name,
+        username: f.username,
+        avatarUrl: f.avatar_url
+      });
+    }
+
+    while (out.length < max) {
+      out.push({
+        key: `empty-${out.length}`,
+        kind: 'empty',
+        name: 'Empty seat',
+        username: '',
+        avatarUrl: ''
+      });
+    }
+
+    return out.slice(0, max);
+  });
 
   const occupiedCount = $derived(
     activeRoom
-      ? activeRoom.members.length
-      : 1 + invitedFriendsInDraft.length
+      ? activeRoom.members.length + pendingFriends.length
+      : 1 + pendingFriends.length
   );
 
-  const emptySlotCount = $derived(
-    Math.max(0, maxSeats - occupiedCount)
-  );
-
-  // Friends sorted: in_room first (blue), then online (green), then offline (gray)
+  // Friends sorted: in_room first, online second, offline last
   const sortedFriends = $derived.by(() => {
-    const rank = (s?: string) => (s === 'in_room' ? 0 : s === 'online' ? 1 : 2);
-    return [...friendsState.friends].sort((a, b) => {
-      const r = rank(a.status) - rank(b.status);
-      if (r !== 0) return r;
-      return a.name.localeCompare(b.name);
-    });
+    const list = [...friendsState.friends];
+    const rank = (s: FriendProfile['status']) =>
+      s === 'in_room' ? 0 : s === 'online' ? 1 : 2;
+    list.sort((a, b) => rank(a.status) - rank(b.status));
+    return list;
   });
-
-  // Friends currently inside a joinable room
-  const friendsInRooms = $derived(
-    sortedFriends.filter(
-      (f) => f.status === 'in_room' && f.room && f.room.room_id !== activeRoom?.room_id
-    )
-  );
-
-  const stageTitle = $derived(
-    activeRoom?.media?.title || draftAnime?.title || ''
-  );
-
-  const stageDescription = $derived(
-    draftAnime?.description ||
-      (activeRoom?.media?.title
-        ? `Watching Episode ${activeRoom.media.episode_ordinal || 1} together in real-time over QUIC.`
-        : '')
-  );
-
-  const stageBackdrop = $derived(
-    draftAnime?.backdrop ||
-      draftAnime?.poster ||
-      activeRoom?.media?.poster ||
-      player.shikiArt?.screenshots?.[0] ||
-      player.shikiArt?.posterOriginal ||
-      ''
-  );
 
   onMount(() => {
     if (auth.user) {
@@ -184,812 +339,763 @@
     }
   });
 
-  // Synchronize incoming QUIC room media & playback state with Mila's player
   $effect(() => {
-    const rm = activeRoom;
-    if (!rm || !rm.media?.title) return;
-    const pb = rm.playback;
-    if (!pb || pb.seq <= lastAppliedSeq) return;
-    lastAppliedSeq = pb.seq;
-
-    if (pb.updated_by && pb.updated_by === myUser?.public_id) {
-      return;
+    if (auth.user && !watchTogetherState.connected && !watchTogetherState.connecting) {
+      void connectWatchTogether();
+      void refreshFriends();
     }
-
-    suppressOutboundUntil = Date.now() + 900;
-    const targetEpOrd = rm.media.episode_ordinal || 1;
-    const curTitle = player.release?.title || player.title || '';
-    const sameAnime =
-      (rm.media.release_alias && player.release?.alias === rm.media.release_alias) ||
-      (rm.media.shiki_id && player.shikiArt?.id === rm.media.shiki_id) ||
-      (curTitle && curTitle.toLowerCase() === rm.media.title.toLowerCase());
-
-    const livePos = computeLiveRoomPosition(pb);
-
-    if (!player.release || !sameAnime) {
-      void openWatch(
-        {
-          title: rm.media.title,
-          shikiId: rm.media.shiki_id || undefined,
-          releaseAlias: rm.media.release_alias || undefined,
-          searchQueries: rm.media.search_queries?.length
-            ? rm.media.search_queries
-            : [rm.media.title]
-        },
-        {
-          episodeOrdinal: targetEpOrd,
-          resumeTime: livePos,
-          autoPlay: !pb.paused
-        }
-      );
-      return;
-    }
-
-    const epIdx = player.release.episodes.findIndex((e) => e.ordinal === targetEpOrd);
-    if (epIdx >= 0 && epIdx !== player.episodeIndex) {
-      selectEpisode(epIdx);
-    }
-    applyRemotePlaybackSync(pb.paused, livePos);
   });
 
   function beginEditTitle() {
-    if (activeRoom && !amHost) return;
-    titleInputValue = activeRoom
-      ? activeRoom.title
-      : watchTogetherState.draftTitle || defaultRoomName;
+    if (activeRoom && !isHost) return;
+    titleInput = activeRoom ? activeRoom.title : watchTogetherState.draftTitle || 'смотрелка';
     editingTitle = true;
   }
 
-  async function commitTitleEdit(e?: Event) {
+  async function saveTitle(e?: Event) {
     e?.preventDefault();
+    const clean = titleInput.trim();
     editingTitle = false;
-    const clean = titleInputValue.trim();
     if (!clean) return;
-    if (activeRoom && amHost) {
-      await updateWatchRoomSettings({ title: clean }).catch(() => {});
+    if (activeRoom && isHost) {
+      await updateWatchRoomSettings({ title: clean });
     } else {
       watchTogetherState.draftTitle = clean;
     }
   }
 
-  function cycleVisibility() {
-    const order: RoomVisibility[] = ['friends', 'public', 'private'];
-    const cur = activeRoom ? activeRoom.visibility : watchTogetherState.draftVisibility;
-    const next = order[(order.indexOf(cur) + 1) % order.length];
-    if (activeRoom && amHost) {
-      void updateWatchRoomSettings({ visibility: next });
-    } else {
+  async function selectVisibility(next: RoomVisibility) {
+    if (activeRoom && isHost) {
+      await updateWatchRoomSettings({ visibility: next });
+    } else if (!activeRoom) {
       watchTogetherState.draftVisibility = next;
     }
   }
 
-  function cycleControlMode() {
-    const cur = activeRoom ? activeRoom.control_mode : watchTogetherState.draftControlMode;
-    const next: RoomControlMode = cur === 'host_only' ? 'everyone' : 'host_only';
-    if (activeRoom && amHost) {
-      void updateWatchRoomSettings({ control_mode: next });
-    } else {
+  async function selectControlMode(next: RoomControlMode) {
+    if (activeRoom && isHost) {
+      await updateWatchRoomSettings({ control_mode: next });
+    } else if (!activeRoom) {
       watchTogetherState.draftControlMode = next;
     }
   }
 
-  function stepMaxMembers(delta: number) {
-    const cur = activeRoom ? activeRoom.max_members : watchTogetherState.draftMaxMembers;
-    const minAllowed = activeRoom ? Math.max(2, activeRoom.members.length) : 2;
-    const next = Math.max(minAllowed, Math.min(10, cur + delta));
-    if (next === cur) return;
-    if (activeRoom && amHost) {
-      void updateWatchRoomSettings({ max_members: next });
-    } else {
-      watchTogetherState.draftMaxMembers = next;
-      if (watchTogetherState.draftInvitedIds.length > next - 1) {
-        watchTogetherState.draftInvitedIds = watchTogetherState.draftInvitedIds.slice(0, next - 1);
-      }
+  async function selectMaxMembers(clamped: number) {
+    if (activeRoom && isHost) {
+      const safe = Math.max(activeRoom.members.length, clamped);
+      await updateWatchRoomSettings({ max_members: safe });
+    } else if (!activeRoom) {
+      watchTogetherState.draftMaxMembers = clamped;
     }
   }
 
-  async function handleCreateRoom() {
-    if (!myUser) {
+  async function handleStartOrContinueRoom() {
+    if (!auth.user) {
       await loginWithGoogle();
       return;
     }
-    if (actionBusy) return;
-    actionBusy = true;
+    if (busy) return;
+    busy = true;
     try {
-      const anime = draftAnime;
-      const room = await createWatchRoom({
-        title: watchTogetherState.draftTitle.trim() || anime?.title || defaultRoomName,
-        visibility: watchTogetherState.draftVisibility,
-        control_mode: watchTogetherState.draftControlMode,
-        max_members: watchTogetherState.draftMaxMembers,
-        media: anime
-          ? {
-              shiki_id: anime.shikiId,
-              release_alias: anime.releaseAlias,
-              title: anime.title,
-              poster: anime.poster,
-              episode_ordinal: 1,
-              episode_index: 0,
-              search_queries: anime.searchQueries
-            }
-          : undefined
-      });
-      // Send invites to all pre-selected friends in the lobby row
-      const toInvite = [...watchTogetherState.draftInvitedIds];
-      watchTogetherState.draftInvitedIds = [];
-      for (const pubId of toInvite) {
-        void inviteFriendToWatchRoom(pubId).catch(() => {});
+      const anime = selectedAnime;
+      if (!activeRoom) {
+        await createWatchRoom(
+          {
+            title:
+              watchTogetherState.draftTitle.trim() ||
+              anime?.title ||
+              `${auth.user.username || auth.user.name}'s room`,
+            visibility: watchTogetherState.draftVisibility,
+            control_mode: watchTogetherState.draftControlMode,
+            max_members: watchTogetherState.draftMaxMembers,
+            media: anime
+              ? {
+                  shiki_id: anime.shikiId,
+                  release_alias: anime.releaseAlias,
+                  title: anime.title,
+                  poster: anime.poster,
+                  episode_ordinal: 1,
+                  episode_index: 0,
+                  search_queries: anime.searchQueries
+                }
+              : undefined
+          },
+          true
+        );
+      } else {
+        markWatchRoomStarted();
       }
-      if (room.media?.title) {
+
+      if (watchTogetherState.draftInvitedIds.length > 0) {
+        const toInvite = [...watchTogetherState.draftInvitedIds];
+        watchTogetherState.draftInvitedIds = [];
+        for (const friendId of toInvite) {
+          void inviteFriendToWatchRoom(friendId).catch(() => {});
+        }
+      }
+
+      if (anime) {
+        void selectAnimeForWatchTogether(anime);
         void openWatch(
           {
-            title: room.media.title,
-            shikiId: room.media.shiki_id || undefined,
-            releaseAlias: room.media.release_alias || undefined,
-            searchQueries: room.media.search_queries?.length
-              ? room.media.search_queries
-              : [room.media.title]
+            title: anime.title,
+            shikiId: anime.shikiId,
+            releaseAlias: anime.releaseAlias,
+            searchQueries: anime.searchQueries
           },
           {
-            episodeOrdinal: room.media.episode_ordinal || 1,
-            autoPlay: false
+            targetPage: 'watch-together-player',
+            autoPlay: true,
+            episodeOrdinal: activeRoom?.media?.episode_ordinal || 1,
+            resumeTime: activeRoom?.playback?.position_sec || 0
+          }
+        );
+      } else {
+        navigate('watch-together-player');
+      }
+    } finally {
+      busy = false;
+    }
+  }
+
+  function openFriendContextMenu(e: MouseEvent, friend: FriendProfile) {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const isAlreadyInvited = pendingFriends.some((p) => p.public_id === friend.public_id);
+    const canJoin = Boolean(
+      friend.status === 'in_room' &&
+        friend.room &&
+        friend.room.room_id !== activeRoom?.room_id
+    );
+    const statusLabel =
+      friend.status === 'in_room' && friend.room
+        ? `In @${friend.room.host_username}'s room`
+        : friend.status === 'online'
+          ? 'Online'
+          : 'Offline';
+
+    ctxMenu = {
+      kind: 'friend',
+      x: Math.max(16, rect.left - 196),
+      y: Math.max(16, Math.min(window.innerHeight - 160, rect.top - 8)),
+      id: friend.public_id,
+      name: friend.name,
+      username: friend.username,
+      statusLabel,
+      statusKind:
+        friend.status === 'in_room'
+          ? 'in_room'
+          : friend.status === 'online'
+            ? 'online'
+            : 'offline',
+      canJoinRoom: canJoin,
+      alreadyInvited: isAlreadyInvited
+    };
+  }
+
+  function openSlotContextMenu(e: MouseEvent, slot: SlotCircle) {
+    if (!slot.id) return;
+    if (slot.kind === 'invited') {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      ctxMenu = {
+        kind: 'slot-invited',
+        x: Math.max(16, Math.min(window.innerWidth - 210, rect.right - 188)),
+        y: rect.bottom + 8,
+        id: slot.id,
+        name: slot.name,
+        username: slot.username,
+        statusLabel: 'Pending invite',
+        statusKind: 'pending',
+        canJoinRoom: false,
+        alreadyInvited: true
+      };
+    } else if (slot.kind === 'member' && isHost) {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      ctxMenu = {
+        kind: 'slot-member',
+        x: Math.max(16, Math.min(window.innerWidth - 210, rect.right - 188)),
+        y: rect.bottom + 8,
+        id: slot.id,
+        name: slot.name,
+        username: slot.username,
+        statusLabel: 'In room',
+        statusKind: 'online',
+        canJoinRoom: false,
+        alreadyInvited: false
+      };
+    }
+  }
+
+  async function handleCtxInvite(targetId: string) {
+    ctxMenu = null;
+    if (!watchTogetherState.draftInvitedIds.includes(targetId)) {
+      watchTogetherState.draftInvitedIds = [...watchTogetherState.draftInvitedIds, targetId];
+    }
+    try {
+      await inviteFriendToWatchRoom(targetId);
+    } catch {
+      // keep in draftInvitedIds if offline
+    }
+  }
+
+  async function handleCtxCancelInvite(targetId: string) {
+    ctxMenu = null;
+    await cancelWatchRoomInvite(targetId).catch(() => {});
+  }
+
+  async function handleCtxJoinFriend(targetId: string) {
+    ctxMenu = null;
+    if (busy) return;
+    busy = true;
+    try {
+      const rm = await joinFriendWatchRoom(targetId);
+      if (rm.media?.title) {
+        void openWatch(
+          {
+            title: rm.media.title,
+            shikiId: rm.media.shiki_id,
+            releaseAlias: rm.media.release_alias,
+            searchQueries: rm.media.search_queries ?? [rm.media.title]
+          },
+          {
+            targetPage: 'watch-together-player',
+            autoPlay: true,
+            episodeOrdinal: rm.media.episode_ordinal || 1,
+            resumeTime: rm.playback?.position_sec || 0
           }
         );
       }
     } finally {
-      actionBusy = false;
+      busy = false;
     }
   }
 
-  async function handleJoinByCode(e?: Event) {
-    e?.preventDefault();
-    const code = joinCodeValue.trim().toUpperCase();
-    if (!code || actionBusy) return;
-    actionBusy = true;
-    try {
-      await joinWatchRoom({ room_code: code });
-      joinCodeValue = '';
-      joinCodeOpen = false;
-    } finally {
-      actionBusy = false;
-    }
+  async function handleCtxTransferHost(targetId: string) {
+    ctxMenu = null;
+    await transferWatchRoomHost(targetId).catch(() => {});
   }
 
-  async function handleFriendRailClick(friend: FriendProfile) {
-    if (friend.status === 'in_room' && friend.room && friend.room.room_id !== activeRoom?.room_id) {
-      await joinFriendWatchRoom(friend.public_id).catch(() => {});
-      return;
-    }
-    if (activeRoom) {
-      await inviteFriendToWatchRoom(friend.public_id).catch(() => {});
-      invitedToastMap = { ...invitedToastMap, [friend.public_id]: true };
-      window.setTimeout(() => {
-        invitedToastMap = { ...invitedToastMap, [friend.public_id]: false };
-      }, 1600);
-      return;
-    }
-    toggleDraftInviteFriend(friend.public_id);
+  async function handleCtxKickMember(targetId: string) {
+    ctxMenu = null;
+    await kickWatchRoomMember(targetId).catch(() => {});
   }
 
-  async function handleCopyRoomCode() {
+  async function copyRoomCode() {
     if (!activeRoom?.room_code) return;
     try {
       await navigator.clipboard.writeText(activeRoom.room_code);
       codeCopied = true;
       window.setTimeout(() => {
         codeCopied = false;
-      }, 1500);
+      }, 1600);
     } catch {
       // ignore
     }
   }
-
-  async function handleToggleRoomPlayback() {
-    if (!activeRoom || !canControlActiveRoom) return;
-    const nextPaused = !activeRoom.playback.paused;
-    const pb = await syncWatchRoomPlayback({
-      paused: nextPaused,
-      position_sec: computeLiveRoomPosition(activeRoom.playback)
-    });
-    lastAppliedSeq = pb.seq;
-  }
-
-  async function handleStepEpisode(delta: number) {
-    if (!activeRoom || !canControlActiveRoom || !activeRoom.media?.title) return;
-    const nextOrd = Math.max(1, (activeRoom.media.episode_ordinal || 1) + delta);
-    await setWatchRoomMedia({
-      ...activeRoom.media,
-      episode_ordinal: nextOrd,
-      episode_index: Math.max(0, nextOrd - 1)
-    });
-  }
-
-  function handleOpenSyncedPlayer() {
-    if (!activeRoom?.media?.title) {
-      openSearch();
-      return;
-    }
-    const livePos = computeLiveRoomPosition(activeRoom.playback);
-    void openWatch(
-      {
-        title: activeRoom.media.title,
-        shikiId: activeRoom.media.shiki_id || undefined,
-        releaseAlias: activeRoom.media.release_alias || undefined,
-        searchQueries: activeRoom.media.search_queries?.length
-          ? activeRoom.media.search_queries
-          : [activeRoom.media.title]
-      },
-      {
-        episodeOrdinal: activeRoom.media.episode_ordinal || 1,
-        resumeTime: livePos,
-        autoPlay: !activeRoom.playback.paused,
-        directPlayer: true
-      }
-    );
-  }
-
-  async function handleSendChat(e?: Event) {
-    e?.preventDefault();
-    const text = chatInput.trim();
-    if (!text || !activeRoom) return;
-    chatInput = '';
-    await sendWatchRoomChat(text, 'chat').catch(() => {});
-  }
-
-  async function handleQuickReaction(emoji: string) {
-    if (!activeRoom) return;
-    await sendWatchRoomChat(emoji, 'reaction').catch(() => {});
-  }
 </script>
 
-<div class="wt-page">
-  <!-- Full-bleed atmospheric backdrop when an anime is selected or playing -->
-  {#if stageBackdrop}
-    {#key stageBackdrop}
-      <div class="wt-backdrop-wrap" aria-hidden="true" transition:fade={{ duration: 320, easing: cubicOut }}>
-        <div class="wt-backdrop-blur">
-          <LayerBlur src={stageBackdrop} blur={92} opacity={0.38} scale={1.18} />
+<svelte:window
+  onclick={() => {
+    if (ctxMenu) ctxMenu = null;
+  }}
+  onkeydown={(e) => {
+    if (e.key === 'Escape' && ctxMenu) ctxMenu = null;
+  }}
+/>
+
+<div class="wt-stage">
+  <!-- Full-bleed atmospheric backdrop of selected anime -->
+  {#if selectedAnime?.backdrop || selectedAnime?.poster}
+    {#key selectedAnime.backdrop || selectedAnime.poster}
+      <div class="wt-backdrop" aria-hidden="true">
+        <img
+          src={selectedAnime.backdrop || selectedAnime.poster}
+          alt=""
+          class="wt-backdrop-img"
+        />
+        <div class="wt-backdrop-Blur">
+          <LayerBlur
+            src={selectedAnime.backdrop || selectedAnime.poster}
+            blur={46}
+            opacity={0.55}
+            scale={1.2}
+          />
         </div>
-        <img src={stageBackdrop} alt="" class="wt-backdrop-art" decoding="async" />
-        <div class="wt-backdrop-scrim"></div>
+        <div class="wt-backdrop-vignette"></div>
       </div>
     {/key}
+  {:else}
+    <div class="wt-backdrop is-empty" aria-hidden="true">
+      <div class="wt-backdrop-vignette"></div>
+    </div>
   {/if}
 
-  <!-- Top Row: "Create room Name ✎ 2/7" on the left, circular member & empty person slots on the right -->
-  <header class="wt-top-bar">
-    <div class="wt-heading-group">
-      <span class="wt-main-heading">
-        {activeRoom ? 'Room' : 'Create room'}
-      </span>
+  <div class="wt-canvas">
+    <!-- TOP BAR: Create room / Room + Name + pencil + 1/9 + #CODE on the left, Member/Invite circles on the right -->
+    <header class="wt-top-bar">
+      <div class="wt-heading-group">
+        <h1 class="wt-main-heading">
+          {activeRoom && watchTogetherState.roomStarted ? 'Room' : 'Create room'}
+        </h1>
 
-      {#if editingTitle}
-        <form class="wt-title-form" onsubmit={commitTitleEdit}>
-          <!-- svelte-ignore a11y_autofocus -->
-          <input
-            type="text"
-            class="wt-title-input"
-            bind:value={titleInputValue}
-            maxlength={40}
-            autofocus
-            onblur={commitTitleEdit}
-          />
-        </form>
-      {:else}
-        <button
-          type="button"
-          class="wt-name-trigger"
-          onclick={beginEditTitle}
-          title="Rename room"
-        >
-          <span class="wt-room-name">{displayRoomName}</span>
-          {#if !activeRoom || amHost}
-            <MorphIcon icon={Pencil} size={15} strokeWidth={1.8} class="wt-pencil-icon" />
-          {/if}
-        </button>
-      {/if}
-
-      <span class="wt-seat-counter">{occupiedCount}/{maxSeats}</span>
-
-      {#if activeRoom}
-        <button
-          type="button"
-          class="wt-code-chip"
-          onclick={handleCopyRoomCode}
-          title="Copy room invite code"
-        >
-          <span>#{activeRoom.room_code}</span>
-          <MorphIcon icon={codeCopied ? Check : Copy} size={12} strokeWidth={2.1} />
-        </button>
-      {/if}
-    </div>
-
-    <!-- Top-right horizontal circle slots: Host (crown) + Joined (green) + Invited (clock) + Empty person circles -->
-    <div class="wt-slots-row" aria-label="Room seats">
-      {#if activeRoom}
-        {#each activeRoom.members as m (m.public_id)}
-          <div
-            class="seat-circle is-occupied"
-            title="@{m.username} ({m.role})"
+        {#if editingTitle}
+          <form
+            class="wt-name-form"
+            onsubmit={saveTitle}
+            in:revealBlur={{ duration: 220, y: 2, scale: 0.98, blur: 6 }}
           >
-            {#if m.avatar_url}
-              <img src={m.avatar_url} alt={m.name} class="seat-avatar" referrerpolicy="no-referrer" />
-            {:else}
-              <span class="seat-initials">{(m.name || 'U').slice(0, 1).toUpperCase()}</span>
-            {/if}
-
-            {#if m.role === 'host'}
-              <span class="seat-badge is-crown" title="Room Host">
-                <MorphIcon icon={Crown} size={9} strokeWidth={2.4} />
-              </span>
-            {:else}
-              <span class="seat-badge is-online" class:is-buffering={m.buffering}></span>
-            {/if}
-          </div>
-        {/each}
-      {:else}
-        <!-- Host seat in lobby -->
-        <div class="seat-circle is-occupied" title={myUser ? `@${myUser.username || myUser.name} (Host)` : 'Host'}>
-          {#if myUser?.avatar_url}
-            <img src={myUser.avatar_url} alt={myUser.name} class="seat-avatar" referrerpolicy="no-referrer" />
-          {:else}
-            <span class="seat-initials">{(myUser?.name || 'H').slice(0, 1).toUpperCase()}</span>
-          {/if}
-          <span class="seat-badge is-crown" title="Host">
-            <MorphIcon icon={Crown} size={9} strokeWidth={2.4} />
-          </span>
-        </div>
-
-        <!-- Pre-invited friends in lobby (dimmed + clock badge, click to uninvite) -->
-        {#each invitedFriendsInDraft as inv (inv.public_id)}
+            <!-- svelte-ignore a11y_autofocus -->
+            <input
+              type="text"
+              class="wt-name-input"
+              bind:value={titleInput}
+              placeholder="Name"
+              maxlength={36}
+              autofocus
+              onblur={() => void saveTitle()}
+            />
+          </form>
+        {:else}
           <button
             type="button"
-            class="seat-circle is-invited"
-            title="Invited @{inv.username} (click to remove)"
-            onclick={() => toggleDraftInviteFriend(inv.public_id)}
+            class="wt-name-trigger"
+            onclick={beginEditTitle}
+            title="Rename room"
+            in:revealBlur={{ duration: 200, y: -2, scale: 0.98, blur: 5 }}
           >
-            {#if inv.avatar_url}
-              <img src={inv.avatar_url} alt={inv.name} class="seat-avatar is-dim" referrerpolicy="no-referrer" />
-            {:else}
-              <span class="seat-initials is-dim">{(inv.name || 'U').slice(0, 1).toUpperCase()}</span>
+            <span class="wt-room-name">{displayRoomName}</span>
+            {#if !activeRoom || isHost}
+              <MorphIcon icon={Pencil} size={15} strokeWidth={1.7} class="wt-pencil-icon" />
             {/if}
-            <span class="seat-badge is-clock">
-              <MorphIcon icon={Clock} size={9} strokeWidth={2.2} />
-            </span>
           </button>
-        {/each}
-      {/if}
+        {/if}
 
-      <!-- Empty seats: person icon inside a circle -->
-      {#each Array(emptySlotCount) as _, idx (idx)}
-        <button
-          type="button"
-          class="seat-circle is-empty"
-          title="Empty seat — click to invite a friend"
-          aria-label="Invite friend to seat"
-          onclick={() => openFriendsPopup()}
-        >
-          <MorphIcon icon={User} size={16} strokeWidth={1.75} />
-        </button>
-      {/each}
-    </div>
-  </header>
+        <span class="wt-seat-counter">{occupiedCount}/{currentMaxMembers}</span>
 
-  <!-- Center Stage: either "Choose Anime" empty canvas OR Selected Anime Showcase / Live Room Stage -->
-  <section class="wt-center-stage">
-    {#if !stageTitle}
-      <button
-        type="button"
-        class="wt-choose-prompt"
-        onclick={() => openSearch()}
-        aria-label="Choose anime from search"
-      >
-        <span class="choose-heading">Choose Anime</span>
-        <span class="choose-sub">
-          click on icon from search in header, in front of anime cards
-        </span>
-      </button>
-    {:else}
-      <div class="wt-anime-showcase" in:fade={{ duration: 240, easing: cubicOut }}>
-        <div class="wt-anime-copy">
-          <h1 class="wt-anime-title">{stageTitle}</h1>
-
-          {#if draftAnime && (draftAnime.score || draftAnime.tags.length > 0)}
-            <div class="wt-anime-meta">
-              <MetaLine score={draftAnime.score} tags={draftAnime.tags} />
-            </div>
-          {/if}
-
-          {#if stageDescription}
-            <p class="wt-anime-desc">{stageDescription}</p>
-          {/if}
-
-          {#if activeRoom}
-            <!-- Active Room Playback & Episode Sync Strip -->
-            <div class="wt-live-controls">
-              <button
-                type="button"
-                class="wt-primary-pill"
-                onclick={handleOpenSyncedPlayer}
-              >
-                <MorphIcon icon={Play} size={15} fill="currentColor" strokeWidth={0} />
-                <span>Open Player · EP {activeRoom.media.episode_ordinal || 1}</span>
-              </button>
-
-              {#if canControlActiveRoom}
-                <button
-                  type="button"
-                  class="wt-control-chip"
-                  onclick={() => void handleToggleRoomPlayback()}
-                >
-                  <MorphIcon
-                    icon={activeRoom.playback.paused ? Play : Pause}
-                    size={14}
-                    fill="currentColor"
-                    strokeWidth={0}
-                    spring="snappy"
-                  />
-                  <span>{activeRoom.playback.paused ? 'Resume room' : 'Pause room'}</span>
-                </button>
-
-                <div class="wt-ep-stepper" role="group" aria-label="Episode selector">
-                  <button
-                    type="button"
-                    class="ep-step-btn"
-                    disabled={(activeRoom.media.episode_ordinal || 1) <= 1}
-                    onclick={() => void handleStepEpisode(-1)}
-                    aria-label="Previous episode"
-                  >
-                    <MorphIcon icon={Minus} size={13} strokeWidth={2.1} />
-                  </button>
-                  <span class="ep-step-label">EP {activeRoom.media.episode_ordinal || 1}</span>
-                  <button
-                    type="button"
-                    class="ep-step-btn"
-                    onclick={() => void handleStepEpisode(1)}
-                    aria-label="Next episode"
-                  >
-                    <MorphIcon icon={Plus} size={13} strokeWidth={2.1} />
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  class="wt-control-chip is-subtle"
-                  onclick={() => openSearch()}
-                >
-                  <MorphIcon icon={Search} size={13} strokeWidth={2} />
-                  <span>Change anime</span>
-                </button>
-              {/if}
-            </div>
-          {/if}
-        </div>
-
-        {#if activeRoom}
-          <!-- Sleek Glass Room Chat & Quick Reactions Panel inside Active Room -->
-          <aside class="wt-chat-panel" aria-label="Room chat">
-            <div class="chat-panel-head">
-              <span class="chat-panel-title">
-                <MorphIcon icon={MessageSquare} size={13} strokeWidth={2} />
-                <span>Room Chat</span>
-              </span>
-              <span class="quic-badge" title="Connected over QUIC TLS 1.3">
-                {watchTogetherState.transport === 'quic' ? 'QUIC' : 'LIVE'}
-              </span>
-            </div>
-
-            <ScrollArea maxHeight={180} class="chat-scroll">
-              {#if activeRoom.chat.length === 0}
-                <div class="chat-empty">Say hi or drop a reaction while watching.</div>
-              {:else}
-                <div class="chat-messages">
-                  {#each activeRoom.chat as msg (msg.id)}
-                    {#if msg.kind === 'system'}
-                      <div class="chat-line is-system">{msg.text}</div>
-                    {:else}
-                      <div class="chat-line" class:is-reaction={msg.kind === 'reaction'}>
-                        <span class="chat-author">@{msg.sender_username}</span>
-                        <span class="chat-text">{msg.text}</span>
-                      </div>
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
-            </ScrollArea>
-
-            <div class="chat-reactions-bar">
-              {#each QUICK_REACTIONS as emoji (emoji)}
-                <button
-                  type="button"
-                  class="reaction-chip"
-                  onclick={() => void handleQuickReaction(emoji)}
-                >
-                  {emoji}
-                </button>
-              {/each}
-            </div>
-
-            <form class="chat-form" onsubmit={handleSendChat}>
-              <input
-                type="text"
-                class="chat-input"
-                bind:value={chatInput}
-                placeholder="Message room..."
-                maxlength={500}
-              />
-              <button type="submit" class="chat-send-btn" aria-label="Send message">
-                <MorphIcon icon={Send} size={13} strokeWidth={2} />
-              </button>
-            </form>
-          </aside>
+        {#if activeRoom?.room_code}
+          <button
+            type="button"
+            class="wt-code-chip"
+            onclick={copyRoomCode}
+            title="Copy room code"
+          >
+            <span>#{activeRoom.room_code}</span>
+            {#if codeCopied}
+              <MorphIcon icon={Check} size={11} strokeWidth={2.4} />
+            {:else}
+              <MorphIcon icon={Copy} size={11} strokeWidth={1.8} />
+            {/if}
+          </button>
         {/if}
       </div>
-    {/if}
-  </section>
 
-  <!-- Right Vertical Friends Rail (exact 40px circular avatar strip with blue in_room / green online / gray offline badges) -->
-  <aside class="wt-friends-rail" aria-label="Friends status rail">
-    <button
-      type="button"
-      class="rail-add-btn"
-      title="Friends & @username search"
-      aria-label="Open friends popup"
-      onclick={() => openFriendsPopup()}
-    >
-      <MorphIcon icon={UserPlus} size={16} strokeWidth={1.9} />
-      {#if friendsState.incoming.length > 0}
-        <span class="rail-req-dot"></span>
-      {/if}
-    </button>
-
-    <div class="rail-avatars">
-      {#each sortedFriends as friend (friend.public_id)}
-        {@const isDraftInvited = watchTogetherState.draftInvitedIds.includes(friend.public_id)}
-        {@const justInvited = invitedToastMap[friend.public_id]}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="rail-item"
-          onmouseenter={() => (hoveredFriend = friend)}
-          onmouseleave={() => {
-            if (hoveredFriend?.public_id === friend.public_id) hoveredFriend = null;
-          }}
-        >
-          <button
-            type="button"
-            class="rail-avatar-btn"
-            class:is-offline={friend.status !== 'online' && friend.status !== 'in_room'}
-            class:is-selected={isDraftInvited || justInvited}
-            onclick={() => void handleFriendRailClick(friend)}
-            aria-label="@{friend.username} ({friend.status || 'offline'})"
+      <!-- Top-right lobby member & pending invite slots -->
+      <div class="wt-slots-row" aria-label="Room seats">
+        {#each slotCircles as slot (slot.key)}
+          <div
+            class="wt-slot-wrap"
+            in:revealBlur={{ duration: 240, scale: 0.88, blur: 8 }}
+            out:revealBlur={{ duration: 180, scale: 0.88, blur: 6 }}
           >
-            {#if friend.avatar_url}
-              <img src={friend.avatar_url} alt={friend.name} class="rail-avatar-img" referrerpolicy="no-referrer" />
-            {:else}
-              <span class="rail-avatar-fallback">{(friend.name || 'U').slice(0, 1).toUpperCase()}</span>
-            {/if}
-
-            {#if friend.status === 'in_room'}
-              <span class="rail-status-dot is-room" title="In a watch room">
-                <span class="room-mini-play"></span>
-              </span>
-            {:else if friend.status === 'online'}
-              <span class="rail-status-dot is-online" title="Online"></span>
-            {:else}
-              <span class="rail-status-dot is-offline" title="Offline"></span>
-            {/if}
-          </button>
-
-          {#if hoveredFriend?.public_id === friend.public_id}
-            <div class="rail-tooltip" transition:fly={{ x: 6, duration: 150, easing: cubicOut }}>
-              <div class="tooltip-head">
-                <span class="tooltip-name">{friend.name}</span>
-                <span class="tooltip-handle">@{friend.username}</span>
-              </div>
-              {#if friend.status === 'in_room' && friend.room}
-                <span class="tooltip-room">
-                  In @{friend.room.host_username}’s room
-                  {#if friend.room.anime_title}
-                    · {friend.room.anime_title}
-                  {/if}
-                </span>
-                <span class="tooltip-hint">Click to join room</span>
-              {:else if friend.status === 'online'}
-                <span class="tooltip-online">Online</span>
-                <span class="tooltip-hint">
-                  {activeRoom ? 'Click to invite to room' : isDraftInvited ? 'Invited to lobby' : 'Click to add to lobby'}
-                </span>
-              {:else}
-                <span class="tooltip-offline">Offline</span>
-              {/if}
-            </div>
-          {/if}
-        </div>
-      {/each}
-    </div>
-    <div class="rail-bottom-fade" aria-hidden="true"></div>
-  </aside>
-
-  <!-- Bottom Action & Settings Bar (clean Mila typography & borderless glass pills) -->
-  <footer class="wt-bottom-bar">
-    <div class="wt-bottom-left">
-      {#if !activeRoom}
-        <button
-          type="button"
-          class="wt-create-cta"
-          disabled={actionBusy}
-          onclick={() => void handleCreateRoom()}
-        >
-          {actionBusy ? 'Creating...' : 'Create'}
-        </button>
-      {:else}
-        <button
-          type="button"
-          class="wt-leave-cta"
-          onclick={() => void leaveWatchRoom()}
-        >
-          <MorphIcon icon={LogOut} size={16} strokeWidth={2} />
-          <span>Leave room</span>
-        </button>
-      {/if}
-
-      <button
-        type="button"
-        class="wt-gear-btn"
-        class:is-open={settingsExpanded}
-        aria-label="Room settings"
-        title="Room settings"
-        onclick={() => (settingsExpanded = !settingsExpanded)}
-      >
-        <MorphIcon icon={Settings} size={16} strokeWidth={1.9} />
-      </button>
-
-      <!-- Inline borderless Mila configuration pills -->
-      <div class="wt-settings-strip" class:is-expanded={settingsExpanded || !activeRoom}>
-        <button
-          type="button"
-          class="wt-setting-pill"
-          disabled={Boolean(activeRoom && !amHost)}
-          onclick={cycleVisibility}
-          title="Room visibility"
-        >
-          {#if (activeRoom ? activeRoom.visibility : watchTogetherState.draftVisibility) === 'public'}
-            <MorphIcon icon={Globe} size={13} strokeWidth={1.9} />
-            <span>Public</span>
-          {:else if (activeRoom ? activeRoom.visibility : watchTogetherState.draftVisibility) === 'private'}
-            <MorphIcon icon={Lock} size={13} strokeWidth={1.9} />
-            <span>Private</span>
-          {:else}
-            <MorphIcon icon={Users} size={13} strokeWidth={1.9} />
-            <span>Friends</span>
-          {/if}
-        </button>
-
-        <button
-          type="button"
-          class="wt-setting-pill"
-          disabled={Boolean(activeRoom && !amHost)}
-          onclick={cycleControlMode}
-          title="Playback control permission"
-        >
-          <MorphIcon icon={Shield} size={13} strokeWidth={1.9} />
-          <span>
-            {(activeRoom ? activeRoom.control_mode : watchTogetherState.draftControlMode) === 'everyone'
-              ? 'Everyone controls'
-              : 'Host only'}
-          </span>
-        </button>
-
-        <div class="wt-seats-pill" role="group" aria-label="Max room seats">
-          <button
-            type="button"
-            class="seats-step"
-            disabled={Boolean(activeRoom && !amHost) || maxSeats <= 2}
-            onclick={() => stepMaxMembers(-1)}
-            aria-label="Decrease seats"
-          >
-            <MorphIcon icon={Minus} size={12} strokeWidth={2.1} />
-          </button>
-          <span class="seats-label">{maxSeats} seats</span>
-          <button
-            type="button"
-            class="seats-step"
-            disabled={Boolean(activeRoom && !amHost) || maxSeats >= 10}
-            onclick={() => stepMaxMembers(1)}
-            aria-label="Increase seats"
-          >
-            <MorphIcon icon={Plus} size={12} strokeWidth={2.1} />
-          </button>
-        </div>
-
-        {#if !activeRoom}
-          {#if joinCodeOpen}
-            <form class="wt-code-form" onsubmit={handleJoinByCode}>
-              <!-- svelte-ignore a11y_autofocus -->
-              <input
-                type="text"
-                class="wt-code-input"
-                bind:value={joinCodeValue}
-                placeholder="CODE"
-                maxlength={8}
-                autofocus
-              />
-              <button type="submit" class="wt-code-go" aria-label="Join by code">
-                <MorphIcon icon={Check} size={13} strokeWidth={2.3} />
-              </button>
-              <button
-                type="button"
-                class="wt-code-go"
-                onclick={() => (joinCodeOpen = false)}
-                aria-label="Cancel"
-              >
-                <MorphIcon icon={X} size={13} strokeWidth={2} />
-              </button>
-            </form>
-          {:else}
             <button
               type="button"
-              class="wt-setting-pill is-ghost"
-              onclick={() => (joinCodeOpen = true)}
+              class="wt-slot-circle is-{slot.kind}"
+              title={slot.kind === 'host'
+                ? `${slot.name} (Host)`
+                : slot.kind === 'member'
+                  ? isHost
+                    ? `@${slot.username} (right-click to manage)`
+                    : `@${slot.username}`
+                  : slot.kind === 'invited'
+                    ? `Pending: @${slot.username} (right-click to cancel)`
+                    : 'Empty seat'}
+              onclick={(e) => {
+                if (slot.kind === 'empty') {
+                  openFriendsPopup();
+                } else if (slot.kind === 'invited' || (slot.kind === 'member' && isHost)) {
+                  openSlotContextMenu(e, slot);
+                }
+              }}
+              oncontextmenu={(e) => openSlotContextMenu(e, slot)}
             >
-              <span>Join by code</span>
-            </button>
-          {/if}
-        {/if}
-      </div>
-    </div>
+              {#if slot.kind === 'empty'}
+                <MorphIcon icon={User} size={16} strokeWidth={1.6} />
+              {:else if slot.avatarUrl && !brokenAvatars[slot.key]}
+                <img
+                  src={slot.avatarUrl}
+                  alt={slot.name}
+                  class="wt-slot-img"
+                  referrerpolicy="no-referrer"
+                  onerror={() => {
+                    brokenAvatars = { ...brokenAvatars, [slot.key]: true };
+                  }}
+                />
+              {:else}
+                <span class="wt-slot-fallback">
+                  {(slot.name || slot.username || 'U').slice(0, 1).toUpperCase()}
+                </span>
+              {/if}
 
-    <!-- Incoming invites or friends actively in rooms -->
-    <div class="wt-bottom-right">
-      {#if watchTogetherState.invites.length > 0 && !activeRoom}
-        {@const latestInv = watchTogetherState.invites[watchTogetherState.invites.length - 1]}
+              {#if slot.kind === 'host'}
+                <span class="wt-slot-badge is-crown">
+                  <MorphIcon icon={Crown} size={9} strokeWidth={2.5} />
+                </span>
+              {:else if slot.kind === 'member'}
+                <span class="wt-slot-badge is-joined"></span>
+              {:else if slot.kind === 'invited'}
+                <span class="wt-slot-badge is-pending">
+                  <MorphIcon icon={Clock} size={9} strokeWidth={2.4} />
+                </span>
+              {/if}
+            </button>
+          </div>
+        {/each}
+      </div>
+    </header>
+
+    <!-- CENTER STAGE: Choose Anime prompt OR Selected Anime Typography -->
+    <div class="wt-center-stage">
+      {#if selectedAnime}
+        <div
+          class="wt-anime-showcase"
+          in:revealBlur={{ duration: 280, y: 8, scale: 0.99, blur: 8 }}
+        >
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <h2
+            class="wt-anime-title"
+            title="Click to choose another anime"
+            onclick={() => openSearch()}
+          >
+            {selectedAnime.title}
+          </h2>
+
+          {#if selectedAnime.score || selectedAnime.tags.length > 0 || selectedAnime.episodeLabel}
+            <div class="wt-anime-meta">
+              {#if selectedAnime.score && selectedAnime.score > 0}
+                <span class="wt-meta-score">
+                  <MorphIcon icon={Star} size={12} fill="currentColor" strokeWidth={0} />
+                  {selectedAnime.score.toFixed(1)}
+                </span>
+              {/if}
+              {#each selectedAnime.tags as tag}
+                <span class="wt-meta-sep">·</span>
+                <span class="wt-meta-tag">{tag}</span>
+              {/each}
+              {#if selectedAnime.episodeLabel}
+                <span class="wt-meta-sep">·</span>
+                <span class="wt-meta-ep">{selectedAnime.episodeLabel}</span>
+              {/if}
+            </div>
+          {/if}
+
+          {#if selectedAnime.description}
+            <p class="wt-anime-desc">{selectedAnime.description}</p>
+          {/if}
+        </div>
+      {:else}
         <button
           type="button"
-          class="wt-invite-banner"
-          onclick={() => void joinWatchRoom({ room_id: latestInv.room_id, room_code: latestInv.room_code })}
+          class="wt-choose-prompt"
+          onclick={() => openSearch()}
+          in:revealBlur={{ duration: 260, scale: 0.97, blur: 8 }}
         >
-          <span class="inv-dot"></span>
-          <span>
-            <strong>@{latestInv.from_username}</strong> invited you{latestInv.anime_title ? ` · ${latestInv.anime_title}` : ''}
+          <span class="wt-choose-title">Choose Anime</span>
+          <span class="wt-choose-sub">
+            click on icon from search in header, in front of anime cards
           </span>
-          <span class="inv-join-tag">Join</span>
-        </button>
-      {:else if friendsInRooms.length > 0 && !activeRoom}
-        {@const activeFriend = friendsInRooms[0]}
-        <button
-          type="button"
-          class="wt-invite-banner is-friend-room"
-          onclick={() => void joinFriendWatchRoom(activeFriend.public_id)}
-        >
-          <span class="inv-dot is-blue"></span>
-          <span>
-            <strong>@{activeFriend.username}</strong> is watching {activeFriend.room?.anime_title || 'in a room'}
-          </span>
-          <span class="inv-join-tag">Join</span>
         </button>
       {/if}
     </div>
-  </footer>
+
+    <!-- BOTTOM BAR: Create / Continue / Leave room + ComboBox Settings triggers -->
+    <footer class="wt-bottom-bar">
+      <div class="wt-bottom-left">
+        {#if !activeRoom || !watchTogetherState.roomStarted}
+          <button
+            type="button"
+            class="wt-create-cta"
+            disabled={busy}
+            onclick={() => void handleStartOrContinueRoom()}
+          >
+            {busy ? 'Starting…' : 'Create'}
+          </button>
+        {:else}
+          <button
+            type="button"
+            class="wt-create-cta"
+            disabled={busy}
+            onclick={() => void handleStartOrContinueRoom()}
+          >
+            Continue
+          </button>
+
+          <button
+            type="button"
+            class="wt-setting-trigger is-danger"
+            onclick={() => void leaveWatchRoom()}
+          >
+            <MorphIcon icon={LogOut} size={14} strokeWidth={2} />
+            <span>Leave room</span>
+          </button>
+        {/if}
+
+        <div class="wt-inline-settings">
+          <!-- Visibility ComboBox -->
+          <ComboBox
+            bind:open={visibilityMenuOpen}
+            options={visibilityOptions}
+            value={currentVisibility}
+            placement="top-left"
+            minWidth={184}
+            onselect={(opt) => void selectVisibility(opt.value as RoomVisibility)}
+          >
+            {#snippet trigger({ toggle })}
+              <button
+                type="button"
+                class="wt-setting-trigger"
+                disabled={Boolean(activeRoom && !isHost)}
+                onclick={toggle}
+                title="Room visibility"
+              >
+                <MorphIcon
+                  icon={currentVisibility === 'public'
+                    ? Globe
+                    : currentVisibility === 'private'
+                      ? Lock
+                      : Users}
+                  size={13}
+                  strokeWidth={1.9}
+                />
+                <span>
+                  {currentVisibility === 'public'
+                    ? 'Public'
+                    : currentVisibility === 'private'
+                      ? 'Private'
+                      : 'Friends'}
+                </span>
+              </button>
+            {/snippet}
+          </ComboBox>
+
+          <!-- Control Mode ComboBox -->
+          <ComboBox
+            bind:open={controlMenuOpen}
+            options={controlOptions}
+            value={currentControlMode}
+            placement="top-left"
+            minWidth={210}
+            onselect={(opt) => void selectControlMode(opt.value as RoomControlMode)}
+          >
+            {#snippet trigger({ toggle })}
+              <button
+                type="button"
+                class="wt-setting-trigger"
+                disabled={Boolean(activeRoom && !isHost)}
+                onclick={toggle}
+                title="Playback control permission"
+              >
+                <MorphIcon icon={Shield} size={13} strokeWidth={1.9} />
+                <span>
+                  {currentControlMode === 'everyone' ? 'Everyone controls' : 'Host only'}
+                </span>
+              </button>
+            {/snippet}
+          </ComboBox>
+
+          <!-- Max Seats ComboBox -->
+          <ComboBox
+            bind:open={seatsMenuOpen}
+            options={seatsOptions}
+            value={currentMaxMembers}
+            placement="top-left"
+            minWidth={136}
+            maxHeight={240}
+            onselect={(opt) => void selectMaxMembers(Number(opt.value))}
+          >
+            {#snippet trigger({ toggle })}
+              <button
+                type="button"
+                class="wt-setting-trigger"
+                disabled={Boolean(activeRoom && !isHost)}
+                onclick={toggle}
+                title="Maximum seats"
+              >
+                <span>{currentMaxMembers} seats</span>
+              </button>
+            {/snippet}
+          </ComboBox>
+        </div>
+      </div>
+    </footer>
+
+    <!-- RIGHT-SIDE VERTICAL FRIENDS RAIL (flush bottom-right, no clipping frame, brightness hover, right-click ComboBox) -->
+    <aside class="wt-friends-rail" aria-label="Friends">
+      <button
+        type="button"
+        class="wt-rail-add"
+        title="Friends & @username"
+        onclick={() => {
+          if (!auth.user) {
+            void loginWithGoogle();
+          } else {
+            openFriendsPopup();
+          }
+        }}
+      >
+        <MorphIcon icon={UserPlus} size={16} strokeWidth={1.9} />
+        {#if friendsState.incoming.length > 0}
+          <span class="wt-rail-req-badge">{friendsState.incoming.length}</span>
+        {/if}
+      </button>
+
+      <div class="wt-rail-list">
+        {#each sortedFriends as friend (friend.public_id)}
+          {@const isInvited = pendingFriends.some((p) => p.public_id === friend.public_id)}
+          {@const inCurrentRoom = Boolean(
+            activeRoom?.members.some((m) => m.public_id === friend.public_id)
+          )}
+          <button
+            type="button"
+            class="wt-rail-avatar-btn"
+            class:is-offline={friend.status === 'offline'}
+            class:is-selected={isInvited || inCurrentRoom}
+            onclick={(e) => openFriendContextMenu(e, friend)}
+            oncontextmenu={(e) => openFriendContextMenu(e, friend)}
+            title="@{friend.username} (right-click for options)"
+          >
+            {#if friend.avatar_url && !brokenAvatars[friend.public_id]}
+              <img
+                src={friend.avatar_url}
+                alt={friend.name}
+                class="wt-rail-avatar"
+                referrerpolicy="no-referrer"
+                onerror={() => {
+                  brokenAvatars = { ...brokenAvatars, [friend.public_id]: true };
+                }}
+              />
+            {:else}
+              <span class="wt-rail-fallback">
+                {(friend.name || friend.username || 'U').slice(0, 1).toUpperCase()}
+              </span>
+            {/if}
+
+            <span
+              class="wt-rail-dot"
+              class:is-online={friend.status === 'online'}
+              class:is-room={friend.status === 'in_room'}
+            ></span>
+          </button>
+        {/each}
+      </div>
+    </aside>
+  </div>
 </div>
 
+<!-- Right-click ComboBox Context Menu for Friends & Room Slots -->
+{#if ctxMenu}
+  {@const menu = ctxMenu}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    use:portal
+    class="wt-ctx-popover"
+    style:left="{menu.x}px"
+    style:top="{menu.y}px"
+    onclick={(e) => e.stopPropagation()}
+    oncontextmenu={(e) => e.preventDefault()}
+    in:revealBlur={{ duration: 180, y: 4, scale: 0.96, blur: 8 }}
+  >
+    <div class="wt-ctx-header">
+      <div class="wt-ctx-user-row">
+        <span class="wt-ctx-name">{menu.name}</span>
+        <span
+          class="wt-ctx-status-dot"
+          class:is-online={menu.statusKind === 'online'}
+          class:is-room={menu.statusKind === 'in_room'}
+          class:is-pending={menu.statusKind === 'pending'}
+        ></span>
+      </div>
+      <span class="wt-ctx-sub">@{menu.username} · {menu.statusLabel}</span>
+    </div>
+
+    <div class="wt-ctx-list">
+      {#if menu.kind === 'friend'}
+        {#if menu.alreadyInvited}
+          <button
+            type="button"
+            class="wt-ctx-item is-danger"
+            onclick={() => void handleCtxCancelInvite(menu.id)}
+          >
+            Cancel invite
+          </button>
+        {:else}
+          <button
+            type="button"
+            class="wt-ctx-item"
+            onclick={() => void handleCtxInvite(menu.id)}
+          >
+            Invite
+          </button>
+        {/if}
+
+        {#if menu.canJoinRoom}
+          <button
+            type="button"
+            class="wt-ctx-item"
+            onclick={() => void handleCtxJoinFriend(menu.id)}
+          >
+            Join room
+          </button>
+        {/if}
+      {:else if menu.kind === 'slot-invited'}
+        <button
+          type="button"
+          class="wt-ctx-item is-danger"
+          onclick={() => void handleCtxCancelInvite(menu.id)}
+        >
+          Cancel
+        </button>
+      {:else if menu.kind === 'slot-member'}
+        <button
+          type="button"
+          class="wt-ctx-item"
+          onclick={() => void handleCtxTransferHost(menu.id)}
+        >
+          Transfer host
+        </button>
+        <button
+          type="button"
+          class="wt-ctx-item is-danger"
+          onclick={() => void handleCtxKickMember(menu.id)}
+        >
+          Kick
+        </button>
+      {/if}
+    </div>
+  </div>
+{/if}
+
 <style>
-  .wt-page {
+  .wt-stage {
     position: relative;
     width: 100%;
-    min-height: 100vh;
-    padding: calc(var(--header-height, 58px) + 18px) var(--page-pad-x, 38px) 34px var(--page-pad-x, 38px);
-    box-sizing: border-box;
-    background: var(--mila-app-canvas, #0c0c0c);
-    color: var(--mila-text-primary, #ffffff);
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
+    height: 100vh;
+    min-height: 620px;
     overflow: hidden;
+    background: #0c0c0c;
+    color: #ffffff;
+    box-sizing: border-box;
     user-select: none;
   }
 
-  /* Full-bleed right-anchored artwork & dark vignette matching Prototype 3 */
-  .wt-backdrop-wrap {
+  /* Full-bleed atmospheric anime background */
+  .wt-backdrop {
     position: absolute;
     inset: 0;
     pointer-events: none;
@@ -997,36 +1103,57 @@
     overflow: hidden;
   }
 
-  .wt-backdrop-blur {
+  .wt-backdrop-img {
     position: absolute;
     inset: 0;
-  }
-
-  .wt-backdrop-art {
-    position: absolute;
-    top: 84px;
-    right: 0;
-    width: 68%;
-    height: calc(100% - 84px);
+    width: 100%;
+    height: 100%;
     object-fit: cover;
-    object-position: center 20%;
-    opacity: 0.72;
-    mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.85) 36%, rgba(0, 0, 0, 1) 100%);
-    -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.85) 36%, rgba(0, 0, 0, 1) 100%);
+    opacity: 0.34;
+    filter: saturate(1.08) contrast(1.04);
+    transform: scale(1.02);
   }
 
-  .wt-backdrop-scrim {
+  .wt-backdrop-Blur {
+    position: absolute;
+    inset: 0;
+    opacity: 0.55;
+  }
+
+  .wt-backdrop-vignette {
     position: absolute;
     inset: 0;
     background:
-      linear-gradient(90deg, var(--mila-app-canvas, #0c0c0c) 18%, rgba(12, 12, 12, 0.72) 56%, rgba(12, 12, 12, 0.36) 86%, rgba(12, 12, 12, 0.86) 100%),
-      linear-gradient(180deg, var(--mila-app-canvas, #0c0c0c) 0%, rgba(12, 12, 12, 0.25) 26%, rgba(12, 12, 12, 0.35) 74%, var(--mila-app-canvas, #0c0c0c) 100%);
+      linear-gradient(
+        180deg,
+        #0c0c0c 0%,
+        rgba(12, 12, 12, 0.72) 15%,
+        rgba(12, 12, 12, 0.25) 48%,
+        rgba(12, 12, 12, 0.76) 84%,
+        #0c0c0c 100%
+      ),
+      radial-gradient(
+        circle at 22% 50%,
+        rgba(12, 12, 12, 0.52) 0%,
+        rgba(12, 12, 12, 0.16) 65%,
+        rgba(12, 12, 12, 0.74) 100%
+      );
   }
 
-  /* Top bar: Create room + Name + 2/7 on the left, circular seats on the right */
-  .wt-top-bar {
+  .wt-canvas {
     position: relative;
-    z-index: 3;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    padding: calc(var(--header-height, 48px) + 18px) var(--page-pad-x) 24px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  /* TOP BAR */
+  .wt-top-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1036,769 +1163,326 @@
 
   .wt-heading-group {
     display: flex;
-    align-items: baseline;
-    gap: 18px;
-    min-width: 0;
+    align-items: center;
+    gap: 14px;
     flex-wrap: wrap;
+    min-width: 0;
   }
 
   .wt-main-heading {
+    margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(30px, 3.5vw, 48px);
-    font-weight: 700;
-    line-height: 1.05;
-    letter-spacing: -0.02em;
-    color: var(--mila-text-primary, #ffffff);
+    font-size: clamp(26px, 2.8vw, 35px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: #ffffff;
   }
 
   .wt-name-trigger {
     display: inline-flex;
-    align-items: baseline;
-    gap: 10px;
+    align-items: center;
+    gap: 8px;
     padding: 0;
     border: none;
     background: transparent;
+    color: rgba(255, 255, 255, 0.34);
     cursor: pointer;
-    color: rgba(255, 255, 255, 0.24);
-    transition: color 0.22s ease;
+    transition: color 0.18s ease;
   }
 
   .wt-name-trigger:hover {
-    color: rgba(255, 255, 255, 0.48);
+    color: rgba(255, 255, 255, 0.64);
   }
 
   .wt-room-name {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(28px, 3.3vw, 46px);
-    font-weight: 700;
-    line-height: 1.05;
-    letter-spacing: -0.02em;
-    max-width: 420px;
+    font-size: clamp(24px, 2.5vw, 32px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1;
+    max-width: 340px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .wt-name-trigger :global(.wt-pencil-icon) {
-    opacity: 0.55;
-    transform: translateY(-3px);
-    transition: opacity 0.2s ease;
+    opacity: 0.56;
+    transition: opacity 0.18s ease;
   }
 
   .wt-name-trigger:hover :global(.wt-pencil-icon) {
     opacity: 1;
   }
 
-  .wt-title-form {
+  .wt-name-form {
     display: inline-flex;
+    align-items: center;
   }
 
-  .wt-title-input {
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(26px, 3.1vw, 42px);
-    font-weight: 700;
-    color: var(--mila-text-primary, #ffffff);
-    background: transparent;
+  .wt-name-input {
+    width: clamp(140px, 18vw, 240px);
     border: none;
-    border-bottom: 2px solid rgba(255, 255, 255, 0.22);
+    border-bottom: 1.5px solid rgba(255, 255, 255, 0.35);
     outline: none;
-    width: clamp(180px, 24vw, 340px);
-    padding: 0 4px 2px 0;
+    background: transparent;
+    color: #ffffff;
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: clamp(22px, 2.3vw, 30px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    padding: 0 2px 2px;
   }
 
   .wt-seat-counter {
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 20px;
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 15px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.24);
-    transform: translateY(-2px);
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.28);
+    letter-spacing: -0.01em;
+    display: inline-flex;
+    align-items: center;
   }
 
   .wt-code-chip {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 10px;
+    gap: 5px;
+    padding: 0;
     border: none;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.72);
-    font-family: 'Medeo Sans Display', monospace;
-    font-size: 12.5px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.34);
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 13px;
     font-weight: 700;
-    letter-spacing: 0.04em;
+    line-height: 1;
+    letter-spacing: 0.02em;
     cursor: pointer;
-    transform: translateY(-4px);
-    transition: background-color 0.18s ease, color 0.18s ease;
+    transition: color 0.18s ease;
   }
 
   .wt-code-chip:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
+    color: rgba(255, 255, 255, 0.85);
   }
 
-  /* Circular member & empty person seats row on top right */
+  /* Top-right member & empty slot circles */
   .wt-slots-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
   }
 
-  .seat-circle {
+  .wt-slot-wrap {
+    display: inline-flex;
+  }
+
+  .wt-slot-circle {
     position: relative;
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
-    border: none;
     padding: 0;
-    background: rgba(255, 255, 255, 0.045);
-    color: rgba(255, 255, 255, 0.28);
+    border: none;
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.26);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
-    transition:
-      background-color 0.2s ease,
-      color 0.2s ease,
-      transform 0.16s ease;
-  }
-
-  .seat-circle.is-empty,
-  .seat-circle.is-invited {
     cursor: pointer;
+    transition:
+      filter 0.18s ease,
+      background-color 0.18s ease,
+      color 0.18s ease;
   }
 
-  .seat-circle.is-empty:hover {
+  .wt-slot-circle:hover {
+    filter: brightness(1.15);
     background: rgba(255, 255, 255, 0.09);
-    color: rgba(255, 255, 255, 0.68);
-    transform: translateY(-1px);
+    color: rgba(255, 255, 255, 0.55);
   }
 
-  .seat-avatar {
-    width: 40px;
-    height: 40px;
+  .wt-slot-circle.is-invited {
+    opacity: 0.58;
+  }
+
+  .wt-slot-img {
+    width: 100%;
+    height: 100%;
     border-radius: 50%;
     object-fit: cover;
-    display: block;
   }
 
-  .seat-avatar.is-dim,
-  .seat-initials.is-dim {
-    opacity: 0.34;
-  }
-
-  .seat-initials {
+  .wt-slot-fallback {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 700;
     color: #ffffff;
   }
 
-  .seat-badge {
+  .wt-slot-badge {
     position: absolute;
     right: -1px;
     bottom: -1px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 0 0 2px var(--mila-app-canvas, #0c0c0c);
+    box-shadow: 0 0 0 2px #0c0c0c;
   }
 
-  .seat-badge.is-crown {
-    width: 15px;
-    height: 15px;
-    background: #d2c852;
-    color: #0b0b0c;
+  .wt-slot-badge.is-crown {
+    background: #d4b13b;
+    color: #0c0c0c;
   }
 
-  .seat-badge.is-online {
+  .wt-slot-badge.is-joined {
     width: 9px;
     height: 9px;
-    right: 1px;
-    bottom: 1px;
+    right: 0;
+    bottom: 0;
     background: #29eb36;
   }
 
-  .seat-badge.is-online.is-buffering {
-    background: #f5a623;
+  .wt-slot-badge.is-pending {
+    background: #1c1c1e;
+    color: rgba(255, 255, 255, 0.78);
   }
 
-  .seat-badge.is-clock {
-    width: 14px;
-    height: 14px;
-    background: rgba(18, 18, 20, 0.92);
-    color: #dbdbdb;
-  }
-
-  /* Center Stage */
+  /* CENTER STAGE */
   .wt-center-stage {
     position: relative;
-    z-index: 2;
     flex: 1 1 auto;
     display: flex;
     align-items: center;
-    padding: 24px 64px 24px 0;
+    min-height: 0;
+    padding-right: 68px;
   }
 
   .wt-choose-prompt {
-    margin: auto;
+    margin: 0 auto;
+    padding: 28px 36px;
     border: none;
+    border-radius: 20px;
     background: transparent;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     cursor: pointer;
-    padding: 28px 42px;
-    border-radius: 20px;
-    transition: transform 0.24s var(--ease-out);
+    transition: transform 0.22s ease;
   }
 
   .wt-choose-prompt:hover {
-    transform: scale(1.02);
+    transform: scale(1.015);
   }
 
-  .choose-heading {
+  .wt-choose-title {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(34px, 3.8vw, 48px);
-    font-weight: 700;
-    line-height: 1.08;
+    font-size: clamp(32px, 3.8vw, 48px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
     color: rgba(255, 255, 255, 0.22);
     transition: color 0.22s ease;
   }
 
-  .wt-choose-prompt:hover .choose-heading {
-    color: rgba(255, 255, 255, 0.42);
+  .wt-choose-prompt:hover .wt-choose-title {
+    color: rgba(255, 255, 255, 0.38);
   }
 
-  .choose-sub {
+  .wt-choose-sub {
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.13);
+    color: rgba(255, 255, 255, 0.14);
   }
 
-  /* Selected Anime Showcase (Prototype 3 typography) + Active Room layout */
+  /* Selected Anime Showcase */
   .wt-anime-showcase {
-    width: 100%;
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 32px;
-    flex-wrap: wrap;
-  }
-
-  .wt-anime-copy {
-    flex: 1 1 560px;
-    max-width: 920px;
+    max-width: min(860px, 78vw);
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    align-items: flex-start;
+    gap: 12px;
   }
 
   .wt-anime-title {
     margin: 0;
-    font-family: 'PP Monument Extended', 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(32px, 4.4vw, 62px);
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: clamp(34px, 4.4vw, 56px);
     font-weight: 900;
     line-height: 1.05;
-    letter-spacing: -0.02em;
-    color: #dadada;
+    letter-spacing: -0.03em;
+    color: rgba(255, 255, 255, 0.9);
+    cursor: pointer;
     display: -webkit-box;
-    line-clamp: 2;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    transition: color 0.18s ease;
+  }
+
+  .wt-anime-title:hover {
+    color: #ffffff;
+  }
+
+  .wt-anime-meta {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.56);
+  }
+
+  .wt-meta-score {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #f4c150;
+    font-weight: 700;
+  }
+
+  .wt-meta-sep {
+    color: rgba(255, 255, 255, 0.24);
+  }
+
+  .wt-meta-ep {
+    color: rgba(255, 255, 255, 0.85);
+    font-weight: 600;
   }
 
   .wt-anime-desc {
     margin: 0;
-    max-width: 820px;
+    max-width: 650px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: clamp(15px, 1.4vw, 20px);
-    line-height: 1.42;
-    color: #8c8c8c;
+    font-size: clamp(13px, 1.1vw, 14.5px);
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.44);
     display: -webkit-box;
-    line-clamp: 4;
     -webkit-line-clamp: 4;
+    line-clamp: 4;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
 
-  .wt-live-controls {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 8px;
-  }
-
-  .wt-primary-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    height: 38px;
-    padding: 0 18px;
-    border: none;
-    border-radius: 11px;
-    background: var(--mila-accent, #d9ff70);
-    color: #0b0b0c;
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 13.5px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: transform 0.14s ease, filter 0.18s ease;
-  }
-
-  .wt-primary-pill:hover {
-    filter: brightness(1.06);
-  }
-
-  .wt-primary-pill:active {
-    transform: scale(0.97);
-  }
-
-  .wt-control-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 38px;
-    padding: 0 15px;
-    border: none;
-    border-radius: 11px;
-    background: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(12px);
-    color: #ffffff;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13.5px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background-color 0.18s ease;
-  }
-
-  .wt-control-chip:hover {
-    background: rgba(255, 255, 255, 0.14);
-  }
-
-  .wt-control-chip.is-subtle {
-    background: rgba(255, 255, 255, 0.045);
-    color: rgba(255, 255, 255, 0.68);
-  }
-
-  .wt-ep-stepper {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 38px;
-    padding: 0 6px;
-    border-radius: 11px;
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .ep-step-btn {
-    width: 26px;
-    height: 26px;
-    border: none;
-    border-radius: 7px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.72);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-
-  .ep-step-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
-  }
-
-  .ep-step-btn:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-
-  .ep-step-label {
-    padding: 0 8px;
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 12.5px;
-    font-weight: 700;
-    color: #ffffff;
-  }
-
-  /* Active Room Glass Chat Panel */
-  .wt-chat-panel {
-    width: min(330px, 100%);
-    border-radius: 16px;
-    background: rgba(14, 14, 17, 0.76);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    padding: 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .chat-panel-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .chat-panel-title {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.86);
-  }
-
-  .quic-badge {
-    padding: 2px 7px;
-    border-radius: 6px;
-    background: var(--mila-accent-muted, rgba(217, 255, 112, 0.14));
-    color: var(--mila-accent, #d9ff70);
-    font-family: 'Medeo Sans Display', monospace;
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-  }
-
-  .chat-empty {
-    padding: 22px 8px;
-    text-align: center;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12.5px;
-    color: rgba(255, 255, 255, 0.34);
-  }
-
-  .chat-messages {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .chat-line {
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
-    line-height: 1.38;
-    color: rgba(255, 255, 255, 0.86);
-    word-break: break-word;
-  }
-
-  .chat-line.is-system {
-    font-size: 11.5px;
-    color: rgba(255, 255, 255, 0.36);
-  }
-
-  .chat-author {
-    font-weight: 700;
-    color: var(--mila-accent, #d9ff70);
-    margin-right: 6px;
-  }
-
-  .chat-reactions-bar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .reaction-chip {
-    flex: 1 1 0;
-    height: 28px;
-    border: none;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.045);
-    cursor: pointer;
-    font-size: 14px;
-    transition: background-color 0.16s ease, transform 0.12s ease;
-  }
-
-  .reaction-chip:hover {
-    background: rgba(255, 255, 255, 0.1);
-    transform: translateY(-1px);
-  }
-
-  .chat-form {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 10px;
-    padding: 4px 6px 4px 11px;
-  }
-
-  .chat-input {
-    flex: 1 1 auto;
-    min-width: 0;
-    border: none;
-    outline: none;
-    background: transparent;
-    color: #ffffff;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
-  }
-
-  .chat-send-btn {
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: 7px;
-    background: rgba(255, 255, 255, 0.08);
-    color: #ffffff;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-
-  .chat-send-btn:hover {
-    background: var(--mila-accent, #d9ff70);
-    color: #0b0b0c;
-  }
-
-  /* Right Vertical Friends Rail (matching all 3 Figma prototypes) */
-  .wt-friends-rail {
-    position: fixed;
-    right: var(--page-pad-x, 38px);
-    bottom: 34px;
-    z-index: 6;
-    width: 40px;
-    max-height: 390px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 13px;
-  }
-
-  .rail-add-btn {
-    position: relative;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(255, 255, 255, 0.055);
-    color: rgba(255, 255, 255, 0.65);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease, transform 0.16s ease;
-  }
-
-  .rail-add-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
-    transform: scale(1.04);
-  }
-
-  .rail-req-dot {
-    position: absolute;
-    top: 1px;
-    right: 1px;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--mila-accent, #d9ff70);
-    box-shadow: 0 0 0 2px var(--mila-app-canvas, #0c0c0c);
-  }
-
-  .rail-avatars {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 13px;
-    overflow-y: auto;
-    scrollbar-width: none;
-    padding-bottom: 18px;
-  }
-
-  .rail-avatars::-webkit-scrollbar {
-    display: none;
-  }
-
-  .rail-item {
-    position: relative;
-    width: 40px;
-    height: 40px;
-    flex-shrink: 0;
-  }
-
-  .rail-avatar-btn {
-    position: relative;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: none;
-    padding: 0;
-    background: rgba(255, 255, 255, 0.06);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: transform 0.16s ease, opacity 0.2s ease;
-  }
-
-  .rail-avatar-btn:hover {
-    transform: scale(1.06);
-  }
-
-  .rail-avatar-btn.is-offline .rail-avatar-img {
-    opacity: 0.48;
-  }
-
-  .rail-avatar-btn.is-selected {
-    box-shadow: 0 0 0 2px var(--mila-accent, #d9ff70);
-  }
-
-  .rail-avatar-img {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    object-fit: cover;
-    display: block;
-  }
-
-  .rail-avatar-fallback {
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 14px;
-    font-weight: 700;
-    color: #ffffff;
-  }
-
-  /* Exact status dots from Figma prototypes: blue (#294aeb) for in_room, green (#29eb36) for online, gray (#373737) for offline */
-  .rail-status-dot {
-    position: absolute;
-    right: 1px;
-    bottom: 1px;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    box-shadow: 0 0 0 2px var(--mila-app-canvas, #0c0c0c);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .rail-status-dot.is-room {
-    width: 11px;
-    height: 11px;
-    right: 0;
-    bottom: 0;
-    background: #294aeb;
-  }
-
-  .room-mini-play {
-    width: 0;
-    height: 0;
-    border-top: 2.5px solid transparent;
-    border-bottom: 2.5px solid transparent;
-    border-left: 4px solid #ffffff;
-    margin-left: 1px;
-  }
-
-  .rail-status-dot.is-online {
-    background: #29eb36;
-  }
-
-  .rail-status-dot.is-offline {
-    background: #373737;
-  }
-
-  .rail-bottom-fade {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 36px;
-    pointer-events: none;
-    background: linear-gradient(180deg, rgba(12, 12, 12, 0) 0%, var(--mila-app-canvas, #0c0c0c) 100%);
-  }
-
-  .rail-tooltip {
-    position: absolute;
-    right: 52px;
-    top: 50%;
-    transform: translateY(-50%);
-    min-width: 185px;
-    max-width: 240px;
-    padding: 9px 12px;
-    border-radius: 12px;
-    background: rgba(14, 14, 18, 0.96);
-    backdrop-filter: blur(14px);
-    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.65);
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    pointer-events: none;
-    white-space: nowrap;
-  }
-
-  .tooltip-head {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-  }
-
-  .tooltip-name {
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 12.5px;
-    font-weight: 700;
-    color: #ffffff;
-  }
-
-  .tooltip-handle {
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 11.5px;
-    color: rgba(255, 255, 255, 0.42);
-  }
-
-  .tooltip-room {
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 11.5px;
-    color: #7d96ff;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .tooltip-online {
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 11.5px;
-    color: #29eb36;
-  }
-
-  .tooltip-offline {
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 11.5px;
-    color: rgba(255, 255, 255, 0.36);
-  }
-
-  .tooltip-hint {
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.48);
-  }
-
-  /* Bottom Bar: Typographic "Create" + gear + borderless Mila setting pills */
+  /* BOTTOM BAR */
   .wt-bottom-bar {
-    position: relative;
-    z-index: 3;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 18px;
-    flex-wrap: wrap;
-    padding-right: 58px;
+    gap: 16px;
+    padding-right: 60px;
   }
 
   .wt-bottom-left {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 18px;
     flex-wrap: wrap;
   }
 
@@ -1807,228 +1491,295 @@
     border: none;
     background: transparent;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(32px, 3.4vw, 48px);
-    font-weight: 700;
+    font-size: clamp(26px, 2.6vw, 34px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
     line-height: 1;
-    letter-spacing: -0.02em;
-    color: #e4e4e4;
+    color: rgba(255, 255, 255, 0.88);
     cursor: pointer;
-    transition: color 0.2s ease, transform 0.14s ease;
+    display: inline-flex;
+    align-items: center;
+    transition:
+      color 0.18s ease,
+      transform 0.16s ease;
   }
 
   .wt-create-cta:hover:not(:disabled) {
     color: #ffffff;
   }
 
-  .wt-create-cta:active:not(:disabled) {
-    transform: scale(0.97);
-  }
-
-  .wt-leave-cta {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 34px;
-    padding: 0 14px;
-    border: none;
-    border-radius: 10px;
-    background: rgba(255, 107, 107, 0.12);
-    color: #ff8282;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background-color 0.18s ease, color 0.18s ease;
-  }
-
-  .wt-leave-cta:hover {
-    background: rgba(255, 107, 107, 0.22);
-    color: #ffffff;
-  }
-
-  .wt-gear-btn {
-    width: 30px;
-    height: 30px;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: rgba(231, 231, 231, 0.26);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transform: translateY(4px);
-    transition: color 0.2s ease, background-color 0.2s ease;
-  }
-
-  .wt-gear-btn:hover,
-  .wt-gear-btn.is-open {
-    color: rgba(255, 255, 255, 0.78);
-    background: rgba(255, 255, 255, 0.05);
-  }
-
-  .wt-settings-strip {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    transform: translateY(3px);
-  }
-
-  .wt-setting-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 12px;
-    border: none;
-    border-radius: 9px;
-    background: rgba(255, 255, 255, 0.048);
-    color: rgba(255, 255, 255, 0.68);
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12.5px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background-color 0.18s ease, color 0.18s ease;
-  }
-
-  .wt-setting-pill:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.095);
-    color: #ffffff;
-  }
-
-  .wt-setting-pill.is-ghost {
-    background: rgba(255, 255, 255, 0.032);
-    color: rgba(255, 255, 255, 0.46);
-  }
-
-  .wt-seats-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    height: 32px;
-    padding: 0 5px;
-    border-radius: 9px;
-    background: rgba(255, 255, 255, 0.048);
-  }
-
-  .seats-step {
-    width: 22px;
-    height: 22px;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.62);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-
-  .seats-step:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
-  }
-
-  .seats-step:disabled {
-    opacity: 0.28;
+  .wt-create-cta:disabled {
+    opacity: 0.45;
     cursor: default;
   }
 
-  .seats-label {
-    padding: 0 6px;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.74);
+  .wt-inline-settings {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
   }
 
-  .wt-code-form {
+  /* Borderless, background-free setting triggers aligned with Create / Leave room */
+  .wt-setting-trigger {
+    height: 32px;
+    padding: 0 2px;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.56);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    height: 32px;
-    padding: 0 6px 0 10px;
-    border-radius: 9px;
-    background: rgba(255, 255, 255, 0.07);
+    gap: 6px;
+    cursor: pointer;
+    transition: color 0.18s ease;
   }
 
-  .wt-code-input {
-    width: 68px;
-    border: none;
-    outline: none;
-    background: transparent;
+  .wt-setting-trigger:hover:not(:disabled) {
     color: #ffffff;
-    font-family: 'Medeo Sans Display', monospace;
-    font-size: 12.5px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
   }
 
-  .wt-code-go {
-    width: 22px;
-    height: 22px;
+  .wt-setting-trigger:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .wt-setting-trigger.is-danger {
+    color: rgba(255, 132, 132, 0.82);
+  }
+
+  .wt-setting-trigger.is-danger:hover {
+    color: #ff7a7a;
+  }
+
+  /* RIGHT-SIDE FRIENDS RAIL (lowered flush to bottom-right corner, no clipping, brightness hover) */
+  .wt-friends-rail {
+    position: absolute;
+    right: var(--page-pad-x, 28px);
+    bottom: 24px;
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .wt-rail-add {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    padding: 0;
     border: none;
-    border-radius: 6px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.72);
+    color: rgba(255, 255, 255, 0.56);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    transition: color 0.18s ease;
   }
 
-  .wt-code-go:hover {
-    background: rgba(255, 255, 255, 0.12);
+  .wt-rail-add:hover {
     color: #ffffff;
   }
 
-  /* Invite / Active Friend Room Banner */
-  .wt-invite-banner {
+  .wt-rail-req-badge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #0c0c0c;
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 9px;
+    font-weight: 800;
     display: inline-flex;
     align-items: center;
-    gap: 9px;
-    height: 34px;
-    padding: 0 12px;
+    justify-content: center;
+  }
+
+  .wt-rail-list {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    overflow: visible;
+  }
+
+  .wt-rail-avatar-btn {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    padding: 0;
     border: none;
-    border-radius: 10px;
     background: rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(12px);
-    color: rgba(255, 255, 255, 0.85);
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12.5px;
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    transition: background-color 0.18s ease, transform 0.14s ease;
+    flex-shrink: 0;
+    transition:
+      filter 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 0.2s ease;
   }
 
-  .wt-invite-banner:hover {
-    background: rgba(255, 255, 255, 0.11);
-    transform: translateY(-1px);
+  .wt-rail-avatar-btn:hover {
+    filter: brightness(1.18) contrast(1.04);
+    opacity: 1;
   }
 
-  .inv-dot {
+  .wt-rail-avatar-btn.is-offline {
+    opacity: 0.46;
+  }
+
+  .wt-rail-avatar-btn.is-offline:hover {
+    opacity: 0.85;
+  }
+
+  .wt-rail-avatar {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .wt-rail-fallback {
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .wt-rail-dot {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #373737;
+    box-shadow: 0 0 0 2px #0c0c0c;
+  }
+
+  .wt-rail-dot.is-online {
+    background: #29eb36;
+  }
+
+  .wt-rail-dot.is-room {
+    background: #294aeb;
+  }
+
+  /* Right-click ComboBox Popover */
+  .wt-ctx-popover {
+    position: fixed;
+    z-index: 10000;
+    min-width: 184px;
+    max-width: 228px;
+    padding: 6px;
+    border-radius: 13px;
+    background: var(--mila-popup-comboBg, #161616);
+    box-shadow: var(--mila-popup-comboShadow, 0 18px 44px rgba(0, 0, 0, 0.62));
+    color: #ffffff;
+    user-select: none;
+  }
+
+  .wt-ctx-header {
+    padding: 6px 9px 7px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .wt-ctx-user-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .wt-ctx-name {
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .wt-ctx-status-dot {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--mila-accent, #d9ff70);
+    background: #48484c;
+    flex-shrink: 0;
   }
 
-  .inv-dot.is-blue {
+  .wt-ctx-status-dot.is-online {
+    background: #29eb36;
+  }
+
+  .wt-ctx-status-dot.is-room {
     background: #294aeb;
   }
 
-  .inv-join-tag {
-    padding: 2px 8px;
-    border-radius: 6px;
-    background: var(--mila-accent, #d9ff70);
-    color: #0b0b0c;
-    font-weight: 700;
-    font-size: 11.5px;
+  .wt-ctx-status-dot.is-pending {
+    background: #d4b13b;
   }
 
-  .wt-invite-banner.is-friend-room .inv-join-tag {
-    background: #294aeb;
+  .wt-ctx-sub {
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.44);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .wt-ctx-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .wt-ctx-item {
+    width: 100%;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.86);
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      background-color 0.14s ease,
+      color 0.14s ease;
+  }
+
+  .wt-ctx-item:hover {
+    background: rgba(255, 255, 255, 0.08);
     color: #ffffff;
+  }
+
+  .wt-ctx-item.is-danger {
+    color: #ff7e7e;
+  }
+
+  .wt-ctx-item.is-danger:hover {
+    background: rgba(255, 107, 107, 0.12);
+    color: #ff9494;
   }
 </style>

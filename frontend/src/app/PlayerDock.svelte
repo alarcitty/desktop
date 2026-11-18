@@ -73,14 +73,16 @@
   );
 
   let prevPage = router.current;
+  const isInlinePlayerPage = (page: string) =>
+    page === 'player' || page === 'watch-together-player';
 
   $effect.pre(() => {
     const curPage = router.current;
-    if (prevPage === 'player' && curPage !== 'player') {
+    if (isInlinePlayerPage(prevPage) && !isInlinePlayerPage(curPage)) {
       if (currentEpisode && player.isPlaying && !player.pipDismissed) {
         player.pipMode = true;
       }
-    } else if (prevPage !== 'player' && curPage === 'player') {
+    } else if (!isInlinePlayerPage(prevPage) && isInlinePlayerPage(curPage)) {
       if (!player.pipManual && !bindings.osPipActive && !docPipWindow) {
         player.pipMode = false;
       }
@@ -97,7 +99,7 @@
         (bindings.osPipActive ||
           Boolean(docPipWindow) ||
           player.pipMode ||
-          (router.current !== 'player' && player.isPlaying))
+          (!isInlinePlayerPage(router.current) && player.isPlaying))
     )
   );
 
@@ -106,7 +108,7 @@
       currentEpisode &&
         !player.loading &&
         !player.error &&
-        router.current === 'player' &&
+        isInlinePlayerPage(router.current) &&
         !isPipVisible &&
         player.inlineStageEl
     )
