@@ -5,20 +5,20 @@
   import {
     Clock,
     Crown,
-    Globe,
-    Lock,
     LogOut,
     Pencil,
-    Shield,
-    Star,
+    Play,
+    Settings,
     User,
-    UserPlus,
-    Users
+    UserPlus
   } from 'lucide';
 
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
+  import MainButton from '../../marlakit/button/MainButton.svelte';
+  import SecondButton from '../../marlakit/button/SecondButton.svelte';
   import ComboBox from '../../marlakit/combo/ComboBox.svelte';
-  import type { ComboOption } from '../../marlakit/combo/types';
+  import MetaLine from '../../marlakit/meta/MetaLine.svelte';
+  import type { ComboSection } from '../../marlakit/combo/types';
   import { portal } from '../../marlakit/portal';
   import { ensureShikimoriArtwork, getCachedArtwork } from '../../api/anime';
   import type { FriendProfile } from '../../api/friends';
@@ -50,9 +50,7 @@
   let busy = $state(false);
   let brokenAvatars = $state<Record<string, boolean>>({});
 
-  let visibilityMenuOpen = $state(false);
-  let controlMenuOpen = $state(false);
-  let seatsMenuOpen = $state(false);
+  let settingsMenuOpen = $state(false);
 
   interface ContextMenuState {
     kind: 'friend' | 'slot-invited' | 'slot-member';
@@ -196,9 +194,15 @@
 
   const displayRoomName = $derived.by(() => {
     if (activeRoom) {
-      return activeRoom.title || 'Name';
+      return activeRoom.title || 'Room';
     }
-    return watchTogetherState.draftTitle.trim() || 'смотрелка';
+    if (watchTogetherState.draftTitle.trim()) {
+      return watchTogetherState.draftTitle.trim();
+    }
+    if (auth.user?.username) {
+      return `${auth.user.username}'s room`;
+    }
+    return 'Room';
   });
 
   const currentVisibility = $derived<RoomVisibility>(
@@ -211,21 +215,95 @@
     activeRoom ? activeRoom.max_members : watchTogetherState.draftMaxMembers
   );
 
-  const visibilityOptions: ComboOption[] = [
-    { value: 'public', label: 'Public', sublabel: 'Anyone can join' },
-    { value: 'friends', label: 'Friends', sublabel: 'Friends can join' },
-    { value: 'private', label: 'Private', sublabel: 'Invite only' }
-  ];
+  const settingsComboSections = $derived.by<ComboSection[]>(() => {
+    const visLabel =
+      currentVisibility === 'public'
+        ? 'Public'
+        : currentVisibility === 'private'
+          ? 'Private'
+          : 'Friends';
+    const ctrlLabel = currentControlMode === 'everyone' ? 'Everyone controls' : 'Host only';
 
-  const controlOptions: ComboOption[] = [
-    { value: 'host_only', label: 'Host only', sublabel: 'Only host controls playback' },
-    { value: 'everyone', label: 'Everyone controls', sublabel: 'All members can pause & seek' }
-  ];
+    return [
+      {
+        id: 'room-settings',
+        title: 'Room settings',
+        options: [
+          {
+            value: 'cat:visibility',
+            label: 'Visibility',
+            sublabel: visLabel,
+            subMinWidth: 192,
+            children: [
+              {
+                value: 'vis:public',
+                label: 'Public',
+                sublabel: 'Anyone can join',
+                selected: currentVisibility === 'public'
+              },
+              {
+                value: 'vis:friends',
+                label: 'Friends',
+                sublabel: 'Friends can join',
+                selected: currentVisibility === 'friends'
+              },
+              {
+                value: 'vis:private',
+                label: 'Private',
+                sublabel: 'Invite only',
+                selected: currentVisibility === 'private'
+              }
+            ]
+          },
+          {
+            value: 'cat:control',
+            label: 'Playback control',
+            sublabel: ctrlLabel,
+            subMinWidth: 214,
+            children: [
+              {
+                value: 'ctrl:host_only',
+                label: 'Host only',
+                sublabel: 'Only host controls playback',
+                selected: currentControlMode === 'host_only'
+              },
+              {
+                value: 'ctrl:everyone',
+                label: 'Everyone controls',
+                sublabel: 'All members can pause & seek',
+                selected: currentControlMode === 'everyone'
+              }
+            ]
+          },
+          {
+            value: 'cat:seats',
+            label: 'Seats',
+            sublabel: `${currentMaxMembers} seats`,
+            subMinWidth: 146,
+            children: [2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({
+              value: `seats:${n}`,
+              label: `${n} seats`,
+              selected: currentMaxMembers === n
+            }))
+          }
+        ]
+      }
+    ];
+  });
 
-  const seatsOptions: ComboOption[] = [2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({
-    value: n,
-    label: `${n} seats`
-  }));
+  function handleSettingsSelect(rawValue: string | number) {
+    const val = String(rawValue);
+    if (val.startsWith('vis:')) {
+      void selectVisibility(val.slice('vis:'.length) as RoomVisibility);
+    } else if (val.startsWith('ctrl:')) {
+      void selectControlMode(val.slice('ctrl:'.length) as RoomControlMode);
+    } else if (val.startsWith('seats:')) {
+      const n = Number(val.slice('seats:'.length));
+      if (Number.isFinite(n)) {
+        void selectMaxMembers(n);
+      }
+    }
+  }
 
   // Pending invited friends (combines server room.pending + local draftInvitedIds)
   const pendingFriends = $derived.by<FriendProfile[]>(() => {
@@ -294,11 +372,12 @@
       });
     }
 
-    while (out.length < max) {
+    if (out.length < max) {
+      const remaining = max - out.length;
       out.push({
-        key: `empty-${out.length}`,
+        key: `empty-${remaining}`,
         kind: 'empty',
-        name: 'Empty seat',
+        name: `${remaining} open ${remaining === 1 ? 'seat' : 'seats'}`,
         username: '',
         avatarUrl: ''
       });
@@ -338,7 +417,7 @@
 
   function beginEditTitle() {
     if (activeRoom && !isHost) return;
-    titleInput = activeRoom ? activeRoom.title : watchTogetherState.draftTitle || 'смотрелка';
+    titleInput = activeRoom ? activeRoom.title : watchTogetherState.draftTitle || displayRoomName;
     editingTitle = true;
   }
 
@@ -707,7 +786,12 @@
                     : `@${slot.username}`
                   : slot.kind === 'invited'
                     ? `Pending: @${slot.username} (right-click to cancel)`
-                    : 'Empty seat'}
+                    : slot.name}
+              onclick={() => {
+                if (slot.kind === 'empty' && auth.user) {
+                  openFriendsPopup();
+                }
+              }}
               oncontextmenu={(e) => openSlotContextMenu(e, slot)}
             >
               {#if slot.kind === 'empty'}
@@ -748,6 +832,7 @@
     <!-- CENTER STAGE: Hero-like Anime Title + Description (lowered nicely above bottom controls) OR Choose Anime prompt -->
     <div class="wt-center-stage" class:has-anime={Boolean(selectedAnime)}>
       {#if selectedAnime}
+        {@const metaTags = [...selectedAnime.tags, selectedAnime.episodeLabel].filter(Boolean)}
         <div
           class="wt-anime-showcase"
           in:revealBlur={{ duration: 280, y: 10, scale: 0.99, blur: 8 }}
@@ -765,22 +850,9 @@
             {selectedAnime.title}
           </h2>
 
-          {#if selectedAnime.score || selectedAnime.tags.length > 0 || selectedAnime.episodeLabel}
+          {#if (selectedAnime.score && selectedAnime.score > 0) || metaTags.length > 0}
             <div class="wt-anime-meta">
-              {#if selectedAnime.score && selectedAnime.score > 0}
-                <span class="wt-meta-score">
-                  <MorphIcon icon={Star} size={13} fill="currentColor" strokeWidth={0} />
-                  {selectedAnime.score.toFixed(1)}
-                </span>
-              {/if}
-              {#each selectedAnime.tags as tag}
-                <span class="wt-meta-sep">·</span>
-                <span class="wt-meta-tag">{tag}</span>
-              {/each}
-              {#if selectedAnime.episodeLabel}
-                <span class="wt-meta-sep">·</span>
-                <span class="wt-meta-ep">{selectedAnime.episodeLabel}</span>
-              {/if}
+              <MetaLine score={selectedAnime.score} tags={metaTags} />
             </div>
           {/if}
 
@@ -794,9 +866,7 @@
           in:revealBlur={{ duration: 260, scale: 0.97, blur: 8 }}
         >
           <span class="wt-choose-title">Waiting for host</span>
-          <span class="wt-choose-sub">
-            The host has not selected an anime yet
-          </span>
+          <span class="wt-choose-sub">Host has not picked a title yet</span>
         </div>
       {:else}
         <button
@@ -805,132 +875,65 @@
           onclick={() => openSearch()}
           in:revealBlur={{ duration: 260, scale: 0.97, blur: 8 }}
         >
-          <span class="wt-choose-title">Choose Anime</span>
-          <span class="wt-choose-sub">
-            click on icon from search in header, in front of anime cards
-          </span>
+          <span class="wt-choose-title">Choose anime</span>
+          <span class="wt-choose-sub">Search for a title to watch together</span>
         </button>
       {/if}
     </div>
 
-    <!-- BOTTOM BAR: Create / Watch / Leave room + ComboBox Settings pills -->
+    <!-- BOTTOM BAR: Create / Watch + Leave room + Settings Gear ComboBox (identical to anime player selector popup) -->
     <footer class="wt-bottom-bar">
       <div class="wt-bottom-left">
         {#if !activeRoom}
-          <button
-            type="button"
-            class="wt-create-cta"
-            disabled={busy}
-            onclick={() => void handleCreateRoom()}
-          >
-            {busy ? 'Creating…' : 'Create'}
-          </button>
+          <MainButton loading={busy} onclick={() => void handleCreateRoom()}>
+            Create
+          </MainButton>
         {:else}
-          <button
-            type="button"
-            class="wt-create-cta"
-            disabled={busy || (!activeRoom.media?.title && !selectedAnime)}
+          <MainButton
+            loading={busy}
+            disabled={!activeRoom.media?.title && !selectedAnime}
             onclick={() => void handleEnterPlayer()}
           >
+            {#snippet icon()}
+              <MorphIcon icon={Play} size={15} fill="currentColor" strokeWidth={0} />
+            {/snippet}
             Watch
-          </button>
+          </MainButton>
 
-          <button
-            type="button"
-            class="wt-setting-pill is-danger"
-            onclick={() => void leaveWatchRoom()}
-          >
-            <MorphIcon icon={LogOut} size={14} strokeWidth={2} />
-            <span>Leave room</span>
-          </button>
+          <SecondButton onclick={() => void leaveWatchRoom()}>
+            {#snippet icon()}
+              <MorphIcon icon={LogOut} size={15} strokeWidth={1.9} />
+            {/snippet}
+            Leave room
+          </SecondButton>
         {/if}
 
-        <div class="wt-inline-settings">
-          <!-- Visibility ComboBox -->
-          <ComboBox
-            bind:open={visibilityMenuOpen}
-            options={visibilityOptions}
-            value={currentVisibility}
-            placement="top-left"
-            minWidth={188}
-            onselect={(opt) => void selectVisibility(opt.value as RoomVisibility)}
-          >
-            {#snippet trigger({ toggle })}
-              <button
-                type="button"
-                class="wt-setting-pill"
-                disabled={Boolean(activeRoom && !isHost)}
-                onclick={toggle}
-                title="Room visibility"
-              >
-                <MorphIcon
-                  icon={currentVisibility === 'public'
-                    ? Globe
-                    : currentVisibility === 'private'
-                      ? Lock
-                      : Users}
-                  size={14}
-                  strokeWidth={1.9}
-                />
-                <span>
-                  {currentVisibility === 'public'
-                    ? 'Public'
-                    : currentVisibility === 'private'
-                      ? 'Private'
-                      : 'Friends'}
-                </span>
-              </button>
-            {/snippet}
-          </ComboBox>
-
-          <!-- Control Mode ComboBox -->
-          <ComboBox
-            bind:open={controlMenuOpen}
-            options={controlOptions}
-            value={currentControlMode}
-            placement="top-left"
-            minWidth={214}
-            onselect={(opt) => void selectControlMode(opt.value as RoomControlMode)}
-          >
-            {#snippet trigger({ toggle })}
-              <button
-                type="button"
-                class="wt-setting-pill"
-                disabled={Boolean(activeRoom && !isHost)}
-                onclick={toggle}
-                title="Playback control permission"
-              >
-                <MorphIcon icon={Shield} size={14} strokeWidth={1.9} />
-                <span>
-                  {currentControlMode === 'everyone' ? 'Everyone controls' : 'Host only'}
-                </span>
-              </button>
-            {/snippet}
-          </ComboBox>
-
-          <!-- Max Seats ComboBox -->
-          <ComboBox
-            bind:open={seatsMenuOpen}
-            options={seatsOptions}
-            value={currentMaxMembers}
-            placement="top-left"
-            minWidth={140}
-            maxHeight={240}
-            onselect={(opt) => void selectMaxMembers(Number(opt.value))}
-          >
-            {#snippet trigger({ toggle })}
-              <button
-                type="button"
-                class="wt-setting-pill"
-                disabled={Boolean(activeRoom && !isHost)}
-                onclick={toggle}
-                title="Maximum seats"
-              >
-                <span>{currentMaxMembers} seats</span>
-              </button>
-            {/snippet}
-          </ComboBox>
-        </div>
+        <ComboBox
+          bind:open={settingsMenuOpen}
+          sections={settingsComboSections}
+          ariaLabel="Room settings"
+          placement="top-left"
+          minWidth={212}
+          disabled={Boolean(activeRoom && !isHost)}
+          onselect={(opt) => handleSettingsSelect(opt.value)}
+        >
+          {#snippet trigger({ open, toggle })}
+            <button
+              type="button"
+              class="wt-gear-btn"
+              class:is-open={open}
+              disabled={Boolean(activeRoom && !isHost)}
+              aria-expanded={open}
+              aria-label="Room settings"
+              title="Room settings"
+              onclick={toggle}
+            >
+              <span class="wt-gear-icon" class:is-spun={open}>
+                <MorphIcon icon={Settings} size={17} strokeWidth={1.9} />
+              </span>
+            </button>
+          {/snippet}
+        </ComboBox>
       </div>
     </footer>
 
@@ -1101,10 +1104,16 @@
     height: 100vh;
     min-height: 620px;
     overflow: hidden;
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
     color: #ffffff;
     box-sizing: border-box;
     user-select: none;
+    --mila-buttons-mainBg: var(--mila-media-mainBtnBg, rgba(255, 255, 255, 0.96));
+    --mila-buttons-mainText: var(--mila-media-mainBtnText, #111111);
+    --mila-buttons-secondBg: var(--mila-media-secondBtnBg, rgba(255, 255, 255, 0.08));
+    --mila-buttons-secondText: var(--mila-media-secondBtnText, #ffffff);
+    --mila-meta-tag: var(--mila-media-subtext, rgba(255, 255, 255, 0.56));
+    --mila-meta-dot: var(--mila-media-muted, rgba(255, 255, 255, 0.36));
   }
 
   /* Full-bleed atmospheric anime background */
@@ -1158,8 +1167,8 @@
     z-index: 1;
     width: 100%;
     height: 100%;
-    padding: calc(var(--header-height, 48px) + clamp(14px, 2vh, 24px)) var(--page-pad-x)
-      clamp(20px, 2.8vh, 30px);
+    padding: calc(var(--header-height, 48px) + 14px) var(--page-pad-x, 16px)
+      var(--page-pad-x, 16px);
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -1341,8 +1350,20 @@
     box-shadow: 0 0 0 2px #0c0c0c;
   }
 
+  .wt-slot-circle.is-empty {
+    background: rgba(255, 255, 255, 0.04);
+    border: none;
+    color: rgba(255, 255, 255, 0.26);
+    cursor: pointer;
+  }
+
+  .wt-slot-circle.is-empty:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: rgba(255, 255, 255, 0.65);
+  }
+
   .wt-slot-badge.is-crown {
-    background: #d4b13b;
+    background: #e5c158;
     color: #0c0c0c;
   }
 
@@ -1351,7 +1372,7 @@
     height: 9px;
     right: 0;
     bottom: 0;
-    background: #29eb36;
+    background: #34d399;
   }
 
   .wt-slot-badge.is-pending {
@@ -1359,19 +1380,19 @@
     color: rgba(255, 255, 255, 0.78);
   }
 
-  /* CENTER STAGE — positioned lower (Hero-style!) when an anime is selected */
+  /* CENTER STAGE — positioned cleanly just above the bottom CTA bar (Hero-style!) */
   .wt-center-stage {
     position: relative;
     flex: 1 1 auto;
     display: flex;
     align-items: center;
     min-height: 0;
-    padding-right: 68px;
   }
 
   .wt-center-stage.has-anime {
     align-items: flex-end;
-    padding-bottom: clamp(26px, 4.2vh, 48px);
+    padding-right: 68px;
+    padding-bottom: 22px;
   }
 
   .wt-choose-prompt {
@@ -1388,7 +1409,11 @@
     transition: transform 0.22s ease;
   }
 
-  .wt-choose-prompt:hover {
+  .wt-choose-prompt.is-waiting {
+    cursor: default;
+  }
+
+  .wt-choose-prompt:not(.is-waiting):hover {
     transform: scale(1.015);
   }
 
@@ -1397,21 +1422,21 @@
     font-size: clamp(32px, 3.8vw, 48px);
     font-weight: 800;
     letter-spacing: -0.03em;
-    color: rgba(255, 255, 255, 0.22);
+    color: rgba(255, 255, 255, 0.24);
     transition: color 0.22s ease;
   }
 
-  .wt-choose-prompt:hover .wt-choose-title {
-    color: rgba(255, 255, 255, 0.38);
+  .wt-choose-prompt:not(.is-waiting):hover .wt-choose-title {
+    color: rgba(255, 255, 255, 0.44);
   }
 
   .wt-choose-sub {
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.34);
   }
 
-  /* Hero-matched Anime Showcase (title + meta + large description) */
+  /* Hero-matched Anime Showcase (title + MetaLine + description) */
   .wt-anime-showcase {
     max-width: min(920px, 78vw);
     display: flex;
@@ -1422,12 +1447,12 @@
   .wt-anime-title {
     margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(32px, 4.1vw, 60px);
+    font-size: clamp(32px, 4.1vw, 56px);
     font-weight: 700;
     line-height: 1.06;
     letter-spacing: -0.02em;
     color: #ffffff;
-    cursor: pointer;
+    cursor: default;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
@@ -1436,54 +1461,34 @@
     transition: color 0.18s ease;
   }
 
-  .wt-anime-title:hover {
+  .wt-anime-title.is-clickable {
+    cursor: pointer;
+  }
+
+  .wt-anime-title.is-clickable:hover {
     color: rgba(255, 255, 255, 0.86);
   }
 
   .wt-anime-meta {
     margin-top: 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: clamp(13px, 1.05vw, 15px);
-    color: rgba(255, 255, 255, 0.62);
-  }
-
-  .wt-meta-score {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    color: #f4c150;
-    font-weight: 700;
-  }
-
-  .wt-meta-sep {
-    color: rgba(255, 255, 255, 0.24);
-  }
-
-  .wt-meta-ep {
-    color: rgba(255, 255, 255, 0.9);
-    font-weight: 600;
   }
 
   .wt-anime-desc {
     margin: 12px 0 0 0;
-    max-width: 760px;
+    max-width: 720px;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: clamp(15px, 1.38vw, 18.5px);
+    font-size: clamp(14.5px, 1.3vw, 17px);
     font-weight: 400;
-    line-height: 1.38;
-    color: #8f8f94;
+    line-height: 1.42;
+    color: rgba(255, 255, 255, 0.58);
     display: -webkit-box;
-    -webkit-line-clamp: 4;
-    line-clamp: 4;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
 
-  /* BOTTOM BAR — pill backgrounds + generous gaps + true vertical alignment across all window sizes */
+  /* BOTTOM BAR — Hero-matched MainButton/SecondButton + Gear ComboBox flush to bottom-left corner */
   .wt-bottom-bar {
     display: flex;
     align-items: center;
@@ -1495,91 +1500,64 @@
   .wt-bottom-left {
     display: flex;
     align-items: center;
-    gap: clamp(14px, 1.5vw, 22px);
+    gap: 12px;
     flex-wrap: wrap;
   }
 
-  .wt-create-cta {
-    height: clamp(34px, 3vw, 40px);
+  .wt-gear-btn {
+    width: 43px;
+    height: 43px;
     padding: 0;
     border: none;
-    background: transparent;
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(24px, 2.4vw, 32px);
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    line-height: 1;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    transform: translateY(-1px);
-    transition: color 0.18s ease;
-  }
-
-  .wt-create-cta:hover:not(:disabled) {
-    color: #ffffff;
-  }
-
-  .wt-create-cta:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-
-  .wt-inline-settings {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .wt-setting-pill {
-    height: clamp(32px, 2.6vw, 36px);
-    padding: 0 clamp(12px, 1.1vw, 15px);
-    border: none;
     outline: none;
-    border-radius: 10px;
-    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.055));
-    color: rgba(255, 255, 255, 0.78);
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: clamp(12.5px, 0.95vw, 13.5px);
-    font-weight: 500;
-    line-height: 1;
+    border-radius: 999px;
+    background: var(--mila-buttons-secondBg, rgba(255, 255, 255, 0.08));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: rgba(255, 255, 255, 0.82);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 7px;
     cursor: pointer;
+    flex-shrink: 0;
     transition:
-      background-color 0.18s ease,
-      color 0.18s ease;
+      background-color 0.2s ease,
+      color 0.2s ease,
+      transform 0.14s ease,
+      opacity 0.16s ease;
   }
 
-  .wt-setting-pill:hover:not(:disabled) {
-    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.11));
+  .wt-gear-btn:hover:not(:disabled),
+  .wt-gear-btn.is-open:not(:disabled) {
+    background: var(--mila-buttons-secondBgHover, rgba(255, 255, 255, 0.16));
     color: #ffffff;
   }
 
-  .wt-setting-pill:disabled {
-    opacity: 0.45;
-    cursor: default;
+  .wt-gear-btn:active:not(:disabled) {
+    transform: scale(0.95);
   }
 
-  .wt-setting-pill.is-danger {
-    background: rgba(255, 92, 92, 0.12);
-    color: rgba(255, 144, 144, 0.92);
+  .wt-gear-btn:disabled {
+    opacity: 0.42;
+    cursor: not-allowed;
   }
 
-  .wt-setting-pill.is-danger:hover {
-    background: rgba(255, 92, 92, 0.22);
-    color: #ffd2d2;
+  .wt-gear-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  /* RIGHT-SIDE FRIENDS RAIL (flush bottom-right, no clipping, brightness hover, context-menu only) */
+  .wt-gear-icon.is-spun {
+    transform: rotate(45deg);
+  }
+
+  /* RIGHT-SIDE FRIENDS RAIL (flush to exact bottom-right corner matching --page-pad-x) */
   .wt-friends-rail {
     position: absolute;
-    right: var(--page-pad-x, 28px);
-    bottom: clamp(20px, 2.8vh, 30px);
+    right: var(--page-pad-x, 16px);
+    bottom: var(--page-pad-x, 16px);
     z-index: 15;
     display: flex;
     flex-direction: column;
@@ -1589,21 +1567,26 @@
 
   .wt-rail-add {
     position: relative;
-    width: 36px;
-    height: 36px;
+    width: 43px;
+    height: 43px;
     border-radius: 50%;
     padding: 0;
     border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.56);
+    background: rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: rgba(255, 255, 255, 0.68);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: color 0.18s ease;
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease;
   }
 
   .wt-rail-add:hover {
+    background: rgba(255, 255, 255, 0.14);
     color: #ffffff;
   }
 
@@ -1690,11 +1673,11 @@
   }
 
   .wt-rail-dot.is-online {
-    background: #29eb36;
+    background: #34d399;
   }
 
   .wt-rail-dot.is-room {
-    background: #294aeb;
+    background: #60a5fa;
   }
 
   /* Marlakit Kit ComboBox-identical Context Menu */
@@ -1757,15 +1740,15 @@
   }
 
   .wt-kit-status-dot.is-online {
-    background: #29eb36;
+    background: #34d399;
   }
 
   .wt-kit-status-dot.is-room {
-    background: #294aeb;
+    background: #60a5fa;
   }
 
   .wt-kit-status-dot.is-pending {
-    background: #d4b13b;
+    background: #e5c158;
   }
 
   .wt-kit-combo-list {
