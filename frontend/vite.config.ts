@@ -64,8 +64,42 @@ function dreamCastMediaProxyPlugin(): Plugin {
 }
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [svelte(), dreamCastMediaProxyPlugin()],
+  esbuild: {
+    legalComments: 'none',
+    drop: mode === 'production' ? ['console', 'debugger'] : []
+  },
+  build: {
+    target: 'esnext',
+    minify: 'esbuild',
+    cssMinify: true,
+    sourcemap: false,
+    reportCompressedSize: false,
+    chunkSizeWarningLimit: 700,
+    modulePreload: {
+      polyfill: false
+    },
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/hls.js')) {
+            return 'hls'
+          }
+          if (
+            id.includes('node_modules/lucide') ||
+            id.includes('node_modules/@lucide') ||
+            id.includes('node_modules/morphicons')
+          ) {
+            return 'icons'
+          }
+          if (id.includes('node_modules/svelte')) {
+            return 'vendor-svelte'
+          }
+        }
+      }
+    }
+  },
   server: {
     port: 5173,
     strictPort: true,
@@ -96,4 +130,4 @@ export default defineConfig({
       }
     }
   }
-})
+}))

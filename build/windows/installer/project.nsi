@@ -29,8 +29,12 @@ Unicode true
 ## !define UNINST_KEY_NAME     "UninstKeyInRegistry"  # Default "${INFO_COMPANYNAME}${INFO_PRODUCTNAME}"
 ####
 ## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
-!define REQUEST_EXECUTION_LEVEL "user"
-!define WAILS_INSTALL_SCOPE "user"
+!ifndef REQUEST_EXECUTION_LEVEL
+  !define REQUEST_EXECUTION_LEVEL "user"
+!endif
+!ifndef WAILS_INSTALL_SCOPE
+  !define WAILS_INSTALL_SCOPE "user"
+!endif
 SetCompressor zlib
 
 ####

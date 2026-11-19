@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -23,6 +24,10 @@ var assets embed.FS
 var trayIconICO []byte
 
 func main() {
+	// Tune Go GC for low-latency desktop UI + 1080p media/QUIC streaming
+	debug.SetGCPercent(150)
+	debug.SetMemoryLimit(512 << 20)
+
 	// make_unique logger and app instance
 	_ = logger.EnableDefaultFileLogging()
 	defer func() {

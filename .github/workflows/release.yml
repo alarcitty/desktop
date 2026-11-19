@@ -64,6 +64,7 @@ jobs:
       - name: build app and installer
         env:
           CGO_ENABLED: 0
+          GOAMD64: v2
         run: wails build -platform windows/amd64 -nsis -installscope user -webview2 browser -trimpath -ldflags "-X mila/internal/version.Version=${{ github.ref_name }}"
 
       - name: sign windows executables (Authenticode SHA-256)
@@ -103,7 +104,7 @@ jobs:
           & $signtool sign /f $pfxPath /p $pfxPass /fd SHA256 /td SHA256 /tr "http://timestamp.digicert.com" /d "Mila Desktop" $appExe
 
           Push-Location "build/windows/installer"
-          makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\Mila.exe project.nsi
+          makensis "-DARG_WAILS_AMD64_BINARY=..\..\bin\Mila.exe" "-DWAILS_INSTALL_SCOPE=user" "-DREQUEST_EXECUTION_LEVEL=user" project.nsi
           Pop-Location
 
           $instExe = Resolve-Path "build/bin/Mila-amd64-installer.exe"
