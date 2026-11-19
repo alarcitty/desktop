@@ -1920,11 +1920,10 @@
     --card-r-tr: 0px;
     --card-r-br: 0px;
     --card-r-bl: 0px;
-    border-radius: 0;
-    clip-path: inset(0 round var(--card-r-tl) var(--card-r-tr) var(--card-r-br) var(--card-r-bl));
+    border-radius: var(--card-r-tl) var(--card-r-tr) var(--card-r-br) var(--card-r-bl);
     overflow: hidden;
     aspect-ratio: 16 / 9;
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
     isolation: isolate;
     cursor: pointer;
   }
@@ -2043,11 +2042,10 @@
     --card-r-tr: 0px;
     --card-r-br: 0px;
     --card-r-bl: 0px;
-    border-radius: 0;
-    clip-path: inset(0 round var(--card-r-tl) var(--card-r-tr) var(--card-r-br) var(--card-r-bl));
+    border-radius: var(--card-r-tl) var(--card-r-tr) var(--card-r-br) var(--card-r-bl);
     overflow: hidden;
     aspect-ratio: 16 / 9;
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
     isolation: isolate;
     cursor: pointer;
     text-align: left;
@@ -2074,7 +2072,20 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    border-radius: inherit;
     filter: brightness(0.86);
+    -webkit-mask-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.86) 0%,
+      rgba(0, 0, 0, 0.72) 48%,
+      rgba(0, 0, 0, 0.14) 100%
+    );
+    mask-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.86) 0%,
+      rgba(0, 0, 0, 0.72) 48%,
+      rgba(0, 0, 0, 0.14) 100%
+    );
     transition: filter 0.34s var(--ease-out);
   }
 
@@ -2086,11 +2097,12 @@
     position: absolute;
     inset: -2px;
     z-index: 1;
+    border-radius: inherit;
     background: linear-gradient(
       180deg,
-      rgba(12, 12, 12, 0.18) 0%,
-      rgba(12, 12, 12, 0.34) 48%,
-      rgba(12, 12, 12, 0.88) 100%
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.18) 0%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.34) 48%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.9) 100%
     );
     pointer-events: none;
   }
@@ -2171,10 +2183,9 @@
     padding: 0 16px 0 0;
     border: none;
     outline: none;
-    border-radius: 0;
-    clip-path: inset(0 round var(--radius-card) 0 0 var(--radius-card));
+    border-radius: var(--radius-card) 0 0 var(--radius-card);
     overflow: hidden;
-    background: #0e0e11;
+    background: var(--mila-cards-bg, #0e0e11);
     display: flex;
     align-items: center;
     gap: 16px;
@@ -2212,9 +2223,9 @@
     inset: -2px;
     background: linear-gradient(
       90deg,
-      rgba(12, 12, 12, 0.25) 0%,
-      rgba(12, 12, 12, 0.72) 38%,
-      rgba(12, 12, 12, 0.88) 100%
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.25) 0%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.72) 38%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.88) 100%
     );
   }
 
@@ -2224,10 +2235,9 @@
     width: 164px;
     height: 100%;
     flex-shrink: 0;
-    border-radius: 0;
-    clip-path: inset(0 round var(--radius-card) 0 0 var(--radius-card));
+    border-radius: var(--radius-card) 0 0 var(--radius-card);
     overflow: hidden;
-    background: #09090b;
+    background: var(--mila-app-canvas, #09090b);
   }
 
   .trailer-row-thumb {

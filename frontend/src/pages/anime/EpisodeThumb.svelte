@@ -513,10 +513,9 @@
     --ep-r-tr: 0px;
     --ep-r-br: 0px;
     --ep-r-bl: 0px;
-    border-radius: 0;
-    clip-path: inset(0 round var(--ep-r-tl) var(--ep-r-tr) var(--ep-r-br) var(--ep-r-bl));
+    border-radius: var(--ep-r-tl) var(--ep-r-tr) var(--ep-r-br) var(--ep-r-bl);
     overflow: hidden;
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
     isolation: isolate;
     contain: layout style paint;
     cursor: pointer;
@@ -585,9 +584,9 @@
     inset: -2px;
     background: linear-gradient(
       90deg,
-      rgba(12, 12, 12, 0.25) 0%,
-      rgba(12, 12, 12, 0.72) 38%,
-      rgba(12, 12, 12, 0.88) 100%
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.25) 0%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.72) 38%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.88) 100%
     );
   }
 
@@ -597,10 +596,9 @@
     width: 164px;
     height: 100%;
     flex-shrink: 0;
-    border-radius: 0;
-    clip-path: inset(0 round var(--radius-card) 0 0 var(--radius-card));
+    border-radius: var(--radius-card) 0 0 var(--radius-card);
     overflow: hidden;
-    background: #09090b;
+    background: var(--mila-app-canvas, #09090b);
   }
 
   .ep-list-info {
@@ -708,8 +706,9 @@
     z-index: 0;
     width: 100%;
     aspect-ratio: 16 / 9;
+    border-radius: inherit;
     overflow: hidden;
-    background: #0c0c0c;
+    background: var(--mila-app-canvas, #0c0c0c);
   }
 
   .ep-card::after {
@@ -734,7 +733,30 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    border-radius: inherit;
     transition: filter 0.34s var(--ease-out);
+  }
+
+  .ep-card:not(.is-list) .ep-thumb,
+  .ep-card:not(.is-list) .ep-preview-video {
+    -webkit-mask-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.86) 0%,
+      rgba(0, 0, 0, 0.78) 44%,
+      rgba(0, 0, 0, 0.14) 76%,
+      rgba(0, 0, 0, 0.03) 89%,
+      transparent 95%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.86) 0%,
+      rgba(0, 0, 0, 0.78) 44%,
+      rgba(0, 0, 0, 0.14) 76%,
+      rgba(0, 0, 0, 0.03) 89%,
+      transparent 95%,
+      transparent 100%
+    );
   }
 
   .ep-card:hover .ep-thumb {
@@ -779,14 +801,15 @@
     position: absolute;
     inset: -2px;
     z-index: 2;
+    border-radius: inherit;
     background: linear-gradient(
       180deg,
-      rgba(12, 12, 12, 0.14) 0%,
-      rgba(12, 12, 12, 0.2) 44%,
-      rgba(12, 12, 12, 0.84) 76%,
-      rgba(12, 12, 12, 0.96) 89%,
-      #0c0c0c 95%,
-      #0c0c0c 100%
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.16) 0%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.24) 44%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.86) 76%,
+      rgba(var(--mila-app-canvasRgb, 12, 12, 12), 0.97) 89%,
+      var(--mila-app-canvas, #0c0c0c) 95%,
+      var(--mila-app-canvas, #0c0c0c) 100%
     );
     pointer-events: none;
   }

@@ -300,21 +300,34 @@
 
       if (paused) {
         applyPlaybackRate(baseRate);
-        if (absDrift > 0.45 && now - lastRemoteHardSeekAt > 1200) {
+        if (absDrift > 1.5 && now - lastRemoteHardSeekAt > 1500) {
           lastRemoteHardSeekAt = now;
           seekTo(clamped, true);
         }
       } else {
-        // Playing: Rave-style smooth speed catch-up for drift up to 4.5s (avoids seek & buffering spinner)
-        if (absDrift > 4.5 && now - lastRemoteHardSeekAt > 2200) {
+        // Playing: Rave-style adaptive speed catch-up.
+        // - Up to ~0.45s deadband: keep normal 1x speed (no teleports, no speed jitter).
+        // - From 0.45s up to 30s drift: NEVER teleport/seek (which causes buffer flush & loader spinner);
+        //   instead smoothly accelerate or decelerate playbackRate until caught up with host.
+        // - Only hard-seek if drift > 30s (e.g. host scrubbed across the episode timeline).
+        if (absDrift > 30.0 && now - lastRemoteHardSeekAt > 3000) {
           lastRemoteHardSeekAt = now;
           applyPlaybackRate(baseRate);
           seekTo(clamped, true);
-        } else if (absDrift > 0.24) {
-          const factor = absDrift > 2.0 ? 0.14 : absDrift > 0.85 ? 0.08 : 0.04;
+        } else if (absDrift > 0.45) {
+          const factor =
+            absDrift > 10.0
+              ? 0.35
+              : absDrift > 5.0
+                ? 0.24
+                : absDrift > 2.2
+                  ? 0.14
+                  : absDrift > 1.0
+                    ? 0.08
+                    : 0.04;
           const catchupRate = Math.max(
-            0.75,
-            Math.min(1.35, Number((baseRate * (1 + Math.sign(signedDrift) * factor)).toFixed(3)))
+            0.7,
+            Math.min(1.4, Number((baseRate * (1 + Math.sign(signedDrift) * factor)).toFixed(3)))
           );
           if (Math.abs((videoEl.playbackRate || 1) - catchupRate) > 0.008) {
             applyPlaybackRate(catchupRate);
@@ -941,17 +954,41 @@
     return bestIdx;
   }
 
-  // Attach and configure hls.js or native MP4 whenever source props change.
+  function serializeHlsSources(item?: HlsSources | null): string {
+    if (!item) return 'none';
+    const r = item.remux ? `remux:${item.remux.hash}:${item.remux.fileIndex}` : '';
+    return [
+      item.hls_1080 || '',
+      item.hls_720 || '',
+      item.hls_480 || '',
+      item.mp4_1080 || '',
+      item.mp4_720 || '',
+      item.mp4_480 || '',
+      r
+    ].join('|');
+  }
+
+  const playbackSourceSignature = $derived.by(() => {
+    const s = (src || '').trim();
+    return `${s}::${serializeHlsSources(sources)}::${reloadTick}`;
+  });
+
+  const dubSourceSignature = $derived.by(() => {
+    if (!dubAudio) return 'none';
+    return `${dubAudio.id}::${serializeHlsSources(dubAudio.sources)}`;
+  });
+
+  // Attach and configure hls.js or native MP4 ONLY when the resolved stream signature actually changes.
   $effect(() => {
     const video = videoEl;
-    const directSrc = src;
-    const epSources = sources;
-    const shouldAutoplay = autoplay;
-    const lockMax = preferMaxQuality;
-    const resumeOffset = initialTime;
-    void reloadTick;
-
+    void playbackSourceSignature;
     if (!video) return;
+
+    const directSrc = untrack(() => src);
+    const epSources = untrack(() => sources);
+    const shouldAutoplay = untrack(() => autoplay);
+    const lockMax = untrack(() => preferMaxQuality);
+    const resumeOffset = untrack(() => initialTime);
 
     const resolved = resolvePlaybackSource(directSrc, epSources);
     errorText = '';
@@ -1373,9 +1410,10 @@
   $effect(() => {
     const dubEl = dubAudioEl;
     const video = videoEl;
-    const activeDub = dubAudio;
+    void dubSourceSignature;
 
     if (!dubEl || !video) return;
+    const activeDub = untrack(() => dubAudio);
 
     if (!activeDub) {
       destroyDubHls();

@@ -42,6 +42,7 @@
 
   const episodes = $derived(player.release?.episodes ?? []);
   const currentEpisode = $derived(episodes[player.episodeIndex] ?? null);
+  const currentEpisodeSources = $derived(currentEpisode ? episodeSources(currentEpisode) : null);
   const currentDubAudio = $derived.by<DubAudioSource | null>(() => {
     if (!currentEpisode || !player.dubRelease || !player.dubVoiceId) return null;
     const dubEp =
@@ -408,7 +409,7 @@
     {#if currentEpisode}
       <HlsPlayer
         bind:this={hlsPlayerRef}
-        sources={episodeSources(currentEpisode)}
+        sources={currentEpisodeSources}
         dubAudio={currentDubAudio}
         dubVoiceId={player.dubVoiceId}
         dubOffsetSec={player.dubOffsetSec}

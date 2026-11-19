@@ -68,9 +68,11 @@
   const EP_PAGE_SIZE = 16;
   const EP_VIEW_MODE_KEY = 'mila.anime.episodesViewMode';
   const WT_CHAT_WIDTH_KEY = 'mila.wt.chatWidth';
+  const WT_CHAT_HEIGHT_KEY = 'mila.wt.chatHeight';
   const WT_CHAT_PINNED_KEY = 'mila.wt.chatPinned';
 
   type EpSortKey = 'order' | 'duration' | 'unwatched';
+  type ChatResizeDir = 'w' | 'e' | 's' | 'sw' | 'se';
 
   function readSavedViewMode(key: string, fallback: 'grid' | 'list'): 'grid' | 'list' {
     if (typeof localStorage === 'undefined') return fallback;
@@ -81,6 +83,12 @@
     if (typeof localStorage === 'undefined') return 320;
     const raw = Number(localStorage.getItem(WT_CHAT_WIDTH_KEY));
     return Number.isFinite(raw) && raw >= 250 && raw <= 540 ? raw : 320;
+  }
+
+  function readSavedChatHeight(): number {
+    if (typeof localStorage === 'undefined') return 410;
+    const raw = Number(localStorage.getItem(WT_CHAT_HEIGHT_KEY));
+    return Number.isFinite(raw) && raw >= 240 && raw <= 680 ? raw : 410;
   }
 
   function readSavedChatPinned(): boolean {
@@ -99,10 +107,17 @@
   let chatOpen = $state(true);
   let chatPinned = $state(readSavedChatPinned());
   let chatWidthPx = $state(readSavedChatWidth());
+  let chatHeightPx = $state(readSavedChatHeight());
+  let floatHeightCustom = $state(false);
   let settingsMenuOpen = $state(false);
   let resizingChat = $state(false);
+  let resizeDir: ChatResizeDir = 'w';
   let resizeStartX = 0;
+  let resizeStartY = 0;
   let resizeStartW = 320;
+  let resizeStartH = 410;
+  let resizeStartLeft = 0;
+  let resizeStartTop = 14;
 
   // Floating chat position offset relative to default top-right anchor
   let floatOffset = $state<{ x: number; y: number } | null>(null);
@@ -366,17 +381,21 @@
   let lastSyncedMediaKey = '';
   $effect(() => {
     const rm = activeRoom;
-    if (!rm || !rm.media?.title) return;
+    if (!rm || !rm.media?.title || player.loading) return;
     const mediaKey = `${rm.room_id}:${rm.media.shiki_id ?? 0}:${rm.media.release_alias ?? ''}:${rm.media.title}:${rm.media.episode_ordinal || 1}`;
     if (mediaKey === lastSyncedMediaKey) return;
     lastSyncedMediaKey = mediaKey;
 
     const curTitle = (player.release?.title || player.title || '').trim().toLowerCase();
     const targetTitle = rm.media.title.trim().toLowerCase();
+    const targetStateTitle = (player.target?.title || '').trim().toLowerCase();
+    const dispTitle = (displayTitle || '').trim().toLowerCase();
     const sameAnime =
       (rm.media.shiki_id && currentShikiId === rm.media.shiki_id) ||
       (rm.media.release_alias && player.release?.alias === rm.media.release_alias) ||
-      (curTitle && curTitle === targetTitle);
+      (curTitle && curTitle === targetTitle) ||
+      (targetStateTitle && targetStateTitle === targetTitle) ||
+      (dispTitle && dispTitle === targetTitle);
 
     if (!sameAnime || !player.release) {
       void openWatch(
@@ -507,21 +526,65 @@
     }
   }
 
-  function handleResizePointerDown(e: PointerEvent) {
+  function handleResizePointerDown(e: PointerEvent, dir: ChatResizeDir = 'w') {
     if (e.button !== 0) return;
     e.preventDefault();
+    e.stopPropagation();
     resizingChat = true;
+    resizeDir = dir;
     resizeStartX = e.clientX;
+    resizeStartY = e.clientY;
     resizeStartW = chatWidthPx;
+    resizeStartH = chatHeightPx;
+    if (!chatPinned && floatPanelEl && theaterFrameEl) {
+      const frameRect = theaterFrameEl.getBoundingClientRect();
+      const panelRect = floatPanelEl.getBoundingClientRect();
+      resizeStartW = panelRect.width;
+      resizeStartH = panelRect.height;
+      resizeStartLeft = floatOffset?.x ?? Math.max(8, panelRect.left - frameRect.left);
+      resizeStartTop = floatOffset?.y ?? Math.max(8, panelRect.top - frameRect.top);
+      chatHeightPx = Math.round(panelRect.height);
+    }
     (e.currentTarget as HTMLElement)?.setPointerCapture(e.pointerId);
   }
 
   function handleResizePointerMove(e: PointerEvent) {
     if (!resizingChat) return;
-    const delta = resizeStartX - e.clientX;
-    const maxW = Math.min(560, Math.floor(viewportW * 0.46));
-    const nextW = Math.max(250, Math.min(maxW, resizeStartW + delta));
-    chatWidthPx = nextW;
+    if (chatPinned) {
+      const delta = resizeStartX - e.clientX;
+      const maxW = Math.min(560, Math.floor(viewportW * 0.46));
+      chatWidthPx = Math.max(250, Math.min(maxW, resizeStartW + delta));
+      return;
+    }
+
+    const frameW = theaterFrameEl?.clientWidth || viewportW;
+    const frameH = theaterFrameEl?.clientHeight || 640;
+    let nextW = chatWidthPx;
+    let nextX = floatOffset?.x ?? resizeStartLeft;
+    const nextY = floatOffset?.y ?? resizeStartTop;
+
+    if (resizeDir.includes('w')) {
+      const rightEdge = resizeStartLeft + resizeStartW;
+      const maxW = Math.min(560, Math.max(250, rightEdge - 8));
+      nextW = Math.max(250, Math.min(maxW, resizeStartW + (resizeStartX - e.clientX)));
+      nextX = Math.max(8, rightEdge - nextW);
+      chatWidthPx = Math.round(nextW);
+      if (floatOffset) {
+        floatOffset = { x: Math.round(nextX), y: Math.round(nextY) };
+      }
+    } else if (resizeDir.includes('e')) {
+      const maxW = Math.min(560, Math.max(250, frameW - resizeStartLeft - 8));
+      nextW = Math.max(250, Math.min(maxW, resizeStartW + (e.clientX - resizeStartX)));
+      chatWidthPx = Math.round(nextW);
+      floatOffset = { x: Math.round(resizeStartLeft), y: Math.round(nextY) };
+    }
+
+    if (resizeDir.includes('s')) {
+      const maxH = Math.min(680, Math.max(240, frameH - nextY - 12));
+      const nextH = Math.max(240, Math.min(maxH, resizeStartH + (e.clientY - resizeStartY)));
+      chatHeightPx = Math.round(nextH);
+      floatHeightCustom = true;
+    }
   }
 
   function handleResizePointerUp(e: PointerEvent) {
@@ -530,6 +593,7 @@
     try {
       (e.currentTarget as HTMLElement)?.releasePointerCapture(e.pointerId);
       localStorage.setItem(WT_CHAT_WIDTH_KEY, String(Math.round(chatWidthPx)));
+      localStorage.setItem(WT_CHAT_HEIGHT_KEY, String(Math.round(chatHeightPx)));
     } catch {
       // ignore
     }
@@ -998,16 +1062,48 @@
             style:left={floatOffset ? `${floatOffset.x}px` : undefined}
             style:top={floatOffset ? `${floatOffset.y}px` : '14px'}
             style:right={floatOffset ? 'auto' : '14px'}
-            style:bottom={floatOffset ? 'auto' : '64px'}
-            style:height={floatOffset ? 'min(460px, 74%)' : undefined}
+            style:bottom={floatOffset || floatHeightCustom ? 'auto' : '64px'}
+            style:height={floatOffset || floatHeightCustom ? `${chatHeightPx}px` : undefined}
             in:revealBlur={{ duration: 240, y: 8, scale: 0.96, blur: 8 }}
             out:revealBlur={{ duration: 180, y: 6, scale: 0.97, blur: 6 }}
           >
-            <!-- Left resize edge for floating chat -->
+            <!-- Multi-edge & corner resize handles for floating chat -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
-              class="wt-float-resizer"
-              onpointerdown={handleResizePointerDown}
+              class="wt-float-resizer is-w"
+              onpointerdown={(e) => handleResizePointerDown(e, 'w')}
+              onpointermove={handleResizePointerMove}
+              onpointerup={handleResizePointerUp}
+              onpointercancel={handleResizePointerUp}
+            ></div>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="wt-float-resizer is-e"
+              onpointerdown={(e) => handleResizePointerDown(e, 'e')}
+              onpointermove={handleResizePointerMove}
+              onpointerup={handleResizePointerUp}
+              onpointercancel={handleResizePointerUp}
+            ></div>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="wt-float-resizer is-s"
+              onpointerdown={(e) => handleResizePointerDown(e, 's')}
+              onpointermove={handleResizePointerMove}
+              onpointerup={handleResizePointerUp}
+              onpointercancel={handleResizePointerUp}
+            ></div>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="wt-float-resizer is-sw"
+              onpointerdown={(e) => handleResizePointerDown(e, 'sw')}
+              onpointermove={handleResizePointerMove}
+              onpointerup={handleResizePointerUp}
+              onpointercancel={handleResizePointerUp}
+            ></div>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="wt-float-resizer is-se"
+              onpointerdown={(e) => handleResizePointerDown(e, 'se')}
               onpointermove={handleResizePointerMove}
               onpointerup={handleResizePointerUp}
               onpointercancel={handleResizePointerUp}
@@ -1119,16 +1215,14 @@
                 placeholder="Type something..."
                 maxlength={400}
               />
-              <div class="wt-chat-input-actions">
-                <button
-                  type="submit"
-                  class="wt-chat-send"
-                  disabled={!chatDraft.trim() || chatSending}
-                  aria-label="Send message"
-                >
-                  <MorphIcon icon={Send} size={14} strokeWidth={1.9} />
-                </button>
-              </div>
+              <button
+                type="submit"
+                class="wt-chat-send"
+                disabled={!chatDraft.trim() || chatSending}
+                aria-label="Send message"
+              >
+                <MorphIcon icon={Send} size={13.5} strokeWidth={2} />
+              </button>
             </form>
           </aside>
         {/if}
@@ -1255,16 +1349,14 @@
                 placeholder="Type something..."
                 maxlength={400}
               />
-              <div class="wt-chat-input-actions">
-                <button
-                  type="submit"
-                  class="wt-chat-send"
-                  disabled={!chatDraft.trim() || chatSending}
-                  aria-label="Send message"
-                >
-                  <MorphIcon icon={Send} size={14} strokeWidth={1.9} />
-                </button>
-              </div>
+              <button
+                type="submit"
+                class="wt-chat-send"
+                disabled={!chatDraft.trim() || chatSending}
+                aria-label="Send message"
+              >
+                <MorphIcon icon={Send} size={13.5} strokeWidth={2} />
+              </button>
             </form>
           </aside>
         </div>
@@ -1314,7 +1406,7 @@
               onclick={() => void toggleTorrentsDrawer()}
             >
               <MorphIcon icon={HardDriveDownload} size={14} strokeWidth={1.9} />
-              <span>{t('anime.torrents1080p')}</span>
+              <span>Torrents</span>
             </button>
 
             <div class="lib-sort-group" role="group" aria-label="Sort episodes">
@@ -1836,7 +1928,7 @@
     padding: 10px 11px 10px;
     border-radius: 16px;
     overflow: hidden;
-    background: #0d0d10;
+    background: var(--mila-app-surface, var(--mila-cards-bg, #121216));
   }
 
   .wt-chat-panel.is-floating {
@@ -1844,7 +1936,7 @@
     z-index: 35;
     padding: 10px 11px 10px;
     border-radius: 18px;
-    background: rgba(11, 11, 13, 0.94);
+    background: var(--mila-popup-comboBg, rgba(12, 12, 15, 0.92));
     backdrop-filter: blur(28px) saturate(140%);
     -webkit-backdrop-filter: blur(28px) saturate(140%);
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.72);
@@ -1852,12 +1944,48 @@
 
   .wt-float-resizer {
     position: absolute;
+    z-index: 4;
+    touch-action: none;
+  }
+
+  .wt-float-resizer.is-w {
     top: 14px;
     bottom: 14px;
-    left: -4px;
-    width: 8px;
-    cursor: col-resize;
-    touch-action: none;
+    left: -5px;
+    width: 10px;
+    cursor: ew-resize;
+  }
+
+  .wt-float-resizer.is-e {
+    top: 14px;
+    bottom: 14px;
+    right: -5px;
+    width: 10px;
+    cursor: ew-resize;
+  }
+
+  .wt-float-resizer.is-s {
+    left: 14px;
+    right: 14px;
+    bottom: -5px;
+    height: 10px;
+    cursor: ns-resize;
+  }
+
+  .wt-float-resizer.is-sw {
+    left: -5px;
+    bottom: -5px;
+    width: 16px;
+    height: 16px;
+    cursor: nesw-resize;
+  }
+
+  .wt-float-resizer.is-se {
+    right: -5px;
+    bottom: -5px;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
   }
 
   .wt-chat-head {
@@ -1867,6 +1995,12 @@
     gap: 8px;
     padding: 1px 2px 6px;
     flex-shrink: 0;
+  }
+
+  .wt-chat-panel.is-floating .wt-chat-head {
+    padding: 1px 2px 8px;
+    margin-bottom: 2px;
+    border-bottom: 1px solid var(--mila-app-borderSubtle, rgba(255, 255, 255, 0.06));
   }
 
   .wt-chat-head.is-draggable {
@@ -2030,8 +2164,8 @@
     gap: 10px;
     padding: 6px 14px 6px 6px;
     border-radius: 20px;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.92);
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.075));
+    color: var(--mila-text-primary, rgba(255, 255, 255, 0.92));
     max-width: 100%;
     box-sizing: border-box;
   }
@@ -2093,17 +2227,17 @@
     line-height: 1;
   }
 
-  /* Rounded dark capsule input bar with inner action pill on the right */
+  /* Minimalist Mila-native chat input bar */
   .wt-chat-form {
     display: flex;
     align-items: center;
     gap: 6px;
-    height: 38px;
-    padding: 0 4px 0 12px;
+    height: 34px;
+    padding: 0 5px 0 11px;
     margin-top: 6px;
     border: none;
-    border-radius: 13px;
-    background: rgba(255, 255, 255, 0.048);
+    border-radius: 10px;
+    background: var(--mila-inputs-bg, var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.055)));
     flex-shrink: 0;
     box-sizing: border-box;
   }
@@ -2114,55 +2248,48 @@
     border: none;
     outline: none;
     background: transparent;
-    color: #ffffff;
+    color: var(--mila-text-primary, #ffffff);
     font-family: 'Medeo Sans', system-ui, sans-serif;
     font-size: 12.5px;
   }
 
   .wt-chat-input::placeholder {
-    color: rgba(255, 255, 255, 0.34);
-  }
-
-  .wt-chat-input-actions {
-    display: inline-flex;
-    align-items: center;
-    height: 32px;
-    padding: 0 4px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.055);
-    flex-shrink: 0;
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.34));
   }
 
   .wt-chat-send {
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     padding: 0;
     border: none;
-    border-radius: 8px;
+    border-radius: 7px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.78);
+    color: var(--mila-accent-primary, #ffffff);
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
     cursor: pointer;
     transition:
       color 0.16s ease,
-      opacity 0.16s ease;
+      opacity 0.16s ease,
+      transform 0.16s ease;
   }
 
   .wt-chat-send:disabled {
-    opacity: 0.28;
+    color: var(--mila-text-dim, rgba(255, 255, 255, 0.24));
+    opacity: 1;
     cursor: default;
   }
 
   .wt-chat-send:hover:not(:disabled) {
-    color: #ffffff;
+    transform: translateX(1px);
   }
 
   /* Below-the-fold Episodes Section (hidden on initial 100vh viewport, revealed on scroll) */
   .wt-player-body {
-    padding: clamp(20px, 2.4vw, 28px) var(--page-pad-x, 16px) 36px
-      var(--page-pad-x, 16px);
+    padding: clamp(20px, 2.4vw, 28px) var(--page-pad-x, 16px)
+      var(--page-pad-x, 16px) var(--page-pad-x, 16px);
     display: flex;
     flex-direction: column;
     gap: clamp(20px, 2.4vw, 28px);

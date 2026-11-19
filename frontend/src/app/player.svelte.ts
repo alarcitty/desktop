@@ -998,10 +998,14 @@ export function setWatchTogetherControlsLocked(locked: boolean): void {
 
 export function applyRemotePlaybackSync(paused: boolean, positionSec?: number, playbackRate?: number): void {
   if (typeof positionSec === 'number' && Number.isFinite(positionSec) && positionSec >= 0) {
-    player.resumeTime = positionSec;
     player.liveTime = positionSec;
+    if (!syncStateCallback || player.loading) {
+      player.resumeTime = positionSec;
+    }
   }
-  player.autoplay = !paused;
+  if (!syncStateCallback || player.loading) {
+    player.autoplay = !paused;
+  }
   if (syncStateCallback) {
     syncStateCallback(paused, positionSec, playbackRate);
     return;
