@@ -1102,7 +1102,7 @@
     position: relative;
     width: 100%;
     height: 100vh;
-    min-height: 620px;
+    min-height: 0;
     overflow: hidden;
     background: var(--mila-app-canvas, #0c0c0c);
     color: #ffffff;
@@ -1167,7 +1167,7 @@
     z-index: 1;
     width: 100%;
     height: 100%;
-    padding: calc(var(--header-height, 48px) + 14px) var(--page-pad-x, 16px)
+    padding: calc(var(--header-height, 48px) + 14px) var(--page-pad-x, 16px) 12px
       var(--page-pad-x, 16px);
     box-sizing: border-box;
     display: flex;
@@ -1553,11 +1553,11 @@
     transform: rotate(45deg);
   }
 
-  /* RIGHT-SIDE FRIENDS RAIL (flush to exact bottom-right corner matching --page-pad-x) */
+  /* RIGHT-SIDE FRIENDS RAIL (tucked snugly into exact bottom-right corner) */
   .wt-friends-rail {
     position: absolute;
-    right: var(--page-pad-x, 16px);
-    bottom: var(--page-pad-x, 16px);
+    right: 12px;
+    bottom: 12px;
     z-index: 15;
     display: flex;
     flex-direction: column;

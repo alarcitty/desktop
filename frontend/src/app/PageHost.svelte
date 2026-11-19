@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack, type Component } from 'svelte';
+  import { tick, untrack, type Component } from 'svelte';
   import {
     pages,
     getPage,
@@ -12,9 +12,10 @@
 
   interface Props {
     onBeforeEnter?: (pageId: PageId) => void;
+    onAfterSettle?: (pageId: PageId) => void;
   }
 
-  let { onBeforeEnter }: Props = $props();
+  let { onBeforeEnter, onAfterSettle }: Props = $props();
 
   const CACHED_PAGES = new Set<PageId>(pages.map((p) => p.id));
   const DETAIL_PAGES: PageId[] = ['anime', 'player', 'watch-together-player'];
@@ -94,13 +95,18 @@
             leavingId = null;
             morphMode = null;
             isTransitioning = false;
+            void tick().then(() => onAfterSettle?.(next));
           }
         }, MORPH_MS);
       } else {
         leaveTimer = window.setTimeout(() => {
           if (token !== switchToken) return;
           leavingId = null;
-          untrack(() => onBeforeEnter?.(next));
+          void tick().then(() => {
+            if (token !== switchToken) return;
+            untrack(() => onBeforeEnter?.(next));
+            onAfterSettle?.(next);
+          });
           enterRaf = window.requestAnimationFrame(() => {
             enterRaf = 0;
             if (token !== switchToken) return;
@@ -108,6 +114,7 @@
             settleTimer = window.setTimeout(() => {
               if (token === switchToken) {
                 isTransitioning = false;
+                onAfterSettle?.(next);
               }
             }, ENTER_SETTLE_MS);
           });
@@ -116,6 +123,7 @@
     } else if (nextKey !== currentRouteKeyTracked) {
       currentRouteKeyTracked = nextKey;
       untrack(() => onBeforeEnter?.(next));
+      void tick().then(() => onAfterSettle?.(next));
     }
   });
 
@@ -238,6 +246,8 @@
   .page-slot.is-leaving {
     position: absolute;
     inset: 0 0 auto 0;
+    max-height: 100vh;
+    overflow: hidden;
     z-index: 1;
     pointer-events: none;
     will-change: opacity, transform, filter;

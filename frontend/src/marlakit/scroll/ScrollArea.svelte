@@ -78,7 +78,13 @@
     cachedScrollHeight = viewportRef.scrollHeight;
     cachedClientHeight = viewportRef.clientHeight;
     cachedTrackHeight = trackRef?.clientHeight || cachedClientHeight;
-    scheduleThumbUpdate(false);
+    if (cachedScrollHeight <= cachedClientHeight + 1.5 && viewportRef.scrollTop > 0) {
+      stopWheelAnimation();
+      viewportRef.scrollTop = 0;
+      smoothTop = 0;
+      targetTop = 0;
+    }
+    updateThumb(false);
   }
 
   function hasInnerScrollable(target: EventTarget | null, deltaY: number): boolean {
@@ -106,11 +112,15 @@
       stopWheelAnimation();
       return;
     }
-    if (cachedClientHeight <= 0 || cachedScrollHeight <= 0) {
-      cachedScrollHeight = viewportRef.scrollHeight;
-      cachedClientHeight = viewportRef.clientHeight;
-    }
+    cachedScrollHeight = viewportRef.scrollHeight;
+    cachedClientHeight = viewportRef.clientHeight;
     const maxScroll = Math.max(0, cachedScrollHeight - cachedClientHeight);
+    if (maxScroll <= 1.5) {
+      viewportRef.scrollTop = 0;
+      updateThumb(false);
+      stopWheelAnimation();
+      return;
+    }
     if (targetTop > maxScroll) targetTop = maxScroll;
     if (targetTop < 0) targetTop = 0;
 
@@ -138,12 +148,13 @@
     if (!viewportRef || e.ctrlKey || e.metaKey || e.deltaY === 0) return;
     if (hasInnerScrollable(e.target, e.deltaY)) return;
 
-    if (cachedClientHeight <= 0 || cachedScrollHeight <= 0) {
-      cachedScrollHeight = viewportRef.scrollHeight;
-      cachedClientHeight = viewportRef.clientHeight;
-    }
+    cachedScrollHeight = viewportRef.scrollHeight;
+    cachedClientHeight = viewportRef.clientHeight;
     const maxScroll = Math.max(0, cachedScrollHeight - cachedClientHeight);
-    if (maxScroll <= 0) return;
+    if (maxScroll <= 1.5) {
+      updateThumb(false);
+      return;
+    }
 
     e.preventDefault();
 
@@ -174,18 +185,18 @@
 
   function updateThumb(showIndicator: boolean) {
     if (!viewportRef) return;
-    if (cachedClientHeight <= 0 || cachedScrollHeight <= 0) {
-      cachedScrollHeight = viewportRef.scrollHeight;
-      cachedClientHeight = viewportRef.clientHeight;
-    }
+    const scrollHeight = viewportRef.scrollHeight;
+    const clientHeight = viewportRef.clientHeight;
+    cachedScrollHeight = scrollHeight;
+    cachedClientHeight = clientHeight;
 
-    const scrollHeight = cachedScrollHeight;
-    const clientHeight = cachedClientHeight;
-
-    if (scrollHeight <= clientHeight) {
+    if (scrollHeight <= clientHeight + 1.5) {
       thumbHeight = 0;
       if (hasOverflow) hasOverflow = false;
       if (isVisible) isVisible = false;
+      if (viewportRef.scrollTop > 0) {
+        viewportRef.scrollTop = 0;
+      }
       return;
     }
 
@@ -237,16 +248,28 @@
     ro.observe(viewport);
     if (content) {
       ro.observe(content);
+      if (content.firstElementChild) {
+        ro.observe(content.firstElementChild);
+      }
     }
-    cachedScrollHeight = viewport.scrollHeight;
-    cachedClientHeight = viewport.clientHeight;
-    cachedTrackHeight = trackRef?.clientHeight || cachedClientHeight;
-    scheduleThumbUpdate(false);
+    const mo = new MutationObserver(() => {
+      scheduleThumbUpdate(false);
+    });
+    if (content) {
+      mo.observe(content, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'style']
+      });
+    }
+    syncMetrics();
     viewport.addEventListener('wheel', handleWheel, { passive: false });
 
     return () => {
       viewport.removeEventListener('wheel', handleWheel);
       stopWheelAnimation();
+      mo.disconnect();
       ro.disconnect();
       cancelAnimationFrame(rafId);
       rafId = 0;

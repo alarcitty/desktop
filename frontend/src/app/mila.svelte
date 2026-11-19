@@ -102,7 +102,10 @@
       scrolled={headerScrolled}
     />
     <ScrollArea bind:this={scrollArea} onscroll={handleViewportScroll}>
-      <PageHost onBeforeEnter={handlePageBeforeEnter} />
+      <PageHost
+        onBeforeEnter={handlePageBeforeEnter}
+        onAfterSettle={() => scrollArea?.syncMetrics()}
+      />
     </ScrollArea>
   </div>
 

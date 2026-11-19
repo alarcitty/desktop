@@ -3,7 +3,7 @@
   import { fade, fly, scale } from 'svelte/transition';
   import { cubicIn, cubicOut } from 'svelte/easing';
   import { MorphIcon } from 'morphicons/svelte';
-  import { Play, RefreshCw, BookOpen, MessageSquare, ExternalLink, X, ArrowUpRight } from 'lucide';
+  import { Play, RefreshCw, BookOpen, ExternalLink, X } from 'lucide';
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
   import SecondButton from '../../marlakit/button/SecondButton.svelte';
@@ -105,7 +105,7 @@
       }
       cols[targetCol].push({ item, index });
       const titleLines = item.title.length > 36 ? 2 : 1;
-      const estimatedHeight = (item.image ? 190 : 0) + 155 + titleLines * 22;
+      const estimatedHeight = (item.image ? 190 : 0) + 120 + titleLines * 22;
       heights[targetCol] += estimatedHeight;
     }
     return cols;
@@ -311,17 +311,17 @@
         {/each}
       </div>
 
-      <button
-        type="button"
-        class="sync-btn"
-        class:is-spinning={refreshing}
-        aria-label={t('news.sync')}
-        title={t('news.sync')}
-        onclick={() => fetchFeed(true)}
-      >
-        <MorphIcon icon={RefreshCw} size={15} strokeWidth={2} class="sync-icon" />
-        <span>{t('news.sync')}</span>
-      </button>
+      <div class="news-head-actions">
+        <SecondButton
+          loading={refreshing}
+          onclick={() => fetchFeed(true)}
+        >
+          {#snippet icon()}
+            <MorphIcon icon={RefreshCw} size={15} strokeWidth={1.9} />
+          {/snippet}
+          {t('news.sync')}
+        </SecondButton>
+      </div>
     </div>
 
     {#if loading}
@@ -449,45 +449,32 @@
                         {#if item.releaseAlias && item.episodeOrdinal}
                           <span class="media-ep-pill">EP {item.episodeOrdinal}</span>
                         {/if}
+                        {#if item.releaseAlias}
+                          <button
+                            type="button"
+                            class="story-play-fab"
+                            aria-label={t('news.watch')}
+                            disabled={watchingId === item.id}
+                            onclick={(e) => watchItem(item, e)}
+                          >
+                            <MorphIcon icon={Play} size={14} fill="currentColor" strokeWidth={0} />
+                          </button>
+                        {/if}
                       </div>
                     {/if}
 
                     <div class="story-info">
-                      <MetaLine score={item.score} tags={item.hashtags.slice(0, 3)} size="sm" />
+                      <MetaLine
+                        score={item.score}
+                        tags={[
+                          item.relativeTime ?? '',
+                          item.hashtags[0] ?? ''
+                        ].filter(Boolean)}
+                        size="sm"
+                      />
 
                       <h3 class="story-title">{item.title}</h3>
                       <p class="story-excerpt">{item.excerpt}</p>
-
-                      <div class="story-footer">
-                        <div class="footer-meta">
-                          {#if item.relativeTime}
-                            <span>{item.relativeTime}</span>
-                          {/if}
-                          {#if item.commentsCount && item.commentsCount > 0}
-                            <span class="meta-comments">
-                              <MorphIcon icon={MessageSquare} size={12} strokeWidth={2} />
-                              {item.commentsCount}
-                            </span>
-                          {/if}
-                        </div>
-
-                        {#if item.releaseAlias}
-                          <button
-                            type="button"
-                            class="story-action-pill is-watch"
-                            disabled={watchingId === item.id}
-                            onclick={(e) => watchItem(item, e)}
-                          >
-                            <MorphIcon icon={Play} size={12} fill="currentColor" strokeWidth={0} />
-                            <span>{watchingId === item.id ? '...' : t('news.watch')}</span>
-                          </button>
-                        {:else}
-                          <span class="story-action-pill is-read" aria-hidden="true">
-                            <span>{t('news.readStory')}</span>
-                            <MorphIcon icon={ArrowUpRight} size={13} strokeWidth={2} />
-                          </span>
-                        {/if}
-                      </div>
                     </div>
                   </div>
                 {/each}
@@ -602,6 +589,12 @@
     flex-direction: column;
     contain: style;
     -webkit-font-smoothing: antialiased;
+    --mila-buttons-mainBg: var(--mila-media-mainBtnBg, rgba(255, 255, 255, 0.96));
+    --mila-buttons-mainText: var(--mila-media-mainBtnText, #111111);
+    --mila-buttons-secondBg: var(--mila-media-secondBtnBg, rgba(255, 255, 255, 0.08));
+    --mila-buttons-secondText: var(--mila-media-secondBtnText, #ffffff);
+    --mila-meta-tag: var(--mila-media-subtext, rgba(255, 255, 255, 0.56));
+    --mila-meta-dot: var(--mila-media-muted, rgba(255, 255, 255, 0.36));
     transition: background-color 360ms cubic-bezier(0.22, 1, 0.36, 1), color 320ms ease;
   }
 
@@ -676,7 +669,7 @@
     align-items: flex-end;
     justify-content: space-between;
     gap: 16px;
-    height: clamp(32px, 3.4vw, 48px);
+    min-height: clamp(32px, 3.4vw, 48px);
     flex-shrink: 0;
     padding: 0 var(--page-pad-x);
     box-sizing: content-box;
@@ -771,44 +764,10 @@
     opacity: 1;
   }
 
-  .sync-btn {
+  .news-head-actions {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    height: 36px;
-    padding: 0 14px;
-    border: none;
-    border-radius: 11px;
-    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.06));
-    backdrop-filter: blur(12px);
-    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.72));
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13px;
-    cursor: pointer;
-    margin-bottom: 2px;
-    transition:
-      background-color 0.2s var(--ease-out),
-      color 0.2s var(--ease-out),
-      transform 0.1s ease;
-  }
-
-  .sync-btn:hover {
-    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.12));
-    color: var(--mila-text-primary, #ffffff);
-  }
-
-  .sync-btn:active {
-    transform: scale(0.96);
-  }
-
-  .sync-btn.is-spinning :global(.sync-icon) {
-    animation: spin 0.9s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
+    flex-shrink: 0;
   }
 
   .news-hero-stages {
@@ -1005,17 +964,56 @@
     top: 10px;
     left: 10px;
     z-index: 2;
-    padding: 3px 8px;
-    border-radius: 6px;
-    background: rgba(12, 12, 14, 0.72);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: rgba(12, 12, 14, 0.68);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
     font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    color: var(--mila-accent, #d9ff70);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: rgba(255, 255, 255, 0.92);
     pointer-events: none;
+  }
+
+  .story-play-fab {
+    position: absolute;
+    right: 12px;
+    bottom: 10px;
+    z-index: 3;
+    width: 34px;
+    height: 34px;
+    padding: 0 0 0 2px;
+    border: none;
+    border-radius: 999px;
+    background: var(--mila-buttons-mainBg, rgba(255, 255, 255, 0.96));
+    color: var(--mila-buttons-mainText, #111111);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(4px) scale(0.92);
+    transition:
+      opacity 0.22s var(--ease-out),
+      transform 0.24s var(--ease-out),
+      filter 0.16s ease;
+  }
+
+  .story-card:hover .story-play-fab,
+  .story-play-fab:focus-visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  .story-play-fab:hover:not(:disabled) {
+    filter: brightness(1.06);
+    transform: scale(1.06);
+  }
+
+  .story-play-fab:active:not(:disabled) {
+    transform: scale(0.94);
   }
 
   .story-info {
@@ -1024,8 +1022,8 @@
     margin-top: -1px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 13px 18px 15px 18px;
+    gap: 7px;
+    padding: 13px 16px 16px 16px;
     flex: 0 0 auto;
   }
 
@@ -1037,7 +1035,7 @@
   .story-title {
     margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(15.5px, 1.42vw, 17.5px);
+    font-size: clamp(15px, 1.35vw, 17px);
     font-weight: 700;
     line-height: 1.24;
     color: var(--mila-text-primary, #f3f3f3);
@@ -1051,83 +1049,14 @@
   .story-excerpt {
     margin: 0;
     font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 13.5px;
+    font-size: 13px;
     line-height: 1.44;
-    color: var(--mila-text-muted, #8d8d8d);
+    color: var(--mila-text-muted, rgba(255, 255, 255, 0.56));
     display: -webkit-box;
     line-clamp: 2;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
-  }
-
-  .story-footer {
-    padding-top: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .footer-meta {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12.5px;
-    color: var(--mila-text-dim, #6b6b70);
-  }
-
-  .meta-comments {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .story-action-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    height: 28px;
-    padding: 0 11px;
-    border: none;
-    border-radius: 8px;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: 12.5px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    transition:
-      background-color 0.22s var(--ease-out),
-      color 0.22s var(--ease-out),
-      transform 0.14s ease,
-      opacity 0.22s var(--ease-out);
-  }
-
-  .story-action-pill.is-watch {
-    background: var(--mila-accent-muted, rgba(217, 255, 112, 0.14));
-    color: var(--mila-accent, #d9ff70);
-    cursor: pointer;
-  }
-
-  .story-action-pill.is-watch:hover {
-    background: var(--mila-accent, #d9ff70);
-    color: #0b0b0c;
-  }
-
-  .story-action-pill.is-watch:active {
-    transform: scale(0.95);
-  }
-
-  .story-action-pill.is-read {
-    background: rgba(255, 255, 255, 0.045);
-    color: var(--mila-text-secondary, rgba(255, 255, 255, 0.7));
-    opacity: 0.72;
-  }
-
-  .story-card:hover .story-action-pill.is-read {
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--mila-text-primary, #ffffff);
-    opacity: 1;
   }
 
   /* Loading skeletons */
@@ -1231,23 +1160,28 @@
     top: 16px;
     right: 16px;
     z-index: 5;
-    width: 34px;
-    height: 34px;
+    width: 38px;
+    height: 38px;
     border: none;
-    border-radius: 10px;
-    background: var(--mila-app-surfaceGlass, rgba(10, 10, 12, 0.65));
+    border-radius: 999px;
+    background: var(--mila-buttons-secondBg, rgba(255, 255, 255, 0.1));
     backdrop-filter: blur(12px);
-    color: var(--mila-text-primary, rgba(255, 255, 255, 0.85));
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--mila-text-primary, rgba(255, 255, 255, 0.88));
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.14s ease;
   }
 
   .reader-close:hover {
-    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.16));
+    background: var(--mila-buttons-secondBgHover, rgba(255, 255, 255, 0.18));
     color: var(--mila-text-primary, #ffffff);
+  }
+
+  .reader-close:active {
+    transform: scale(0.94);
   }
 
   .reader-content {
