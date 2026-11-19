@@ -15,7 +15,7 @@
     <a href="https://github.com/mila-desktop/desktop/issues">Issues</a>
   </p>
   <br />
-  <img src="images/hero.png" alt="Mila Home" width="100%" />
+  <img src="images/home-hero.png" alt="Mila Home" width="100%" />
 </div>
 
 <br />
@@ -23,7 +23,7 @@
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="images/animepage.png" alt="Anime Page" width="100%" />
+      <img src="images/anime-page.png" alt="Anime Page" width="100%" />
       <p align="center"><sub>Anime page, seasons &amp; frames</sub></p>
     </td>
     <td width="50%" valign="top">
@@ -37,7 +37,7 @@
       <p align="center"><sub>Watch Together rooms &amp; live sync</sub></p>
     </td>
     <td width="50%" valign="top">
-      <img src="images/library.png" alt="Library" width="100%" />
+      <img src="images/library-view.png" alt="Library" width="100%" />
       <p align="center"><sub>Library, likes &amp; watch history</sub></p>
     </td>
   </tr>
