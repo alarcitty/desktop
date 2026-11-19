@@ -13,10 +13,12 @@
     expandCustomPip,
     fallbackVoice,
     nextEpisode,
+    notifyLocalPlayerAction,
     prevEpisode,
     player,
     registerPlayerPauseControl,
     registerPlayerSeekControl,
+    registerPlayerSyncBridge,
     reportPlaybackProgress,
     selectDubVoice,
     setDubAudioOffset,
@@ -276,8 +278,13 @@
 
   onMount(() => {
     registerPlayerSeekControl((seconds) => hlsPlayerRef?.seek(seconds));
+    registerPlayerSyncBridge(
+      (paused, pos, rate) => hlsPlayerRef?.applySyncState(paused, pos, rate),
+      () => hlsPlayerRef?.getPlaybackSnapshot() ?? null
+    );
     return () => {
       registerPlayerSeekControl(null);
+      registerPlayerSyncBridge(null, null);
     };
   });
 
@@ -424,6 +431,7 @@
             !player.pipMode) ||
             isPipVisible
         )}
+        controlsLocked={player.wtControlsLocked}
         chatOpen={player.wtChatOpen}
         chatUnread={player.wtChatUnread}
         ontogglechat={router.current === 'watch-together-player'
@@ -432,6 +440,7 @@
         onprev={prevEpisode}
         onnext={nextEpisode}
         ontimeprogress={(sec, dur, force) => reportPlaybackProgress(sec, dur, force)}
+        onplaybackaction={(ev) => notifyLocalPlayerAction(ev)}
         onselectvoice={(voice, sec) => void switchVoice(voice, sec)}
         onselectdubvoice={(voice) => void selectDubVoice(voice)}
         onduboffsetchange={(offset) => setDubAudioOffset(offset)}

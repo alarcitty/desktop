@@ -20,7 +20,7 @@
   import ComboBox from '../../marlakit/combo/ComboBox.svelte';
   import type { ComboOption } from '../../marlakit/combo/types';
   import { portal } from '../../marlakit/portal';
-  import { getCachedArtwork } from '../../api/anime';
+  import { ensureShikimoriArtwork, getCachedArtwork } from '../../api/anime';
   import type { FriendProfile } from '../../api/friends';
   import type { RoomControlMode, RoomVisibility } from '../../api/watchTogether';
   import { auth, loginWithGoogle } from '../../app/auth.svelte';
@@ -31,6 +31,7 @@
   import { navigate } from '../../app/router.svelte';
   import { openSearch } from '../../app/search.svelte';
   import {
+    addDraftInviteFriend,
     cancelWatchRoomInvite,
     connectWatchTogether,
     createWatchRoom,
@@ -38,7 +39,6 @@
     joinFriendWatchRoom,
     kickWatchRoomMember,
     leaveWatchRoom,
-    markWatchRoomStarted,
     selectAnimeForWatchTogether,
     transferWatchRoomHost,
     updateWatchRoomSettings,
@@ -75,14 +75,18 @@
     Boolean(activeRoom && myPublicId && activeRoom.host_public_id === myPublicId)
   );
 
-  // Selected anime: room media > explicit draftAnime > currently loaded player > most recent watchHistory
+  // Selected anime: inside an active room ALWAYS mirror activeRoom.media so all members see the exact same anime.
+  // Outside a room (lobby draft), fall back: draftAnime > current player > most recent watchHistory.
   const selectedAnime = $derived.by(() => {
-    if (activeRoom && activeRoom.media?.title) {
+    if (activeRoom) {
+      if (!activeRoom.media?.title) {
+        return null;
+      }
       const shikiId = activeRoom.media.shiki_id;
       const art = shikiId ? getCachedArtwork(shikiId) : undefined;
       const draftMatch =
         watchTogetherState.draftAnime &&
-        (watchTogetherState.draftAnime.shikiId === shikiId ||
+        ((shikiId && watchTogetherState.draftAnime.shikiId === shikiId) ||
           watchTogetherState.draftAnime.title === activeRoom.media.title)
           ? watchTogetherState.draftAnime
           : null;
@@ -92,8 +96,8 @@
         art?.posterOriginal ||
         art?.posterMain ||
         '';
-      const backdrop = draftMatch?.backdrop || art?.screenshots?.[0] || poster;
-      const description = draftMatch?.description || art?.description || '';
+      const backdrop = art?.screenshots?.[0] || draftMatch?.backdrop || poster;
+      const description = art?.description || draftMatch?.description || '';
       return {
         title: activeRoom.media.title,
         description,
@@ -101,7 +105,7 @@
         backdrop,
         shikiId,
         releaseAlias: activeRoom.media.release_alias || draftMatch?.releaseAlias,
-        score: draftMatch?.score ?? art?.score,
+        score: art?.score ?? draftMatch?.score,
         tags: [
           art?.year ? String(art.year) : '',
           art?.episodes ? `${art.episodes} ep` : ''
@@ -375,42 +379,42 @@
     }
   }
 
-  async function handleStartOrContinueRoom() {
+  $effect(() => {
+    const shikiId = selectedAnime?.shikiId;
+    if (shikiId && shikiId > 0) {
+      void ensureShikimoriArtwork([shikiId]);
+    }
+  });
+
+  async function handleCreateRoom() {
     if (!auth.user) {
       await loginWithGoogle();
       return;
     }
-    if (busy) return;
+    if (busy || activeRoom) return;
     busy = true;
     try {
       const anime = selectedAnime;
-      if (!activeRoom) {
-        await createWatchRoom(
-          {
-            title:
-              watchTogetherState.draftTitle.trim() ||
-              anime?.title ||
-              `${auth.user.username || auth.user.name}'s room`,
-            visibility: watchTogetherState.draftVisibility,
-            control_mode: watchTogetherState.draftControlMode,
-            max_members: watchTogetherState.draftMaxMembers,
-            media: anime
-              ? {
-                  shiki_id: anime.shikiId,
-                  release_alias: anime.releaseAlias,
-                  title: anime.title,
-                  poster: anime.poster,
-                  episode_ordinal: 1,
-                  episode_index: 0,
-                  search_queries: anime.searchQueries
-                }
-              : undefined
-          },
-          true
-        );
-      } else {
-        markWatchRoomStarted();
-      }
+      await createWatchRoom({
+        title:
+          watchTogetherState.draftTitle.trim() ||
+          anime?.title ||
+          `${auth.user.username || auth.user.name}'s room`,
+        visibility: watchTogetherState.draftVisibility,
+        control_mode: watchTogetherState.draftControlMode,
+        max_members: watchTogetherState.draftMaxMembers,
+        media: anime
+          ? {
+              shiki_id: anime.shikiId,
+              release_alias: anime.releaseAlias,
+              title: anime.title,
+              poster: anime.poster,
+              episode_ordinal: 1,
+              episode_index: 0,
+              search_queries: anime.searchQueries
+            }
+          : undefined
+      });
 
       if (watchTogetherState.draftInvitedIds.length > 0) {
         const toInvite = [...watchTogetherState.draftInvitedIds];
@@ -419,9 +423,39 @@
           void inviteFriendToWatchRoom(friendId).catch(() => {});
         }
       }
+      // Stay on Room view so members can see invitations, chat, settings, and click Watch when ready.
+    } finally {
+      busy = false;
+    }
+  }
 
-      if (anime) {
-        void selectAnimeForWatchTogether(anime);
+  async function handleEnterPlayer() {
+    if (!auth.user) {
+      await loginWithGoogle();
+      return;
+    }
+    if (busy || !activeRoom) return;
+    busy = true;
+    try {
+      const media = activeRoom.media;
+      const anime = selectedAnime;
+      if (media?.title) {
+        void openWatch(
+          {
+            title: media.title,
+            shikiId: media.shiki_id,
+            releaseAlias: media.release_alias,
+            searchQueries: media.search_queries ?? [media.title]
+          },
+          {
+            targetPage: 'watch-together-player',
+            autoPlay: !(activeRoom.playback?.paused ?? true),
+            episodeOrdinal: media.episode_ordinal || 1,
+            resumeTime: activeRoom.playback?.position_sec || 0
+          }
+        );
+      } else if (anime && isHost) {
+        await selectAnimeForWatchTogether(anime);
         void openWatch(
           {
             title: anime.title,
@@ -432,8 +466,8 @@
           {
             targetPage: 'watch-together-player',
             autoPlay: true,
-            episodeOrdinal: activeRoom?.media?.episode_ordinal || 1,
-            resumeTime: activeRoom?.playback?.position_sec || 0
+            episodeOrdinal: 1,
+            resumeTime: 0
           }
         );
       } else {
@@ -533,13 +567,15 @@
 
   async function handleCtxInvite(targetId: string) {
     ctxMenu = null;
-    if (!watchTogetherState.draftInvitedIds.includes(targetId)) {
-      watchTogetherState.draftInvitedIds = [...watchTogetherState.draftInvitedIds, targetId];
+    if (!activeRoom) {
+      // Stage locally ONLY before clicking Create (do not create room or notify friend yet)
+      addDraftInviteFriend(targetId);
+      return;
     }
     try {
       await inviteFriendToWatchRoom(targetId);
     } catch {
-      // keep in draftInvitedIds if offline
+      addDraftInviteFriend(targetId);
     }
   }
 
@@ -553,23 +589,8 @@
     if (busy) return;
     busy = true;
     try {
-      const rm = await joinFriendWatchRoom(targetId);
-      if (rm.media?.title) {
-        void openWatch(
-          {
-            title: rm.media.title,
-            shikiId: rm.media.shiki_id,
-            releaseAlias: rm.media.release_alias,
-            searchQueries: rm.media.search_queries ?? [rm.media.title]
-          },
-          {
-            targetPage: 'watch-together-player',
-            autoPlay: true,
-            episodeOrdinal: rm.media.episode_ordinal || 1,
-            resumeTime: rm.playback?.position_sec || 0
-          }
-        );
-      }
+      await joinFriendWatchRoom(targetId);
+      // Stay in the WatchTogether Room lobby so user clicks Watch explicitly
     } finally {
       busy = false;
     }
@@ -627,7 +648,7 @@
     <header class="wt-top-bar">
       <div class="wt-heading-group">
         <h1 class="wt-main-heading">
-          {activeRoom && watchTogetherState.roomStarted ? 'Room' : 'Create room'}
+          {activeRoom ? 'Room' : 'Create room'}
         </h1>
 
         {#if editingTitle}
@@ -735,8 +756,11 @@
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <h2
             class="wt-anime-title"
-            title="Click to choose another anime"
-            onclick={() => openSearch()}
+            class:is-clickable={!activeRoom || isHost}
+            title={!activeRoom || isHost ? 'Click to choose another anime' : selectedAnime.title}
+            onclick={() => {
+              if (!activeRoom || isHost) openSearch();
+            }}
           >
             {selectedAnime.title}
           </h2>
@@ -764,6 +788,16 @@
             <p class="wt-anime-desc">{selectedAnime.description}</p>
           {/if}
         </div>
+      {:else if activeRoom && !isHost}
+        <div
+          class="wt-choose-prompt is-waiting"
+          in:revealBlur={{ duration: 260, scale: 0.97, blur: 8 }}
+        >
+          <span class="wt-choose-title">Waiting for host</span>
+          <span class="wt-choose-sub">
+            The host has not selected an anime yet
+          </span>
+        </div>
       {:else}
         <button
           type="button"
@@ -779,26 +813,26 @@
       {/if}
     </div>
 
-    <!-- BOTTOM BAR: Create / Continue / Leave room + ComboBox Settings pills -->
+    <!-- BOTTOM BAR: Create / Watch / Leave room + ComboBox Settings pills -->
     <footer class="wt-bottom-bar">
       <div class="wt-bottom-left">
-        {#if !activeRoom || !watchTogetherState.roomStarted}
+        {#if !activeRoom}
           <button
             type="button"
             class="wt-create-cta"
             disabled={busy}
-            onclick={() => void handleStartOrContinueRoom()}
+            onclick={() => void handleCreateRoom()}
           >
-            {busy ? 'Starting…' : 'Create'}
+            {busy ? 'Creating…' : 'Create'}
           </button>
         {:else}
           <button
             type="button"
             class="wt-create-cta"
-            disabled={busy}
-            onclick={() => void handleStartOrContinueRoom()}
+            disabled={busy || (!activeRoom.media?.title && !selectedAnime)}
+            onclick={() => void handleEnterPlayer()}
           >
-            Continue
+            Watch
           </button>
 
           <button

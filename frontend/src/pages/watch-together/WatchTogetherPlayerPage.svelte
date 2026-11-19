@@ -33,14 +33,18 @@
   import { openSearch } from '../../app/search.svelte';
   import {
     applyRemotePlaybackSync,
+    getPlayerPlaybackSnapshot,
     openTorrentStream,
     openWatch,
     player,
     retryWatch,
     selectEpisode,
     setInlinePlayerStage,
-    setWatchTogetherChatControl
+    setWatchTogetherChatControl,
+    setWatchTogetherControlsLocked,
+    setWatchTogetherPlaybackListener
   } from '../../app/player.svelte';
+  import { computeLiveRoomPosition } from '../../api/watchTogether';
   import {
     leaveWatchRoom,
     sendWatchRoomChat,
@@ -188,7 +192,45 @@
     }
   });
 
-  // Ensure media is loaded into player if user joined a room directly
+  // Enforce host-only playback lock on viewers when room control_mode === 'host_only'
+  $effect(() => {
+    setWatchTogetherControlsLocked(Boolean(activeRoom && !canControlPlayback));
+    return () => {
+      setWatchTogetherControlsLocked(false);
+    };
+  });
+
+  // Host resolved media/episode writeback so viewer always gets exact releaseAlias + shikiId + episode
+  let lastHostWritebackKey = '';
+  $effect(() => {
+    const rm = activeRoom;
+    const rel = player.release;
+    if (!rm || !isHost || !rel || player.loading) return;
+    const epOrd = currentEpisode?.ordinal ?? (player.episodeIndex + 1);
+    const shikiId = currentShikiId || rm.media?.shiki_id || 0;
+    const wbKey = `${rm.room_id}:${rel.alias}:${shikiId}:${epOrd}`;
+    if (wbKey === lastHostWritebackKey) return;
+
+    const needsSync =
+      rm.media?.release_alias !== rel.alias ||
+      (shikiId > 0 && !rm.media?.shiki_id) ||
+      (rm.media?.episode_ordinal || 1) !== epOrd;
+
+    lastHostWritebackKey = wbKey;
+    if (needsSync) {
+      void setWatchRoomMedia({
+        shiki_id: shikiId || undefined,
+        release_alias: rel.alias,
+        title: displayTitle,
+        poster: posterUrl,
+        episode_ordinal: epOrd,
+        episode_index: player.episodeIndex,
+        search_queries: player.target?.searchQueries ?? rm.media?.search_queries ?? [displayTitle]
+      }).catch(() => {});
+    }
+  });
+
+  // Ensure media is loaded into player if room media changes or user entered WatchTogetherPlayerPage
   let lastSyncedMediaKey = '';
   $effect(() => {
     const rm = activeRoom;
@@ -216,7 +258,7 @@
           targetPage: 'watch-together-player',
           autoPlay: !rm.playback?.paused,
           episodeOrdinal: rm.media.episode_ordinal || 1,
-          resumeTime: rm.playback?.position_sec || 0
+          resumeTime: rm.playback ? computeLiveRoomPosition(rm.playback) : 0
         }
       );
     } else if (rm.media.episode_ordinal && currentEpisode?.ordinal !== rm.media.episode_ordinal) {
@@ -227,9 +269,31 @@
     }
   });
 
-  // Sync incoming room playback state (pause/resume/seek) from other members
+  // Sync incoming room playback state (pause/resume/seek/rate) & reconcile continuously until player catches up
   let lastAppliedPlaybackSeq = 0;
   let suppressOutgoingPlaySyncUntil = 0;
+
+  function reconcileViewerPlayback(forceApply = false) {
+    const rm = activeRoom;
+    const pb = rm?.playback;
+    if (!rm || !pb) return;
+    if (pb.updated_by && pb.updated_by === myPublicId && !forceApply) return;
+    if (player.loading) return;
+    const snap = getPlayerPlaybackSnapshot();
+    if (!snap || !snap.ready) return;
+
+    const targetPos = computeLiveRoomPosition(pb);
+    const targetRate = pb.playback_rate && pb.playback_rate > 0 ? pb.playback_rate : 1;
+    const pauseMismatch = snap.paused !== pb.paused;
+    const rateMismatch = Math.abs(snap.playbackRate - targetRate) > 0.02;
+    const drift = Math.abs(snap.currentTime - targetPos);
+    const posMismatch = pb.paused ? drift > 0.45 : drift > 1.35;
+
+    if (forceApply || pauseMismatch || rateMismatch || posMismatch) {
+      suppressOutgoingPlaySyncUntil = Date.now() + 900;
+      applyRemotePlaybackSync(pb.paused, targetPos, targetRate);
+    }
+  }
 
   $effect(() => {
     const rm = activeRoom;
@@ -238,21 +302,65 @@
     if (pb.seq <= lastAppliedPlaybackSeq) return;
     lastAppliedPlaybackSeq = pb.seq;
     if (pb.updated_by && pb.updated_by === myPublicId) return;
-    suppressOutgoingPlaySyncUntil = Date.now() + 900;
-    applyRemotePlaybackSync(pb.paused, pb.position_sec);
+    reconcileViewerPlayback(true);
   });
 
-  // Broadcast local play/pause changes when user can control playback
-  let prevLocalPlaying = player.isPlaying;
+  // Broadcast immediate play / pause / seek / speed changes when user is allowed to control playback
   $effect(() => {
-    const nowPlaying = player.isPlaying;
-    if (nowPlaying === prevLocalPlaying) return;
-    prevLocalPlaying = nowPlaying;
-    if (!activeRoom || !canControlPlayback) return;
-    if (Date.now() < suppressOutgoingPlaySyncUntil) return;
-    void syncWatchRoomPlayback({
-      paused: !nowPlaying
-    }).catch(() => {});
+    if (!activeRoom || !canControlPlayback) {
+      setWatchTogetherPlaybackListener(null);
+      return;
+    }
+    setWatchTogetherPlaybackListener((ev) => {
+      if (Date.now() < suppressOutgoingPlaySyncUntil) return;
+      void syncWatchRoomPlayback({
+        paused: ev.paused,
+        position_sec: ev.currentTime,
+        playback_rate: ev.playbackRate
+      }).catch(() => {});
+    });
+    return () => {
+      setWatchTogetherPlaybackListener(null);
+    };
+  });
+
+  // Continuous loop:
+  // - Host sends periodic position heartbeat (every 2.5s while playing or if paused state/position drifted)
+  // - Viewers (or everyone when another user updated pb) continuously reconcile once video becomes ready
+  $effect(() => {
+    if (!activeRoom) return;
+    const timer = window.setInterval(() => {
+      const rm = activeRoom;
+      if (!rm) return;
+      if (isHost) {
+        if (player.loading || Date.now() < suppressOutgoingPlaySyncUntil) return;
+        const snap = getPlayerPlaybackSnapshot();
+        if (!snap || !snap.ready) return;
+        const pb = rm.playback;
+        const curRate = snap.playbackRate || 1;
+        const pbRate = pb?.playback_rate || 1;
+        const pbPos = pb ? computeLiveRoomPosition(pb) : 0;
+        const posDiff = Math.abs(snap.currentTime - pbPos);
+        const stateDiff =
+          !pb ||
+          snap.paused !== pb.paused ||
+          Math.abs(curRate - pbRate) > 0.02 ||
+          (!snap.paused && posDiff >= 0.8) ||
+          (snap.paused && posDiff >= 0.45);
+        if (stateDiff) {
+          void syncWatchRoomPlayback({
+            paused: snap.paused,
+            position_sec: snap.currentTime,
+            playback_rate: curRate
+          }).catch(() => {});
+        }
+      } else {
+        reconcileViewerPlayback(false);
+      }
+    }, 950);
+    return () => {
+      window.clearInterval(timer);
+    };
   });
 
   function toggleChatPinned() {
@@ -461,6 +569,8 @@
   onDestroy(() => {
     torrentReqToken += 1;
     torrentResults = [];
+    setWatchTogetherControlsLocked(false);
+    setWatchTogetherPlaybackListener(null);
   });
 
   function toggleEpSort(key: EpSortKey) {
@@ -696,25 +806,12 @@
               {:else}
                 {#each chatMessages as msg (msg.id)}
                   {#if msg.kind === 'system'}
-                    <div
-                      class="wt-msg-system"
-                      in:revealBlur={{ duration: 220, y: 4, scale: 0.96, blur: 5 }}
-                    >
+                    <div class="wt-msg-system">
                       {msg.text}
                     </div>
                   {:else}
                     {@const isMine = msg.sender_public_id === myPublicId}
-                    <div
-                      class="wt-msg-item"
-                      class:is-mine={isMine}
-                      in:revealBlur={{
-                        duration: 260,
-                        x: isMine ? 16 : -16,
-                        y: 4,
-                        scale: 0.9,
-                        blur: 6
-                      }}
-                    >
+                    <div class="wt-msg-item" class:is-mine={isMine}>
                       {#if isMine}
                         <div class="wt-bubble-mine">
                           <span class="wt-bubble-text">{msg.text}</span>
@@ -843,25 +940,12 @@
               {:else}
                 {#each chatMessages as msg (msg.id)}
                   {#if msg.kind === 'system'}
-                    <div
-                      class="wt-msg-system"
-                      in:revealBlur={{ duration: 220, y: 4, scale: 0.96, blur: 5 }}
-                    >
+                    <div class="wt-msg-system">
                       {msg.text}
                     </div>
                   {:else}
                     {@const isMine = msg.sender_public_id === myPublicId}
-                    <div
-                      class="wt-msg-item"
-                      class:is-mine={isMine}
-                      in:revealBlur={{
-                        duration: 260,
-                        x: isMine ? 16 : -16,
-                        y: 4,
-                        scale: 0.9,
-                        blur: 6
-                      }}
-                    >
+                    <div class="wt-msg-item" class:is-mine={isMine}>
                       {#if isMine}
                         <div class="wt-bubble-mine">
                           <span class="wt-bubble-text">{msg.text}</span>
@@ -1473,19 +1557,39 @@
     font-size: 11px;
     color: rgba(255, 255, 255, 0.24);
     padding: 2px 6px;
+    --wt-msg-dx: 0px;
+    animation: wtMsgIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .wt-msg-item {
+    align-self: flex-start;
+    width: fit-content;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 3px;
     max-width: 88%;
+    --wt-msg-dx: -14px;
+    animation: wtMsgIn 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .wt-msg-item.is-mine {
     align-self: flex-end;
     align-items: flex-end;
+    --wt-msg-dx: 14px;
+  }
+
+  @keyframes wtMsgIn {
+    from {
+      opacity: 0;
+      transform: translate3d(var(--wt-msg-dx, 0px), 6px, 0) scale(0.92);
+      filter: blur(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: blur(0px);
+    }
   }
 
   /* Incoming message: lightweight Mila glass capsule with compact left avatar */

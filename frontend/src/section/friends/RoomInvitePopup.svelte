@@ -4,7 +4,6 @@
   import LayerBlur from '../../marlakit/blur/LayerBlur.svelte';
   import { revealBlur } from '../../app/reveal';
   import { navigate } from '../../app/router.svelte';
-  import { openWatch } from '../../app/player.svelte';
   import {
     declineWatchRoomInvite,
     joinWatchRoom,
@@ -36,28 +35,11 @@
     if (busyInviteId) return;
     busyInviteId = invite.invite_id;
     try {
-      const rm = await joinWatchRoom({
+      await joinWatchRoom({
         room_id: invite.room_id,
         room_code: invite.room_code
       });
-      if (rm.media?.title) {
-        void openWatch(
-          {
-            title: rm.media.title,
-            shikiId: rm.media.shiki_id,
-            releaseAlias: rm.media.release_alias,
-            searchQueries: rm.media.search_queries ?? [rm.media.title]
-          },
-          {
-            targetPage: 'watch-together-player',
-            autoPlay: true,
-            episodeOrdinal: rm.media.episode_ordinal || 1,
-            resumeTime: rm.playback?.position_sec || 0
-          }
-        );
-      } else {
-        navigate('watch-together');
-      }
+      navigate('watch-together');
     } catch {
       // Ignore or dismiss broken invite
       await declineWatchRoomInvite(invite);

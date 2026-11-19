@@ -75,6 +75,7 @@
     hasFallback?: boolean;
     isPip?: boolean;
     keyboardEnabled?: boolean;
+    controlsLocked?: boolean;
     chatOpen?: boolean;
     chatUnread?: number;
     ontogglechat?: () => void;
@@ -82,6 +83,13 @@
     onnext?: () => void;
     onended?: () => void;
     ontimeprogress?: (currentTime: number, duration: number, force?: boolean) => void;
+    onplaybackaction?: (event: {
+      kind: 'play' | 'pause' | 'seek' | 'rate';
+      currentTime: number;
+      duration: number;
+      paused: boolean;
+      playbackRate: number;
+    }) => void;
     onselectvoice?: (voice: VoiceTrackOption, currentTime: number) => void;
     onselectdubvoice?: (voice: VoiceTrackOption | null) => void;
     onduboffsetchange?: (offsetSec: number) => void;
@@ -116,6 +124,7 @@
     hasFallback = false,
     isPip = false,
     keyboardEnabled = true,
+    controlsLocked = false,
     chatOpen = false,
     chatUnread = 0,
     ontogglechat,
@@ -123,6 +132,7 @@
     onnext,
     onended,
     ontimeprogress,
+    onplaybackaction,
     onselectvoice,
     onselectdubvoice,
     onduboffsetchange,
@@ -224,19 +234,95 @@
   let spaceIsDown = false;
   let networkRetries = 0;
   let reparentingGuard = false;
+  let suppressSyncUntil = 0;
   let suppressNextVideoClick = false;
   let activeBlobRevoke: (() => void) | null = null;
   let pendingRestoreSeek: (() => void) | null = null;
   let autoSkippedOp = false;
   let autoSkippedEd = false;
 
+  function emitLocalPlaybackAction(
+    kind: 'play' | 'pause' | 'seek' | 'rate',
+    overrides?: { paused?: boolean; currentTime?: number; playbackRate?: number }
+  ): void {
+    if (!onplaybackaction || Date.now() < suppressSyncUntil) return;
+    const now = overrides?.currentTime ?? streamTimeNow();
+    const tot = remuxTotalDuration > 0 ? remuxTotalDuration : videoEl?.duration || duration || 0;
+    const isPaused = overrides?.paused ?? (videoEl ? videoEl.paused : !playing);
+    const rate = overrides?.playbackRate ?? playbackRate;
+    onplaybackaction({
+      kind,
+      currentTime: Number.isFinite(now) ? now : 0,
+      duration: Number.isFinite(tot) ? tot : 0,
+      paused: isPaused,
+      playbackRate: Number.isFinite(rate) && rate > 0 ? rate : 1
+    });
+  }
+
+  export function getPlaybackSnapshot(): {
+    currentTime: number;
+    duration: number;
+    paused: boolean;
+    playbackRate: number;
+    ready: boolean;
+  } {
+    const now = streamTimeNow();
+    const tot = remuxTotalDuration > 0 ? remuxTotalDuration : videoEl?.duration || duration || 0;
+    const ready = Boolean(videoEl && (playbackMode === 'remux' || videoEl.readyState >= 2));
+    return {
+      currentTime: Number.isFinite(now) ? now : 0,
+      duration: Number.isFinite(tot) ? tot : 0,
+      paused: videoEl ? videoEl.paused : !playing,
+      playbackRate,
+      ready
+    };
+  }
+
+  export function applySyncState(paused: boolean, positionSec?: number, rate?: number): void {
+    if (!videoEl) return;
+    suppressSyncUntil = Date.now() + 700;
+
+    if (typeof rate === 'number' && Number.isFinite(rate) && rate > 0 && Math.abs(rate - playbackRate) > 0.01) {
+      playbackRate = rate;
+      applyPlaybackRate(rate);
+    }
+
+    if (typeof positionSec === 'number' && Number.isFinite(positionSec) && positionSec >= 0) {
+      const cur = streamTimeNow();
+      const tot = remuxTotalDuration > 0 ? remuxTotalDuration : videoEl.duration || duration || 0;
+      const clamped = tot > 0 ? Math.max(0, Math.min(tot, positionSec)) : Math.max(0, positionSec);
+      const drift = Math.abs(clamped - cur);
+      const maxDrift = paused ? 0.3 : 1.15;
+      if (drift > maxDrift) {
+        seekTo(clamped, true);
+      }
+    }
+
+    if (paused && !videoEl.paused) {
+      playing = false;
+      videoEl.pause();
+      dubAudioEl?.pause();
+    } else if (!paused && videoEl.paused) {
+      playing = true;
+      void videoEl.play().catch(() => {});
+    }
+  }
+
   export function play(): void {
+    if (controlsLocked) {
+      showOsd('Host controls playback', 'info');
+      return;
+    }
     if (videoEl && videoEl.paused) {
       void videoEl.play().catch(() => {});
     }
   }
 
   export function pause(): void {
+    if (controlsLocked) {
+      showOsd('Host controls playback', 'info');
+      return;
+    }
     playing = false;
     videoEl?.pause();
     dubAudioEl?.pause();
@@ -1537,6 +1623,11 @@
 
   function togglePlay() {
     if (!videoEl) return;
+    if (controlsLocked) {
+      showOsd('Host controls playback', 'info');
+      scheduleHideControls();
+      return;
+    }
     if (videoEl.paused) {
       void videoEl.play().catch(() => {});
     } else {
@@ -1592,9 +1683,14 @@
     seekTo(seconds);
   }
 
-  function seekTo(seconds: number) {
-    if (!videoEl || !Number.isFinite(duration) || duration <= 0) return;
-    const clamped = Math.max(0, Math.min(duration, seconds));
+  function seekTo(seconds: number, fromRemoteSync = false) {
+    if (!videoEl) return;
+    if (!fromRemoteSync && controlsLocked) {
+      showOsd('Host controls playback', 'info');
+      return;
+    }
+    const tot = remuxTotalDuration > 0 ? remuxTotalDuration : videoEl.duration || duration || 0;
+    const clamped = tot > 0 ? Math.max(0, Math.min(tot, seconds)) : Math.max(0, seconds);
     if (playbackMode === 'remux' && activeRemuxConfig) {
       const wasPlaying = !videoEl.paused;
       remuxSeekOffset = clamped;
@@ -1603,12 +1699,18 @@
       applyRemuxStreamSource(videoEl, activeRemuxConfig, Math.max(0, activeAudioTrack), clamped, wasPlaying);
       syncDubTime(true);
       scheduleHideControls();
+      if (!fromRemoteSync) {
+        emitLocalPlaybackAction('seek', { currentTime: clamped });
+      }
       return;
     }
     videoEl.currentTime = clamped;
     currentTime = clamped;
     syncDubTime(true);
     scheduleHideControls();
+    if (!fromRemoteSync) {
+      emitLocalPlaybackAction('seek', { currentTime: clamped });
+    }
   }
 
   function setQuality(levelIdx: number) {
@@ -1659,6 +1761,11 @@
   }
 
   function setSpeed(rate: number, withOsd = false) {
+    if (controlsLocked) {
+      showOsd('Host controls playback', 'info');
+      activeMenu = 'none';
+      return;
+    }
     playbackRate = rate;
     if (!spaceHoldBoostActive) {
       applyPlaybackRate(rate);
@@ -1667,6 +1774,7 @@
     if (withOsd) {
       showOsd(`${rate}x`, 'speed');
     }
+    emitLocalPlaybackAction('rate', { playbackRate: rate });
     activeMenu = 'none';
     scheduleHideControls();
   }
@@ -1836,6 +1944,10 @@
   }
 
   function handleSeekPointerDown(e: PointerEvent) {
+    if (controlsLocked) {
+      showOsd('Host controls playback', 'info');
+      return;
+    }
     if (!seekEl) return;
     cachedSeekRect = seekEl.getBoundingClientRect();
     cachedSeekRectAt = performance.now();
@@ -1882,6 +1994,10 @@
   }
 
   function stepSeekHotkey(deltaSec: number) {
+    if (controlsLocked) {
+      showOsd('Host controls playback', 'info');
+      return;
+    }
     const base = streamTimeNow();
     const next = Math.max(0, Math.min(duration || 0, base + deltaSec));
     seekTo(next);
@@ -1914,6 +2030,10 @@
 
     if (e.code === 'Space' || e.key === ' ') {
       e.preventDefault();
+      if (controlsLocked) {
+        showOsd('Host controls playback', 'info');
+        return;
+      }
       if (e.repeat || spaceIsDown) return;
       spaceIsDown = true;
       window.clearTimeout(spaceHoldTimer);
@@ -1930,6 +2050,11 @@
 
     const digitMatch = /^Digit([0-9])$/.exec(e.code) || /^Numpad([0-9])$/.exec(e.code);
     if (digitMatch) {
+      if (controlsLocked) {
+        e.preventDefault();
+        showOsd('Host controls playback', 'info');
+        return;
+      }
       if (duration > 0) {
         e.preventDefault();
         const pct = Number(digitMatch[1]) * 10;
@@ -1943,6 +2068,10 @@
     switch (e.code) {
       case 'KeyK':
         e.preventDefault();
+        if (controlsLocked) {
+          showOsd('Host controls playback', 'info');
+          break;
+        }
         if (videoEl) {
           const willPlay = videoEl.paused;
           togglePlay();
@@ -2164,6 +2293,7 @@
       playing = true;
       buffering = false;
       onplaychange?.(true);
+      emitLocalPlaybackAction('play', { paused: false });
       if (dubAudio && dubAudioEl) {
         syncDubTime(false);
         if (dubAudioEl.readyState >= 2) {
@@ -2181,6 +2311,7 @@
       controlsVisible = true;
       dubAudioEl?.pause();
       onplaychange?.(false);
+      emitLocalPlaybackAction('pause', { paused: true });
       scheduleHideControls();
       if (videoEl) {
         ontimeprogress?.(videoEl.currentTime || 0, videoEl.duration || duration || 0, true);

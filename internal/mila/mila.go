@@ -258,9 +258,16 @@ func (m *Mila) BeforeClose(ctx context.Context) (prevent bool) {
 	return false
 }
 
-// Shutdown finalizes background logging, system tray, and torrent runtime when the desktop host terminates.
+// Shutdown finalizes background logging, Watch Together session, system tray, and torrent runtime when the desktop host terminates.
 func (m *Mila) Shutdown(ctx context.Context) {
 	m.log.Info("runtime.shutdown")
+	if m.cloud != nil {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
+		_ = m.cloud.LeaveWatchRoom(shutCtx)
+		_, _ = m.cloud.HeartbeatPresence(shutCtx, "offline", "")
+		cancel()
+		m.cloud.DisconnectQUIC()
+	}
 	if m.trayMgr != nil {
 		m.trayMgr.Close()
 	}

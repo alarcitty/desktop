@@ -106,6 +106,8 @@ export const player = $state<{
   dubOffsetSec: number;
   episodeIndex: number;
   resumeTime: number;
+  liveTime: number;
+  liveDuration: number;
   autoplay: boolean;
   isPlaying: boolean;
   pipMode: boolean;
@@ -118,6 +120,7 @@ export const player = $state<{
   wtChatOpen: boolean;
   wtChatUnread: number;
   wtChatToggle: (() => void) | null;
+  wtControlsLocked: boolean;
 }>({
   loading: false,
   error: '',
@@ -133,6 +136,8 @@ export const player = $state<{
   dubOffsetSec: 0,
   episodeIndex: 0,
   resumeTime: 0,
+  liveTime: 0,
+  liveDuration: 0,
   autoplay: false,
   isPlaying: false,
   pipMode: false,
@@ -144,7 +149,8 @@ export const player = $state<{
   inlineStageEl: null,
   wtChatOpen: true,
   wtChatUnread: 0,
-  wtChatToggle: null
+  wtChatToggle: null,
+  wtControlsLocked: false
 });
 
 let activeRequestToken = 0;
@@ -156,6 +162,9 @@ let voiceDiscoveryPromise: Promise<VoiceTrackOption[]> | null = null;
 let playControlCallback: (() => void) | null = null;
 let pauseControlCallback: (() => void) | null = null;
 let seekControlCallback: ((seconds: number) => void) | null = null;
+let syncStateCallback: ((paused: boolean, positionSec?: number, rate?: number) => void) | null = null;
+let playbackSnapshotGetter: (() => { currentTime: number; duration: number; paused: boolean; playbackRate: number; ready: boolean } | null) | null = null;
+let wtLocalPlaybackListener: ((ev: { kind: 'play' | 'pause' | 'seek' | 'rate'; currentTime: number; duration: number; paused: boolean; playbackRate: number }) => void) | null = null;
 const failedVoiceIds = new Set<string>();
 const torrentReleaseCache = new Map<string, PlayableRelease>();
 const voiceReleaseCache = new Map<string, PlayableRelease>();
@@ -248,6 +257,12 @@ function syncPlayerHistory(currentTime?: number, duration?: number): void {
 }
 
 export function reportPlaybackProgress(currentTime: number, duration: number, force = false): void {
+  if (Number.isFinite(currentTime) && currentTime >= 0) {
+    player.liveTime = currentTime;
+  }
+  if (Number.isFinite(duration) && duration > 0) {
+    player.liveDuration = duration;
+  }
   episodePrefetcher.maybePrefetch({
     release: player.release,
     episodeIndex: player.episodeIndex,
@@ -939,9 +954,59 @@ export function toggleActivePlayback(): void {
   }
 }
 
-export function applyRemotePlaybackSync(paused: boolean, positionSec?: number): void {
+export function registerPlayerSyncBridge(
+  syncFn: ((paused: boolean, positionSec?: number, rate?: number) => void) | null,
+  snapGetter: (() => { currentTime: number; duration: number; paused: boolean; playbackRate: number; ready: boolean } | null) | null
+): void {
+  syncStateCallback = syncFn;
+  playbackSnapshotGetter = snapGetter;
+}
+
+export function setWatchTogetherPlaybackListener(
+  fn: ((ev: { kind: 'play' | 'pause' | 'seek' | 'rate'; currentTime: number; duration: number; paused: boolean; playbackRate: number }) => void) | null
+): void {
+  wtLocalPlaybackListener = fn;
+}
+
+export function notifyLocalPlayerAction(ev: {
+  kind: 'play' | 'pause' | 'seek' | 'rate';
+  currentTime: number;
+  duration: number;
+  paused: boolean;
+  playbackRate: number;
+}): void {
+  player.liveTime = ev.currentTime;
+  if (ev.duration > 0) {
+    player.liveDuration = ev.duration;
+  }
+  wtLocalPlaybackListener?.(ev);
+}
+
+export function getPlayerPlaybackSnapshot(): {
+  currentTime: number;
+  duration: number;
+  paused: boolean;
+  playbackRate: number;
+  ready: boolean;
+} | null {
+  return playbackSnapshotGetter?.() ?? null;
+}
+
+export function setWatchTogetherControlsLocked(locked: boolean): void {
+  player.wtControlsLocked = locked;
+}
+
+export function applyRemotePlaybackSync(paused: boolean, positionSec?: number, playbackRate?: number): void {
   if (typeof positionSec === 'number' && Number.isFinite(positionSec) && positionSec >= 0) {
     player.resumeTime = positionSec;
+    player.liveTime = positionSec;
+  }
+  player.autoplay = !paused;
+  if (syncStateCallback) {
+    syncStateCallback(paused, positionSec, playbackRate);
+    return;
+  }
+  if (typeof positionSec === 'number' && Number.isFinite(positionSec) && positionSec >= 0) {
     seekControlCallback?.(positionSec);
   }
   if (paused) {
