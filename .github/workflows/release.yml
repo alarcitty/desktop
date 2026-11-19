@@ -76,23 +76,49 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "${{ github.ref_name }}"
+          $repoUrl = "https://github.com/mila-desktop/desktop"
+          $dlBase = "$repoUrl/releases/download/$tag"
           $files = Get-ChildItem -Path build/bin -File | Select-Object -ExpandProperty FullName
+          $prevTag = (git tag --sort=-v:refname | Where-Object { $_ -ne $tag } | Select-Object -First 1)
+
           $tagNotes = (git tag -l --format='%(contents)' $tag) -join "`n"
           if (-not [string]::IsNullOrWhiteSpace($tagNotes) -and $tagNotes -match '(?m)^-\s') {
-            $notesFile = Join-Path $env:RUNNER_TEMP "release-notes.md"
-            $tagNotes.Trim() | Set-Content -Path $notesFile -Encoding UTF8
-            gh release create $tag $files --notes-file $notesFile --title "Mila $tag" 2>$null
+            $changes = $tagNotes.Trim()
           } else {
-            $prevTag = (git tag --sort=-v:refname | Where-Object { $_ -ne $tag } | Select-Object -First 1)
-            $commits = if ($prevTag) { git log "$prevTag..$tag" --no-merges --pretty=format:"- %s" } else { git log -n 10 --no-merges --pretty=format:"- %s" }
-            $notes = ($commits -join "`n").Trim()
-            if ($prevTag) {
-              $notes = "$notes`n`n**Full Changelog:** https://github.com/mila-desktop/desktop/compare/$prevTag...$tag"
+            $rawCommits = if ($prevTag) { git log "$prevTag..$tag" --no-merges --pretty=format:"%s" } else { git log -n 8 --no-merges --pretty=format:"%s" }
+            $cleaned = foreach ($c in $rawCommits) {
+              $line = ($c -replace '^[a-z]+(\([^)]+\))?:\s*', '' -replace '\s*\(v\d+\.\d+[^)]*\)\s*$', '').Trim()
+              if ($line.Length -gt 0) {
+                "- " + $line.Substring(0,1).ToUpper() + $line.Substring(1)
+              }
             }
-            $notesFile = Join-Path $env:RUNNER_TEMP "release-notes.md"
-            $notes | Set-Content -Path $notesFile -Encoding UTF8
-            gh release create $tag $files --notes-file $notesFile --title "Mila $tag" 2>$null
+            $changes = ($cleaned -join "`n").Trim()
           }
+
+          $header = @(
+            "<p>"
+            "  <a href=`"$dlBase/Mila-amd64-installer.exe`"><strong>Installer (.exe)</strong></a>"
+            "  &nbsp;&nbsp;·&nbsp;&nbsp;"
+            "  <a href=`"$dlBase/Mila-windows-amd64-$tag.zip`">Portable (.zip)</a>"
+            "  &nbsp;&nbsp;·&nbsp;&nbsp;"
+            "  <a href=`"$dlBase/Mila.exe`">Standalone Binary</a>"
+            "  &nbsp;&nbsp;·&nbsp;&nbsp;"
+            "  <a href=`"$dlBase/SHA256SUMS.txt`">SHA256</a>"
+            "</p>"
+            ""
+            "### Changes"
+            ""
+            $changes
+          )
+          if ($prevTag) {
+            $header += ""
+            $header += "<sub><a href=`"$repoUrl/compare/$prevTag...$tag`">Compare $prevTag → $tag</a></sub>"
+          }
+
+          $notesFile = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          ($header -join "`n") | Set-Content -Path $notesFile -Encoding UTF8
+          gh release create $tag $files --notes-file $notesFile --title "Mila $tag" 2>$null
           if ($LASTEXITCODE -ne 0) {
+            gh release edit $tag --notes-file $notesFile --title "Mila $tag" 2>$null
             gh release upload $tag $files --clobber
           }
