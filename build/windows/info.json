@@ -5,10 +5,24 @@
 	"info": {
 		"0000": {
 			"ProductVersion": "{{.Info.ProductVersion}}",
+			"FileVersion": "{{.Info.ProductVersion}}",
 			"CompanyName": "{{.Info.CompanyName}}",
-			"FileDescription": "{{.Info.ProductName}}",
+			"FileDescription": "{{.Info.ProductName}} Desktop Client",
 			"LegalCopyright": "{{.Info.Copyright}}",
 			"ProductName": "{{.Info.ProductName}}",
+			"InternalName": "Mila",
+			"OriginalFilename": "Mila.exe",
+			"Comments": "{{.Info.Comments}}"
+		},
+		"0409": {
+			"ProductVersion": "{{.Info.ProductVersion}}",
+			"FileVersion": "{{.Info.ProductVersion}}",
+			"CompanyName": "{{.Info.CompanyName}}",
+			"FileDescription": "{{.Info.ProductName}} Desktop Client",
+			"LegalCopyright": "{{.Info.Copyright}}",
+			"ProductName": "{{.Info.ProductName}}",
+			"InternalName": "Mila",
+			"OriginalFilename": "Mila.exe",
 			"Comments": "{{.Info.Comments}}"
 		}
 	}

@@ -29,21 +29,27 @@ Unicode true
 ## !define UNINST_KEY_NAME     "UninstKeyInRegistry"  # Default "${INFO_COMPANYNAME}${INFO_PRODUCTNAME}"
 ####
 ## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
+!define REQUEST_EXECUTION_LEVEL "user"
+!define WAILS_INSTALL_SCOPE "user"
+SetCompressor zlib
+
 ####
 ## Include the wails tools
 ####
 !include "wails_tools.nsh"
 
 # The version information for this two must consist of 4 parts
-VIProductVersion "${INFO_PRODUCTVERSION}.0"
-VIFileVersion    "${INFO_PRODUCTVERSION}.0"
+VIProductVersion "${INFO_PRODUCTVERSION}"
+VIFileVersion    "${INFO_PRODUCTVERSION}"
 
-VIAddVersionKey "CompanyName"     "${INFO_COMPANYNAME}"
-VIAddVersionKey "FileDescription" "${INFO_PRODUCTNAME} Installer"
-VIAddVersionKey "ProductVersion"  "${INFO_PRODUCTVERSION}"
-VIAddVersionKey "FileVersion"     "${INFO_PRODUCTVERSION}"
-VIAddVersionKey "LegalCopyright"  "${INFO_COPYRIGHT}"
-VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
+VIAddVersionKey "CompanyName"      "${INFO_COMPANYNAME}"
+VIAddVersionKey "FileDescription"  "${INFO_PRODUCTNAME} Setup"
+VIAddVersionKey "ProductVersion"   "${INFO_PRODUCTVERSION}"
+VIAddVersionKey "FileVersion"      "${INFO_PRODUCTVERSION}"
+VIAddVersionKey "LegalCopyright"   "${INFO_COPYRIGHT}"
+VIAddVersionKey "ProductName"      "${INFO_PRODUCTNAME}"
+VIAddVersionKey "InternalName"     "MilaSetup"
+VIAddVersionKey "OriginalFilename" "Mila-amd64-installer.exe"
 
 # Enable HiDPI support. https://nsis.sourceforge.io/Reference/ManifestDPIAware
 ManifestDPIAware true
@@ -89,8 +95,6 @@ FunctionEnd
 
 Section
     !insertmacro wails.setShellContext
-
-    !insertmacro wails.webview2runtime
 
     SetOutPath $INSTDIR
 

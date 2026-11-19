@@ -11,10 +11,10 @@
     "email": "contact@mila.app"
   },
   "info": {
-    "companyName": "Mila",
+    "companyName": "Mila Desktop",
     "productName": "Mila",
-    "productVersion": "1.0.0",
-    "copyright": "Copyright (C) Mila",
-    "comments": "Minimalist desktop anime client"
+    "productVersion": "0.1.7.0",
+    "copyright": "Copyright (C) 2026 Mila Desktop",
+    "comments": "Minimalist desktop anime streaming client"
   }
 }

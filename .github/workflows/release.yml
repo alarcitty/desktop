@@ -51,10 +51,64 @@ jobs:
       - name: install wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
 
+      - name: sync wails productVersion with release tag
+        run: |
+          $raw = "${{ github.ref_name }}" -replace '^v', ''
+          $parts = $raw.Split('.')
+          while ($parts.Count -lt 4) { $parts += '0' }
+          $ver4 = ($parts[0..3] -join '.')
+          $wailsJson = Get-Content wails.json -Raw | ConvertFrom-Json
+          $wailsJson.info.productVersion = $ver4
+          ($wailsJson | ConvertTo-Json -Depth 10) | Set-Content wails.json -Encoding UTF8
+
       - name: build app and installer
         env:
           CGO_ENABLED: 0
-        run: wails build -platform windows/amd64 -nsis -ldflags "-s -w -X mila/internal/version.Version=${{ github.ref_name }} -extldflags '-static'"
+        run: wails build -platform windows/amd64 -nsis -installscope user -webview2 browser -trimpath -ldflags "-X mila/internal/version.Version=${{ github.ref_name }}"
+
+      - name: sign windows executables (Authenticode SHA-256)
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $signtool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'x64\\signtool\.exe$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          if (-not $signtool) {
+            Write-Host "signtool.exe not found, skipping signing"
+            exit 0
+          }
+
+          $pfxPath = Join-Path $env:RUNNER_TEMP "mila-codesign.pfx"
+          $pfxPass = if ($env:WINDOWS_CERT_PASSWORD) { $env:WINDOWS_CERT_PASSWORD } else { "MilaCodeSignTemp!2026" }
+
+          if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_PFX_BASE64)) {
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          } else {
+            $securePass = ConvertTo-SecureString -String $pfxPass -Force -AsPlainText
+            $cert = New-SelfSignedCertificate `
+              -Type CodeSigningCert `
+              -Subject "CN=Mila Desktop, O=Mila Desktop, C=US" `
+              -KeyAlgorithm RSA `
+              -KeyLength 2048 `
+              -HashAlgorithm SHA256 `
+              -CertStoreLocation "Cert:\CurrentUser\My" `
+              -NotAfter (Get-Date).AddYears(3)
+            Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $securePass | Out-Null
+          }
+
+          $appExe = Resolve-Path "build/bin/Mila.exe"
+          & $signtool sign /f $pfxPath /p $pfxPass /fd SHA256 /td SHA256 /tr "http://timestamp.digicert.com" /d "Mila Desktop" $appExe
+
+          Push-Location "build/windows/installer"
+          makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\Mila.exe project.nsi
+          Pop-Location
+
+          $instExe = Resolve-Path "build/bin/Mila-amd64-installer.exe"
+          & $signtool sign /f $pfxPath /p $pfxPass /fd SHA256 /td SHA256 /tr "http://timestamp.digicert.com" /d "Mila Desktop Setup" $instExe
+          Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
 
       - name: package portable zip
         run: |

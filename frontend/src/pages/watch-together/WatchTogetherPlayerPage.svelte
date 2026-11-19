@@ -1997,12 +1997,6 @@
     flex-shrink: 0;
   }
 
-  .wt-chat-panel.is-floating .wt-chat-head {
-    padding: 1px 2px 8px;
-    margin-bottom: 2px;
-    border-bottom: 1px solid var(--mila-app-borderSubtle, rgba(255, 255, 255, 0.06));
-  }
-
   .wt-chat-head.is-draggable {
     cursor: grab;
     touch-action: none;
