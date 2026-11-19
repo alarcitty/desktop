@@ -278,24 +278,53 @@
     };
   }
 
+  let lastRemoteHardSeekAt = 0;
+
   export function applySyncState(paused: boolean, positionSec?: number, rate?: number): void {
     if (!videoEl) return;
     suppressSyncUntil = Date.now() + 700;
 
-    if (typeof rate === 'number' && Number.isFinite(rate) && rate > 0 && Math.abs(rate - playbackRate) > 0.01) {
-      playbackRate = rate;
-      applyPlaybackRate(rate);
+    const baseRate =
+      typeof rate === 'number' && Number.isFinite(rate) && rate > 0 ? rate : playbackRate || 1;
+    if (Math.abs(baseRate - playbackRate) > 0.01) {
+      playbackRate = baseRate;
     }
 
     if (typeof positionSec === 'number' && Number.isFinite(positionSec) && positionSec >= 0) {
       const cur = streamTimeNow();
       const tot = remuxTotalDuration > 0 ? remuxTotalDuration : videoEl.duration || duration || 0;
       const clamped = tot > 0 ? Math.max(0, Math.min(tot, positionSec)) : Math.max(0, positionSec);
-      const drift = Math.abs(clamped - cur);
-      const maxDrift = paused ? 0.3 : 1.15;
-      if (drift > maxDrift) {
-        seekTo(clamped, true);
+      const signedDrift = clamped - cur;
+      const absDrift = Math.abs(signedDrift);
+      const now = Date.now();
+
+      if (paused) {
+        applyPlaybackRate(baseRate);
+        if (absDrift > 0.45 && now - lastRemoteHardSeekAt > 1200) {
+          lastRemoteHardSeekAt = now;
+          seekTo(clamped, true);
+        }
+      } else {
+        // Playing: Rave-style smooth speed catch-up for drift up to 4.5s (avoids seek & buffering spinner)
+        if (absDrift > 4.5 && now - lastRemoteHardSeekAt > 2200) {
+          lastRemoteHardSeekAt = now;
+          applyPlaybackRate(baseRate);
+          seekTo(clamped, true);
+        } else if (absDrift > 0.24) {
+          const factor = absDrift > 2.0 ? 0.14 : absDrift > 0.85 ? 0.08 : 0.04;
+          const catchupRate = Math.max(
+            0.75,
+            Math.min(1.35, Number((baseRate * (1 + Math.sign(signedDrift) * factor)).toFixed(3)))
+          );
+          if (Math.abs((videoEl.playbackRate || 1) - catchupRate) > 0.008) {
+            applyPlaybackRate(catchupRate);
+          }
+        } else if (Math.abs((videoEl.playbackRate || 1) - baseRate) > 0.008) {
+          applyPlaybackRate(baseRate);
+        }
       }
+    } else if (!spaceHoldBoostActive && Math.abs((videoEl.playbackRate || 1) - baseRate) > 0.008) {
+      applyPlaybackRate(baseRate);
     }
 
     if (paused && !videoEl.paused) {
@@ -836,7 +865,7 @@
   }
 
   function effectivePlaybackRate(): number {
-    return spaceHoldBoostActive ? 2 : playbackRate;
+    return spaceHoldBoostActive ? 2 : (videoEl?.playbackRate || playbackRate);
   }
 
   function streamTimeNow(): number {

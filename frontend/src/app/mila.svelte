@@ -98,7 +98,7 @@
 >
   <div class="content-layer" class:is-setup-active={setupOpen}>
     <Header
-      hidden={headerHidden || router.current === 'player' || router.current === 'watch-together-player'}
+      hidden={headerHidden || router.current === 'player'}
       scrolled={headerScrolled}
     />
     <ScrollArea bind:this={scrollArea} onscroll={handleViewportScroll}>

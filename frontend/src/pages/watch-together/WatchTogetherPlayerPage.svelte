@@ -8,6 +8,7 @@
     ArrowUp,
     ArrowDown,
     Clock,
+    Crown,
     EyeOff,
     HardDriveDownload,
     LayoutGrid,
@@ -19,15 +20,20 @@
     RefreshCw,
     Search,
     Send,
+    Settings,
+    UserPlus,
     X
   } from 'lucide';
 
   import MainButton from '../../marlakit/button/MainButton.svelte';
+  import ComboBox from '../../marlakit/combo/ComboBox.svelte';
+  import type { ComboSection } from '../../marlakit/combo/types';
   import EpisodeThumb from '../anime/EpisodeThumb.svelte';
   import TorrentPopup from '../anime/TorrentPopup.svelte';
   import type { TorrentSearchItem } from '../../api/providers/torrent';
   import { episodeProgressMap, getEpisodeProgress } from '../../app/history.svelte';
   import { auth } from '../../app/auth.svelte';
+  import { openFriendsPopup } from '../../app/friends.svelte';
   import { revealBlur } from '../../app/reveal';
   import { navigate } from '../../app/router.svelte';
   import { openSearch } from '../../app/search.svelte';
@@ -44,12 +50,17 @@
     setWatchTogetherControlsLocked,
     setWatchTogetherPlaybackListener
   } from '../../app/player.svelte';
-  import { computeLiveRoomPosition } from '../../api/watchTogether';
+  import {
+    computeLiveRoomPosition,
+    type RoomControlMode,
+    type RoomVisibility
+  } from '../../api/watchTogether';
   import {
     leaveWatchRoom,
     sendWatchRoomChat,
     setWatchRoomMedia,
     syncWatchRoomPlayback,
+    updateWatchRoomSettings,
     watchTogetherState
   } from '../../app/watchTogether.svelte';
   import { t } from '../../app/i18n.svelte';
@@ -73,13 +84,14 @@
   }
 
   function readSavedChatPinned(): boolean {
-    if (typeof localStorage === 'undefined') return true;
-    return localStorage.getItem(WT_CHAT_PINNED_KEY) !== '0';
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(WT_CHAT_PINNED_KEY) === '1';
   }
 
   let viewportW = $state(typeof window !== 'undefined' ? window.innerWidth : 1440);
   let theaterFrameEl = $state<HTMLDivElement | null>(null);
   let playerSectionEl = $state<HTMLElement | null>(null);
+  let episodesSectionEl = $state<HTMLElement | null>(null);
   let inlineStageEl = $state<HTMLDivElement | null>(null);
   let chatFeedEl = $state<HTMLDivElement | null>(null);
   let floatPanelEl = $state<HTMLElement | null>(null);
@@ -87,6 +99,7 @@
   let chatOpen = $state(true);
   let chatPinned = $state(readSavedChatPinned());
   let chatWidthPx = $state(readSavedChatWidth());
+  let settingsMenuOpen = $state(false);
   let resizingChat = $state(false);
   let resizeStartX = 0;
   let resizeStartW = 320;
@@ -159,6 +172,112 @@
   const unreadCount = $derived(
     chatOpen ? 0 : Math.max(0, chatMessages.length - lastSeenChatCount)
   );
+
+  const currentVisibility = $derived<RoomVisibility>(
+    activeRoom ? activeRoom.visibility : watchTogetherState.draftVisibility
+  );
+  const currentControlMode = $derived<RoomControlMode>(
+    activeRoom ? activeRoom.control_mode : watchTogetherState.draftControlMode
+  );
+  const currentMaxMembers = $derived<number>(
+    activeRoom ? activeRoom.max_members : watchTogetherState.draftMaxMembers
+  );
+
+  const settingsComboSections = $derived.by<ComboSection[]>(() => {
+    const visLabel =
+      currentVisibility === 'public'
+        ? 'Public'
+        : currentVisibility === 'private'
+          ? 'Private'
+          : 'Friends';
+    const ctrlLabel = currentControlMode === 'everyone' ? 'Everyone controls' : 'Host only';
+
+    return [
+      {
+        id: 'room-settings',
+        title: 'Room settings',
+        options: [
+          {
+            value: 'cat:visibility',
+            label: 'Visibility',
+            sublabel: visLabel,
+            subMinWidth: 192,
+            children: [
+              {
+                value: 'vis:public',
+                label: 'Public',
+                sublabel: 'Anyone can join',
+                selected: currentVisibility === 'public'
+              },
+              {
+                value: 'vis:friends',
+                label: 'Friends',
+                sublabel: 'Friends can join',
+                selected: currentVisibility === 'friends'
+              },
+              {
+                value: 'vis:private',
+                label: 'Private',
+                sublabel: 'Invite only',
+                selected: currentVisibility === 'private'
+              }
+            ]
+          },
+          {
+            value: 'cat:control',
+            label: 'Playback control',
+            sublabel: ctrlLabel,
+            subMinWidth: 214,
+            children: [
+              {
+                value: 'ctrl:host_only',
+                label: 'Host only',
+                sublabel: 'Only host controls playback',
+                selected: currentControlMode === 'host_only'
+              },
+              {
+                value: 'ctrl:everyone',
+                label: 'Everyone controls',
+                sublabel: 'All members can pause & seek',
+                selected: currentControlMode === 'everyone'
+              }
+            ]
+          },
+          {
+            value: 'cat:seats',
+            label: 'Seats',
+            sublabel: `${currentMaxMembers} seats`,
+            subMinWidth: 146,
+            children: [2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({
+              value: `seats:${n}`,
+              label: `${n} seats`,
+              selected: currentMaxMembers === n
+            }))
+          }
+        ]
+      }
+    ];
+  });
+
+  function handleSettingsSelect(rawValue: string | number) {
+    if (!activeRoom || !isHost) return;
+    const val = String(rawValue);
+    if (val.startsWith('vis:')) {
+      void updateWatchRoomSettings({ visibility: val.slice('vis:'.length) as RoomVisibility });
+    } else if (val.startsWith('ctrl:')) {
+      void updateWatchRoomSettings({ control_mode: val.slice('ctrl:'.length) as RoomControlMode });
+    } else if (val.startsWith('seats:')) {
+      const n = Number(val.slice('seats:'.length));
+      if (Number.isFinite(n)) {
+        const safe = Math.max(activeRoom.members.length, n);
+        void updateWatchRoomSettings({ max_members: safe });
+      }
+    }
+  }
+
+  function scrollToEpisodes() {
+    episodesSectionEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 
   $effect(() => {
     setInlinePlayerStage(inlineStageEl);
@@ -269,9 +388,10 @@
     }
   });
 
-  // Sync incoming room playback state (pause/resume/seek/rate) & reconcile continuously until player catches up
+  // Sync incoming room playback state (pause/resume/seek/rate) & reconcile via Rave-style smooth playbackRate catch-up
   let lastAppliedPlaybackSeq = 0;
   let suppressOutgoingPlaySyncUntil = 0;
+  let lastHostHeartbeatAt = 0;
 
   function reconcileViewerPlayback(forceApply = false) {
     const rm = activeRoom;
@@ -284,15 +404,8 @@
 
     const targetPos = computeLiveRoomPosition(pb);
     const targetRate = pb.playback_rate && pb.playback_rate > 0 ? pb.playback_rate : 1;
-    const pauseMismatch = snap.paused !== pb.paused;
-    const rateMismatch = Math.abs(snap.playbackRate - targetRate) > 0.02;
-    const drift = Math.abs(snap.currentTime - targetPos);
-    const posMismatch = pb.paused ? drift > 0.45 : drift > 1.35;
-
-    if (forceApply || pauseMismatch || rateMismatch || posMismatch) {
-      suppressOutgoingPlaySyncUntil = Date.now() + 900;
-      applyRemotePlaybackSync(pb.paused, targetPos, targetRate);
-    }
+    suppressOutgoingPlaySyncUntil = Date.now() + 800;
+    applyRemotePlaybackSync(pb.paused, targetPos, targetRate);
   }
 
   $effect(() => {
@@ -313,6 +426,7 @@
     }
     setWatchTogetherPlaybackListener((ev) => {
       if (Date.now() < suppressOutgoingPlaySyncUntil) return;
+      lastHostHeartbeatAt = Date.now();
       void syncWatchRoomPlayback({
         paused: ev.paused,
         position_sec: ev.currentTime,
@@ -324,9 +438,9 @@
     };
   });
 
-  // Continuous loop:
-  // - Host sends periodic position heartbeat (every 2.5s while playing or if paused state/position drifted)
-  // - Viewers (or everyone when another user updated pb) continuously reconcile once video becomes ready
+  // Continuous Rave-style sync loop:
+  // - Viewers run smooth playbackRate PLL steering every 500ms (no hard seeks unless >4.5s off)
+  // - Host only sends a quiet keep-alive heartbeat every 8s (or if host genuinely jumped >=2.4s)
   $effect(() => {
     if (!activeRoom) return;
     const timer = window.setInterval(() => {
@@ -341,13 +455,16 @@
         const pbRate = pb?.playback_rate || 1;
         const pbPos = pb ? computeLiveRoomPosition(pb) : 0;
         const posDiff = Math.abs(snap.currentTime - pbPos);
+        const now = Date.now();
+        const needsHeartbeat = !snap.paused && now - lastHostHeartbeatAt >= 8000;
         const stateDiff =
           !pb ||
           snap.paused !== pb.paused ||
           Math.abs(curRate - pbRate) > 0.02 ||
-          (!snap.paused && posDiff >= 0.8) ||
-          (snap.paused && posDiff >= 0.45);
+          posDiff >= 2.4 ||
+          needsHeartbeat;
         if (stateDiff) {
+          lastHostHeartbeatAt = now;
           void syncWatchRoomPlayback({
             paused: snap.paused,
             position_sec: snap.currentTime,
@@ -357,7 +474,7 @@
       } else {
         reconcileViewerPlayback(false);
       }
-    }, 950);
+    }, 500);
     return () => {
       window.clearInterval(timer);
     };
@@ -682,6 +799,152 @@
     bind:this={playerSectionEl}
     aria-label="Watch Together video theater"
   >
+    <!-- Top Room Header Bar (above the rounded full-page player, matching Hero-style 100vh first fold) -->
+    <header class="wt-stage-topbar">
+      <div class="wt-topbar-left">
+        <button
+          type="button"
+          class="wt-room-back-trigger"
+          title="Back to room lobby"
+          onclick={() => navigate('watch-together')}
+        >
+          <h1 class="wt-room-main-title">{roomHeadingTitle}</h1>
+        </button>
+        <span class="wt-seat-inline">
+          {(activeRoom?.members.length ?? 1) + (activeRoom?.pending?.length ?? 0)}/{activeRoom?.max_members ?? currentMaxMembers}
+        </span>
+      </div>
+
+      <!-- Center Mila-native Now Playing & Room Control Capsule (no AI-slop voice/mic pills) -->
+      <div class="wt-topbar-center">
+        <button
+          type="button"
+          class="wt-now-playing-btn"
+          title={episodes.length > 0 ? 'Scroll to episodes' : displayTitle}
+          onclick={scrollToEpisodes}
+        >
+          <span class="wt-np-title">{displayTitle}</span>
+          {#if currentEpisode}
+            <span class="wt-np-ep">EP {currentEpisode.ordinal}</span>
+          {/if}
+        </button>
+
+        {#if canControlPlayback}
+          <button
+            type="button"
+            class="wt-center-icon-btn"
+            title="Change anime"
+            aria-label="Change anime"
+            onclick={() => openSearch()}
+          >
+            <MorphIcon icon={Search} size={14} strokeWidth={1.9} />
+          </button>
+        {/if}
+
+        <ComboBox
+          bind:open={settingsMenuOpen}
+          sections={settingsComboSections}
+          ariaLabel="Room settings"
+          placement="bottom-center"
+          minWidth={212}
+          disabled={Boolean(activeRoom && !isHost)}
+          onselect={(opt) => handleSettingsSelect(opt.value)}
+        >
+          {#snippet trigger({ open, toggle })}
+            <button
+              type="button"
+              class="wt-center-icon-btn"
+              class:is-active={open}
+              disabled={Boolean(activeRoom && !isHost)}
+              title="Room settings"
+              aria-label="Room settings"
+              aria-expanded={open}
+              onclick={toggle}
+            >
+              <MorphIcon icon={Settings} size={14} strokeWidth={1.9} />
+            </button>
+          {/snippet}
+        </ComboBox>
+
+        {#if activeRoom}
+          <button
+            type="button"
+            class="wt-center-icon-btn is-leave"
+            title="Leave room"
+            aria-label="Leave room"
+            onclick={() => void handleLeaveRoom()}
+          >
+            <MorphIcon icon={LogOut} size={14} strokeWidth={1.9} />
+          </button>
+        {/if}
+      </div>
+
+      <!-- Right overlapping member & pending avatars -->
+      <div class="wt-topbar-right">
+        <div class="wt-top-avatars" aria-label="Room members">
+          {#each activeRoom?.members ?? [] as m, idx (m.public_id)}
+            <div
+              class="wt-top-av-circle"
+              style:z-index={idx + 1}
+              title={m.role === 'host' ? `@${m.username} (Host)` : `@${m.username}`}
+            >
+              {#if m.avatar_url && !brokenAvatars[`top-${m.public_id}`]}
+                <img
+                  src={m.avatar_url}
+                  alt={m.username}
+                  referrerpolicy="no-referrer"
+                  onerror={() => {
+                    brokenAvatars = { ...brokenAvatars, [`top-${m.public_id}`]: true };
+                  }}
+                />
+              {:else}
+                <span>{(m.name || m.username || 'U').slice(0, 1).toUpperCase()}</span>
+              {/if}
+
+              {#if m.role === 'host'}
+                <span class="wt-top-av-badge is-crown">
+                  <MorphIcon icon={Crown} size={8} strokeWidth={2.5} />
+                </span>
+              {:else}
+                <span class="wt-top-av-badge is-online"></span>
+              {/if}
+            </div>
+          {/each}
+
+          {#each activeRoom?.pending ?? [] as p, pIdx (p.public_id)}
+            <div
+              class="wt-top-av-circle is-pending"
+              style:z-index={(activeRoom?.members.length ?? 1) + pIdx + 1}
+              title={`Pending invite: @${p.username}`}
+            >
+              {#if p.avatar_url && !brokenAvatars[`top-p-${p.public_id}`]}
+                <img
+                  src={p.avatar_url}
+                  alt={p.username}
+                  referrerpolicy="no-referrer"
+                  onerror={() => {
+                    brokenAvatars = { ...brokenAvatars, [`top-p-${p.public_id}`]: true };
+                  }}
+                />
+              {:else}
+                <span>{(p.name || p.username || 'U').slice(0, 1).toUpperCase()}</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
+
+        <button
+          type="button"
+          class="wt-top-invite-btn"
+          title="Invite friends"
+          aria-label="Invite friends"
+          onclick={() => openFriendsPopup()}
+        >
+          <MorphIcon icon={UserPlus} size={15} strokeWidth={1.9} />
+        </button>
+      </div>
+    </header>
+
     <!-- data-player-fs-root ensures fullscreen includes BOTH the video player and split-screen / floating chat -->
     <div
       bind:this={theaterFrameEl}
@@ -690,8 +953,6 @@
       data-player-fs-root
     >
       <div class="wt-video-stage">
-        <div class="wt-top-drag" aria-hidden="true"></div>
-
         {#if player.loading}
           <div class="stage-state">
             <div class="spinner"></div>
@@ -727,10 +988,10 @@
             class:is-dragging-float={draggingFloat}
             style:width="{chatWidthPx}px"
             style:left={floatOffset ? `${floatOffset.x}px` : undefined}
-            style:top={floatOffset ? `${floatOffset.y}px` : undefined}
+            style:top={floatOffset ? `${floatOffset.y}px` : '14px'}
             style:right={floatOffset ? 'auto' : '14px'}
-            style:bottom={floatOffset ? 'auto' : '66px'}
-            style:height={floatOffset ? 'min(420px, 68%)' : undefined}
+            style:bottom={floatOffset ? 'auto' : '64px'}
+            style:height={floatOffset ? 'min(460px, 74%)' : undefined}
             in:revealBlur={{ duration: 240, y: 8, scale: 0.96, blur: 8 }}
             out:revealBlur={{ duration: 180, y: 6, scale: 0.97, blur: 6 }}
           >
@@ -847,17 +1108,19 @@
                 type="text"
                 class="wt-chat-input"
                 bind:value={chatDraft}
-                placeholder="Message…"
+                placeholder="Type something..."
                 maxlength={400}
               />
-              <button
-                type="submit"
-                class="wt-chat-send"
-                disabled={!chatDraft.trim() || chatSending}
-                aria-label="Send message"
-              >
-                <MorphIcon icon={Send} size={13} strokeWidth={2} />
-              </button>
+              <div class="wt-chat-input-actions">
+                <button
+                  type="submit"
+                  class="wt-chat-send"
+                  disabled={!chatDraft.trim() || chatSending}
+                  aria-label="Send message"
+                >
+                  <MorphIcon icon={Send} size={14} strokeWidth={1.9} />
+                </button>
+              </div>
             </form>
           </aside>
         {/if}
@@ -981,17 +1244,19 @@
                 type="text"
                 class="wt-chat-input"
                 bind:value={chatDraft}
-                placeholder="Message…"
+                placeholder="Type something..."
                 maxlength={400}
               />
-              <button
-                type="submit"
-                class="wt-chat-send"
-                disabled={!chatDraft.trim() || chatSending}
-                aria-label="Send message"
-              >
-                <MorphIcon icon={Send} size={13} strokeWidth={2} />
-              </button>
+              <div class="wt-chat-input-actions">
+                <button
+                  type="submit"
+                  class="wt-chat-send"
+                  disabled={!chatDraft.trim() || chatSending}
+                  aria-label="Send message"
+                >
+                  <MorphIcon icon={Send} size={14} strokeWidth={1.9} />
+                </button>
+              </div>
             </form>
           </aside>
         </div>
@@ -999,77 +1264,21 @@
     </div>
   </section>
 
-  <!-- Below-player Watch Together Room Strip & Episode Browser -->
-  <div class="wt-player-body">
-    <div class="wt-room-strip">
-      <div class="wt-room-strip-left">
-        <button
-          type="button"
-          class="episodes-back-btn"
-          aria-label="Back to room lobby"
-          title="Back to room overview"
-          onclick={() => navigate('watch-together')}
-        >
-          <MorphIcon icon={ArrowLeft} size={19} strokeWidth={2} />
-        </button>
-
-        <div class="wt-room-titles">
-          <div class="wt-room-heading-line">
-            <h1 class="wt-room-main-title">{roomHeadingTitle}</h1>
-            <span class="wt-seat-inline">
-              {activeRoom?.members.length ?? 1}/{activeRoom?.max_members ?? 7}
-            </span>
-          </div>
-
-          <div class="wt-room-sub-line">
-            {#if showAnimeInSubtitle}
-              <span class="wt-anime-sub">{displayTitle}</span>
-              <span class="wt-dot">·</span>
-            {/if}
-            {#if currentEpisode}
-              <span class="wt-ep-sub">Episode {currentEpisode.ordinal}</span>
-            {/if}
-            {#if activeRoom}
-              {#if currentEpisode}
-                <span class="wt-dot">·</span>
-              {/if}
-              <span class="wt-mode-sub">
-                {activeRoom.control_mode === 'everyone' ? 'Everyone controls' : 'Host only'}
-              </span>
-            {/if}
-          </div>
-        </div>
-      </div>
-
-      <div class="wt-room-strip-right">
-        {#if canControlPlayback}
-          <button
-            type="button"
-            class="wt-strip-pill"
-            onclick={() => openSearch()}
-          >
-            <MorphIcon icon={Search} size={14} strokeWidth={1.9} />
-            <span>Change anime</span>
-          </button>
-        {/if}
-
-        {#if activeRoom}
-          <button
-            type="button"
-            class="wt-strip-pill is-danger"
-            onclick={() => void handleLeaveRoom()}
-          >
-            <MorphIcon icon={LogOut} size={14} strokeWidth={1.9} />
-            <span>Leave room</span>
-          </button>
-        {/if}
-      </div>
-    </div>
-
+  <!-- Below-the-fold Episode Browser (revealed on scroll, just like Home below Hero) -->
+  <div class="wt-player-body" bind:this={episodesSectionEl}>
     {#if episodes.length > 0}
       <section class="episodes-section" aria-label={t('anime.episodes')}>
         <div class="section-head">
           <div class="section-head-left">
+            <button
+              type="button"
+              class="episodes-back-btn"
+              aria-label="Back to room lobby"
+              title="Back to room overview"
+              onclick={() => navigate('watch-together')}
+            >
+              <MorphIcon icon={ArrowLeft} size={19} strokeWidth={2} />
+            </button>
             <h2 class="section-heading">{t('anime.episodes')}</h2>
             <span class="section-count">{episodes.length}</span>
           </div>
@@ -1261,18 +1470,237 @@
   .wt-player-section {
     position: relative;
     width: 100%;
-    padding: 0;
+    height: 100vh;
+    min-height: 100vh;
+    padding: calc(var(--header-height, 48px) + 6px) var(--page-pad-x, 16px)
+      var(--page-pad-x, 16px);
     margin: 0;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Top Room Bar above the rounded full-page video player */
+  .wt-stage-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 16px;
+    min-height: 40px;
+    flex-shrink: 0;
+  }
+
+  .wt-topbar-left {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+    justify-self: start;
+  }
+
+  .wt-room-back-trigger {
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #ffffff;
+    cursor: pointer;
+    min-width: 0;
+    display: inline-flex;
+    align-items: baseline;
+    transition: opacity 0.18s ease;
+  }
+
+  .wt-room-back-trigger:hover {
+    opacity: 0.82;
+  }
+
+  .wt-topbar-center {
+    justify-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 36px;
+    padding: 0 5px 0 13px;
+    border-radius: 999px;
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.055));
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    max-width: min(460px, 46vw);
+  }
+
+  .wt-now-playing-btn {
+    padding: 0 6px 0 0;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.88);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    cursor: pointer;
+    transition: color 0.16s ease;
+  }
+
+  .wt-now-playing-btn:hover {
+    color: #ffffff;
+  }
+
+  .wt-np-title {
+    font-family: 'Medeo Sans Display', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 240px;
+  }
+
+  .wt-np-ep {
+    flex-shrink: 0;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.09);
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.2;
+  }
+
+  .wt-center-icon-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.56);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition:
+      background-color 0.16s ease,
+      color 0.16s ease;
+  }
+
+  .wt-center-icon-btn:hover:not(:disabled),
+  .wt-center-icon-btn.is-active:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+  }
+
+  .wt-center-icon-btn:disabled {
+    opacity: 0.36;
+    cursor: default;
+  }
+
+  .wt-center-icon-btn.is-leave:hover {
+    background: rgba(255, 92, 92, 0.16);
+    color: #ff9c9c;
+  }
+
+  .wt-topbar-right {
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .wt-top-avatars {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .wt-top-av-circle {
+    position: relative;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    margin-left: -7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'RF Dewi Extended', system-ui, sans-serif;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #ffffff;
+    box-shadow: 0 0 0 2px var(--mila-app-canvas, #0c0c0c);
+    flex-shrink: 0;
+  }
+
+  .wt-top-av-circle:first-child {
+    margin-left: 0;
+  }
+
+  .wt-top-av-circle.is-pending {
+    opacity: 0.56;
+  }
+
+  .wt-top-av-circle img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .wt-top-av-badge {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--mila-app-canvas, #0c0c0c);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .wt-top-av-badge.is-crown {
+    width: 13px;
+    height: 13px;
+    background: #e5c158;
+    color: #0c0c0c;
+  }
+
+  .wt-top-av-badge.is-online {
+    width: 8px;
+    height: 8px;
+    right: 0;
+    bottom: 0;
+    background: #34d399;
+  }
+
+  .wt-top-invite-btn {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.06));
+    color: rgba(255, 255, 255, 0.68);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease;
+  }
+
+  .wt-top-invite-btn:hover {
+    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.14));
+    color: #ffffff;
   }
 
   .wt-theater-frame {
     position: relative;
+    flex: 1 1 0;
+    min-height: 0;
     width: 100%;
-    height: min(82vh, 56.25vw);
-    min-height: 420px;
+    border-radius: 16px;
     background: #070709;
     display: flex;
     align-items: stretch;
@@ -1287,6 +1715,7 @@
     width: 100vw !important;
     height: 100vh !important;
     max-height: none !important;
+    border-radius: 0 !important;
     z-index: 99999 !important;
     background: var(--mila-app-canvas, #0c0c0c) !important;
   }
@@ -1308,21 +1737,6 @@
     width: 100%;
     height: 100%;
     aspect-ratio: auto;
-  }
-
-  .wt-top-drag {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 22px;
-    z-index: 12;
-    --wails-draggable: drag;
-  }
-
-  :global(body.is-player-fullscreen) .wt-top-drag {
-    opacity: 0;
-    pointer-events: none;
   }
 
   /* Smooth animated split-screen chat container */
@@ -1404,19 +1818,19 @@
     flex: 1 1 0;
     min-width: 0;
     height: 100%;
-    padding: 14px 16px 12px 14px;
-    background: var(--mila-app-canvas, #0c0c0c);
+    padding: 16px 16px 14px 14px;
+    background: #0b0b0d;
   }
 
   .wt-chat-panel.is-floating {
     position: absolute;
     z-index: 35;
-    padding: 14px 16px 12px;
-    border-radius: 16px;
-    background: rgba(14, 14, 17, 0.8);
-    backdrop-filter: blur(26px) saturate(140%);
-    -webkit-backdrop-filter: blur(26px) saturate(140%);
-    box-shadow: 0 22px 56px rgba(0, 0, 0, 0.68);
+    padding: 16px 16px 14px;
+    border-radius: 18px;
+    background: rgba(11, 11, 13, 0.94);
+    backdrop-filter: blur(28px) saturate(140%);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.72);
   }
 
   .wt-float-resizer {
@@ -1592,31 +2006,31 @@
     }
   }
 
-  /* Incoming message: lightweight Mila glass capsule with compact left avatar */
+  /* Incoming message: dark rounded pill with circular avatar on the left */
   .wt-bubble-other {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 11px 4px 4px;
-    border-radius: 15px;
-    background: rgba(255, 255, 255, 0.048);
-    color: rgba(255, 255, 255, 0.88);
+    gap: 10px;
+    padding: 6px 14px 6px 6px;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.92);
     max-width: 100%;
     box-sizing: border-box;
   }
 
   .wt-bubble-av {
-    width: 21px;
-    height: 21px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     overflow: hidden;
-    background: rgba(255, 255, 255, 0.09);
+    background: rgba(255, 255, 255, 0.12);
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 9px;
+    font-size: 10.5px;
     font-weight: 700;
     color: #ffffff;
   }
@@ -1627,21 +2041,26 @@
     object-fit: cover;
   }
 
-  /* Own message: cohesive Mila softly elevated translucent glass pill */
+  /* Own message: high-contrast solid white pill with dark text (matching reference screenshot) */
   .wt-bubble-mine {
     display: inline-flex;
     align-items: center;
-    padding: 6px 12px;
-    border-radius: 15px;
-    background: rgba(255, 255, 255, 0.11);
-    color: #ffffff;
+    padding: 8px 16px;
+    border-radius: 20px;
+    background: #ffffff;
+    color: #0c0c0c;
     max-width: 100%;
     box-sizing: border-box;
   }
 
+  .wt-bubble-mine .wt-bubble-text {
+    font-weight: 500;
+    color: #0c0c0c;
+  }
+
   .wt-bubble-text {
     font-family: 'Medeo Sans', system-ui, sans-serif;
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 400;
     line-height: 1.38;
     word-break: break-word;
@@ -1650,24 +2069,26 @@
 
   .wt-msg-time {
     align-self: flex-end;
-    padding: 0 4px;
+    padding: 1px 6px 0;
     font-family: 'Medeo Sans', system-ui, sans-serif;
-    font-size: 9.5px;
-    color: rgba(255, 255, 255, 0.22);
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.32);
     line-height: 1;
   }
 
-  /* Pure borderless, background-free, separator-free chat input */
+  /* Rounded dark capsule input bar with inner action pill on the right */
   .wt-chat-form {
     display: flex;
     align-items: center;
     gap: 8px;
-    height: 32px;
-    padding: 0 2px;
-    margin-top: 4px;
+    height: 42px;
+    padding: 0 5px 0 14px;
+    margin-top: 8px;
     border: none;
-    background: transparent;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.048);
     flex-shrink: 0;
+    box-sizing: border-box;
   }
 
   .wt-chat-input {
@@ -1682,17 +2103,27 @@
   }
 
   .wt-chat-input::placeholder {
-    color: rgba(255, 255, 255, 0.28);
+    color: rgba(255, 255, 255, 0.34);
+  }
+
+  .wt-chat-input-actions {
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    padding: 0 4px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.055);
+    flex-shrink: 0;
   }
 
   .wt-chat-send {
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     border: none;
-    border-radius: 50%;
+    border-radius: 8px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.72);
+    color: rgba(255, 255, 255, 0.78);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1703,7 +2134,7 @@
   }
 
   .wt-chat-send:disabled {
-    opacity: 0.24;
+    opacity: 0.28;
     cursor: default;
   }
 
@@ -1711,126 +2142,37 @@
     color: #ffffff;
   }
 
-  /* Below-theater Room Strip & Episodes */
+  /* Below-the-fold Episodes Section (hidden on initial 100vh viewport, revealed on scroll) */
   .wt-player-body {
-    padding: clamp(14px, 1.8vw, 22px) var(--page-pad-x) var(--page-pad-x) var(--page-pad-x);
+    padding: clamp(20px, 2.4vw, 28px) var(--page-pad-x, 16px) 36px
+      var(--page-pad-x, 16px);
     display: flex;
     flex-direction: column;
     gap: clamp(20px, 2.4vw, 28px);
   }
 
-  .wt-room-strip {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-
-  .wt-room-strip-left {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-  }
-
-  .wt-room-titles {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-  }
-
-  .wt-room-heading-line {
-    display: inline-flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 0;
-  }
-
   .wt-room-main-title {
     margin: 0;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(18px, 1.9vw, 24px);
+    font-size: clamp(22px, 2.2vw, 28px);
     font-weight: 800;
-    letter-spacing: -0.02em;
-    line-height: 1.08;
+    letter-spacing: -0.025em;
+    line-height: 1.06;
     color: #ffffff;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: min(320px, 30vw);
   }
 
   .wt-seat-inline {
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: clamp(12.5px, 1.05vw, 15px);
+    font-size: clamp(13px, 1.1vw, 16px);
     font-weight: 700;
     line-height: 1;
     color: rgba(255, 255, 255, 0.34);
     display: inline-flex;
     align-items: center;
-    transform: translateY(1px);
-  }
-
-  .wt-room-sub-line {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: clamp(12px, 0.95vw, 13px);
-    color: rgba(255, 255, 255, 0.46);
-  }
-
-  .wt-anime-sub {
-    color: rgba(255, 255, 255, 0.78);
-    font-weight: 600;
-  }
-
-  .wt-dot {
-    opacity: 0.45;
-  }
-
-  .wt-room-strip-right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .wt-strip-pill {
-    height: clamp(32px, 2.6vw, 36px);
-    padding: 0 clamp(12px, 1.1vw, 15px);
-    border: none;
-    outline: none;
-    border-radius: 10px;
-    background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.055));
-    color: rgba(255, 255, 255, 0.78);
-    font-family: 'Medeo Sans Display', system-ui, sans-serif;
-    font-size: clamp(12.5px, 0.95vw, 13.5px);
-    font-weight: 500;
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    cursor: pointer;
-    transition:
-      background-color 0.18s ease,
-      color 0.18s ease;
-  }
-
-  .wt-strip-pill:hover {
-    background: var(--mila-app-surfaceHover, rgba(255, 255, 255, 0.11));
-    color: #ffffff;
-  }
-
-  .wt-strip-pill.is-danger {
-    background: rgba(255, 92, 92, 0.12);
-    color: rgba(255, 144, 144, 0.92);
-  }
-
-  .wt-strip-pill.is-danger:hover {
-    background: rgba(255, 92, 92, 0.22);
-    color: #ffd2d2;
   }
 
   .episodes-back-btn {

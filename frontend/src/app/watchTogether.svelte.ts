@@ -107,7 +107,21 @@ function appendUniqueChatMessage(list: RoomChatMessage[], msg: RoomChatMessage):
   return [...list, msg].slice(-50);
 }
 
+function stampPlayback(pb: RoomPlaybackState | undefined): RoomPlaybackState | undefined {
+  if (!pb) return undefined;
+  return {
+    ...pb,
+    client_received_at_ms: pb.client_received_at_ms || Date.now()
+  };
+}
+
 function applyRoomSnapshot(next: WatchRoomSnapshot | null): void {
+  if (next?.playback) {
+    next = {
+      ...next,
+      playback: stampPlayback(next.playback)!
+    };
+  }
   const sig = computeMembersSignature(next);
   const membershipChanged = sig !== lastMembersSignature;
   lastMembersSignature = sig;
@@ -128,14 +142,14 @@ export function handleIncomingWTEvent(ev: WTWireEvent): void {
       } else if (watchTogetherState.room && ev.media) {
         watchTogetherState.room.media = ev.media;
         if (ev.playback) {
-          watchTogetherState.room.playback = ev.playback;
+          watchTogetherState.room.playback = stampPlayback(ev.playback)!;
         }
       }
       break;
     case 'room_playback':
       if (watchTogetherState.room && ev.playback) {
         if (ev.playback.seq >= (watchTogetherState.room.playback?.seq ?? 0)) {
-          watchTogetherState.room.playback = ev.playback;
+          watchTogetherState.room.playback = stampPlayback(ev.playback)!;
         }
       }
       break;
@@ -302,7 +316,8 @@ export async function setWatchRoomMedia(media: RoomMediaState): Promise<WatchRoo
 }
 
 export async function syncWatchRoomPlayback(input: SyncPlaybackInput): Promise<RoomPlaybackState> {
-  const pb = await watchTogetherApi.syncPlayback(input);
+  const raw = await watchTogetherApi.syncPlayback(input);
+  const pb = stampPlayback(raw)!;
   if (watchTogetherState.room) {
     watchTogetherState.room.playback = pb;
   }

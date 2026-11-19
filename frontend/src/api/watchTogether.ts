@@ -29,6 +29,7 @@ export interface RoomPlaybackState {
   server_now_ms: number;
   updated_by?: string;
   seq: number;
+  client_received_at_ms?: number;
 }
 
 export interface RoomMember {
@@ -178,9 +179,13 @@ export function computeLiveRoomPosition(playback: RoomPlaybackState, localRttMs 
     playback.server_now_ms > 0 && playback.updated_at_ms > 0
       ? Math.max(0, playback.server_now_ms - playback.updated_at_ms)
       : 0;
+  const localDeltaMs =
+    playback.client_received_at_ms && playback.client_received_at_ms > 0
+      ? Math.max(0, Date.now() - playback.client_received_at_ms)
+      : 0;
   const rttHalfMs = Math.max(0, localRttMs) * 0.5;
   const rate = Number.isFinite(playback.playback_rate) && playback.playback_rate > 0 ? playback.playback_rate : 1;
-  return base + ((serverDeltaMs + rttHalfMs) / 1000) * rate;
+  return base + ((serverDeltaMs + localDeltaMs + rttHalfMs) / 1000) * rate;
 }
 
 export const watchTogetherApi = {
