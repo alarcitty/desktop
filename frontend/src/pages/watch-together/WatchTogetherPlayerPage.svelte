@@ -260,17 +260,30 @@
   });
 
   function handleSettingsSelect(rawValue: string | number) {
-    if (!activeRoom || !isHost) return;
     const val = String(rawValue);
     if (val.startsWith('vis:')) {
-      void updateWatchRoomSettings({ visibility: val.slice('vis:'.length) as RoomVisibility });
+      const next = val.slice('vis:'.length) as RoomVisibility;
+      if (activeRoom && isHost) {
+        void updateWatchRoomSettings({ visibility: next });
+      } else if (!activeRoom) {
+        watchTogetherState.draftVisibility = next;
+      }
     } else if (val.startsWith('ctrl:')) {
-      void updateWatchRoomSettings({ control_mode: val.slice('ctrl:'.length) as RoomControlMode });
+      const next = val.slice('ctrl:'.length) as RoomControlMode;
+      if (activeRoom && isHost) {
+        void updateWatchRoomSettings({ control_mode: next });
+      } else if (!activeRoom) {
+        watchTogetherState.draftControlMode = next;
+      }
     } else if (val.startsWith('seats:')) {
       const n = Number(val.slice('seats:'.length));
       if (Number.isFinite(n)) {
-        const safe = Math.max(activeRoom.members.length, n);
-        void updateWatchRoomSettings({ max_members: safe });
+        if (activeRoom && isHost) {
+          const safe = Math.max(activeRoom.members.length, n);
+          void updateWatchRoomSettings({ max_members: safe });
+        } else if (!activeRoom) {
+          watchTogetherState.draftMaxMembers = n;
+        }
       }
     }
   }
@@ -824,9 +837,6 @@
           onclick={scrollToEpisodes}
         >
           <span class="wt-np-title">{displayTitle}</span>
-          {#if currentEpisode}
-            <span class="wt-np-ep">EP {currentEpisode.ordinal}</span>
-          {/if}
         </button>
 
         {#if canControlPlayback}
@@ -847,7 +857,6 @@
           ariaLabel="Room settings"
           placement="bottom-center"
           minWidth={212}
-          disabled={Boolean(activeRoom && !isHost)}
           onselect={(opt) => handleSettingsSelect(opt.value)}
         >
           {#snippet trigger({ open, toggle })}
@@ -855,7 +864,6 @@
               type="button"
               class="wt-center-icon-btn"
               class:is-active={open}
-              disabled={Boolean(activeRoom && !isHost)}
               title="Room settings"
               aria-label="Room settings"
               aria-expanded={open}
@@ -1483,10 +1491,12 @@
 
   /* Top Room Bar above the rounded full-page video player */
   .wt-stage-topbar {
+    position: relative;
+    z-index: 80;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
-    gap: 16px;
+    gap: 12px;
     min-height: 40px;
     flex-shrink: 0;
   }
@@ -1524,19 +1534,17 @@
     padding: 0 5px 0 13px;
     border-radius: 999px;
     background: var(--mila-app-surfaceGlass, rgba(255, 255, 255, 0.055));
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    max-width: min(460px, 46vw);
+    max-width: min(440px, 44vw);
+    min-width: 0;
   }
 
   .wt-now-playing-btn {
-    padding: 0 6px 0 0;
+    padding: 0 4px 0 0;
     border: none;
     background: transparent;
     color: rgba(255, 255, 255, 0.88);
     display: inline-flex;
     align-items: center;
-    gap: 8px;
     min-width: 0;
     cursor: pointer;
     transition: color 0.16s ease;
@@ -1553,19 +1561,17 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 240px;
+    max-width: clamp(90px, 18vw, 230px);
   }
 
-  .wt-np-ep {
-    flex-shrink: 0;
-    padding: 2px 7px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.09);
-    font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 10px;
-    font-weight: 700;
-    color: #ffffff;
-    line-height: 1.2;
+  @media (max-width: 1080px) {
+    .wt-topbar-center {
+      padding: 0 5px;
+    }
+
+    .wt-now-playing-btn {
+      display: none;
+    }
   }
 
   .wt-center-icon-btn {
@@ -1701,7 +1707,7 @@
     min-height: 0;
     width: 100%;
     border-radius: 16px;
-    background: #070709;
+    background: transparent;
     display: flex;
     align-items: stretch;
     overflow: hidden;
@@ -1725,6 +1731,7 @@
     flex: 1 1 0;
     min-width: 0;
     height: 100%;
+    border-radius: 16px;
     background: #070709;
     display: flex;
     align-items: center;
@@ -1732,8 +1739,13 @@
     overflow: hidden;
   }
 
-  .wt-video-stage :global(.hls-player) {
+  .wt-theater-frame:fullscreen .wt-video-stage,
+  :global(.wt-theater-frame.is-fs-active) .wt-video-stage {
     border-radius: 0;
+  }
+
+  .wt-video-stage :global(.hls-player) {
+    border-radius: 16px;
     width: 100%;
     height: 100%;
     aspect-ratio: auto;
@@ -1746,18 +1758,21 @@
     align-items: stretch;
     flex-shrink: 0;
     height: 100%;
+    box-sizing: border-box;
     overflow: hidden;
     opacity: 0;
     filter: blur(8px);
     pointer-events: none;
-    background: var(--mila-app-canvas, #0c0c0c);
+    background: transparent;
     transition:
       width 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+      padding-left 0.34s cubic-bezier(0.22, 1, 0.36, 1),
       opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
       filter 0.32s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .wt-split-shell.is-open {
+    padding-left: 10px;
     opacity: 1;
     filter: blur(0px);
     pointer-events: auto;
@@ -1818,14 +1833,16 @@
     flex: 1 1 0;
     min-width: 0;
     height: 100%;
-    padding: 16px 16px 14px 14px;
-    background: #0b0b0d;
+    padding: 10px 11px 10px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #0d0d10;
   }
 
   .wt-chat-panel.is-floating {
     position: absolute;
     z-index: 35;
-    padding: 16px 16px 14px;
+    padding: 10px 11px 10px;
     border-radius: 18px;
     background: rgba(11, 11, 13, 0.94);
     backdrop-filter: blur(28px) saturate(140%);
@@ -1848,7 +1865,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 2px 2px 10px;
+    padding: 1px 2px 6px;
     flex-shrink: 0;
   }
 
@@ -1942,10 +1959,10 @@
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 0 8px;
+    padding: 2px 0 4px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     scrollbar-width: none;
   }
 
@@ -2041,21 +2058,21 @@
     object-fit: cover;
   }
 
-  /* Own message: high-contrast solid white pill with dark text (matching reference screenshot) */
+  /* Own message: colored in the user's selected accent color with contrasting text */
   .wt-bubble-mine {
     display: inline-flex;
     align-items: center;
-    padding: 8px 16px;
+    padding: 7px 14px;
     border-radius: 20px;
-    background: #ffffff;
-    color: #0c0c0c;
+    background: var(--mila-accent-primary, var(--mila-buttons-mainBg, #ffffff));
+    color: var(--mila-text-onAccent, var(--mila-buttons-mainText, #0c0c0c));
     max-width: 100%;
     box-sizing: border-box;
   }
 
   .wt-bubble-mine .wt-bubble-text {
     font-weight: 500;
-    color: #0c0c0c;
+    color: inherit;
   }
 
   .wt-bubble-text {
@@ -2080,12 +2097,12 @@
   .wt-chat-form {
     display: flex;
     align-items: center;
-    gap: 8px;
-    height: 42px;
-    padding: 0 5px 0 14px;
-    margin-top: 8px;
+    gap: 6px;
+    height: 38px;
+    padding: 0 4px 0 12px;
+    margin-top: 6px;
     border: none;
-    border-radius: 14px;
+    border-radius: 13px;
     background: rgba(255, 255, 255, 0.048);
     flex-shrink: 0;
     box-sizing: border-box;

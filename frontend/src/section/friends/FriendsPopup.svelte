@@ -778,7 +778,7 @@
   }
 
   .handle-icon-btn.is-save {
-    color: var(--mila-accent, #d9ff70);
+    color: var(--mila-accent-primary, #ffffff);
   }
 
   .handle-err {
@@ -873,8 +873,8 @@
   .tab-count.is-highlight {
     padding: 1px 6px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.14);
-    color: #ffffff;
+    background: var(--mila-accent-primary, rgba(255, 255, 255, 0.14));
+    color: var(--mila-text-onAccent, #0b0b0c);
     font-weight: 700;
     opacity: 1;
   }
@@ -1034,8 +1034,12 @@
   }
 
   .pill-btn.is-accent {
-    background: var(--mila-accent, #d9ff70);
-    color: #0b0b0c;
+    background: var(--mila-accent-primary, var(--mila-buttons-mainBg, #ffffff));
+    color: var(--mila-text-onAccent, var(--mila-buttons-mainText, #0b0b0c));
+  }
+
+  .pill-btn.is-accent:hover:not(:disabled) {
+    background: var(--mila-accent-primaryHover, var(--mila-buttons-mainBgHover, #ffffff));
   }
 
   .pill-btn.is-room {

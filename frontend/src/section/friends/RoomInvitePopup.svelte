@@ -360,11 +360,11 @@
   }
 
   .wt-invite-join {
-    background: #ffffff;
-    color: #0c0c0e;
+    background: var(--mila-accent-primary, var(--mila-buttons-mainBg, #ffffff));
+    color: var(--mila-text-onAccent, var(--mila-buttons-mainText, #0c0c0e));
   }
 
   .wt-invite-join:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.9);
+    background: var(--mila-accent-primaryHover, var(--mila-buttons-mainBgHover, rgba(255, 255, 255, 0.9)));
   }
 </style>

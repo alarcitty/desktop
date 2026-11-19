@@ -500,6 +500,13 @@
     transform-origin: top center;
   }
 
+  .placement-bottom-center {
+    left: 50%;
+    top: 36px;
+    translate: -50% 0;
+    transform-origin: top center;
+  }
+
   .marla-combo-popover,
   .marla-combo-submenu {
     padding: 0;
