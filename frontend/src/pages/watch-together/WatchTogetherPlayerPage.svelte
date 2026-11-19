@@ -1269,35 +1269,39 @@
     transition: none;
   }
 
-  /* Split-screen draggable divider handle */
+  /* Invisible edge resize hit-target — no permanent separator line */
   .wt-split-resizer {
-    position: relative;
-    width: 10px;
-    margin-right: -4px;
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 7px;
     z-index: 25;
     cursor: col-resize;
     display: flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
     user-select: none;
     touch-action: none;
   }
 
   .wt-resizer-grip {
-    width: 3px;
+    width: 2px;
     height: 36px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
+    opacity: 0;
+    background: rgba(255, 255, 255, 0.28);
     transition:
-      background 0.16s ease,
-      height 0.16s ease;
+      opacity 0.18s ease,
+      height 0.18s ease,
+      background 0.18s ease;
   }
 
   .wt-split-resizer:hover .wt-resizer-grip,
   .wt-split-resizer.is-dragging .wt-resizer-grip {
-    height: 54px;
-    background: rgba(255, 255, 255, 0.4);
+    opacity: 1;
+    height: 52px;
+    background: rgba(255, 255, 255, 0.42);
   }
 
   /* Chat Panel — exact same canvas background when docked, blurred glass when floating */
@@ -1316,16 +1320,16 @@
     flex: 1 1 0;
     min-width: 0;
     height: 100%;
-    padding: 12px 14px 10px 8px;
+    padding: 14px 16px 12px 14px;
     background: var(--mila-app-canvas, #0c0c0c);
   }
 
   .wt-chat-panel.is-floating {
     position: absolute;
     z-index: 35;
-    padding: 12px 14px 10px;
+    padding: 14px 16px 12px;
     border-radius: 16px;
-    background: rgba(14, 14, 17, 0.82);
+    background: rgba(14, 14, 17, 0.8);
     backdrop-filter: blur(26px) saturate(140%);
     -webkit-backdrop-filter: blur(26px) saturate(140%);
     box-shadow: 0 22px 56px rgba(0, 0, 0, 0.68);
@@ -1435,16 +1439,20 @@
     color: #ffffff;
   }
 
-  /* Simpler Mila-native Chat Feed & Bubbles */
+  /* Simpler Mila-native Chat Feed & Bubbles (zero separators) */
   .wt-chat-feed {
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
-    padding: 2px 2px 6px;
+    padding: 4px 0 8px;
     display: flex;
     flex-direction: column;
     gap: 8px;
     scrollbar-width: none;
+  }
+
+  .wt-chat-feed > :first-child {
+    margin-top: auto;
   }
 
   .wt-chat-feed::-webkit-scrollbar {
@@ -1456,14 +1464,14 @@
     text-align: center;
     font-family: 'Medeo Sans', system-ui, sans-serif;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.24);
+    color: rgba(255, 255, 255, 0.22);
   }
 
   .wt-msg-system {
     align-self: center;
     font-family: 'Medeo Sans', system-ui, sans-serif;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.26);
+    color: rgba(255, 255, 255, 0.24);
     padding: 2px 6px;
   }
 
@@ -1472,7 +1480,7 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 3px;
-    max-width: 86%;
+    max-width: 88%;
   }
 
   .wt-msg-item.is-mine {
@@ -1480,22 +1488,22 @@
     align-items: flex-end;
   }
 
-  /* Incoming message: subtle Mila dark glass pill with compact left avatar */
+  /* Incoming message: lightweight Mila glass capsule with compact left avatar */
   .wt-bubble-other {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 12px 5px 5px;
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.055);
+    padding: 4px 11px 4px 4px;
+    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.048);
     color: rgba(255, 255, 255, 0.88);
     max-width: 100%;
     box-sizing: border-box;
   }
 
   .wt-bubble-av {
-    width: 22px;
-    height: 22px;
+    width: 21px;
+    height: 21px;
     border-radius: 50%;
     overflow: hidden;
     background: rgba(255, 255, 255, 0.09);
@@ -1504,7 +1512,7 @@
     align-items: center;
     justify-content: center;
     font-family: 'RF Dewi Extended', system-ui, sans-serif;
-    font-size: 9.5px;
+    font-size: 9px;
     font-weight: 700;
     color: #ffffff;
   }
@@ -1519,9 +1527,9 @@
   .wt-bubble-mine {
     display: inline-flex;
     align-items: center;
-    padding: 7px 12px;
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.13);
+    padding: 6px 12px;
+    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.11);
     color: #ffffff;
     max-width: 100%;
     box-sizing: border-box;
@@ -1541,19 +1549,19 @@
     padding: 0 4px;
     font-family: 'Medeo Sans', system-ui, sans-serif;
     font-size: 9.5px;
-    color: rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.22);
     line-height: 1;
   }
 
-  /* Transparent, background-free chat input bar */
+  /* Pure borderless, background-free, separator-free chat input */
   .wt-chat-form {
     display: flex;
     align-items: center;
     gap: 8px;
-    height: 34px;
+    height: 32px;
     padding: 0 2px;
-    margin-top: 6px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    margin-top: 4px;
+    border: none;
     background: transparent;
     flex-shrink: 0;
   }
