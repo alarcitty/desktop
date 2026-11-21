@@ -1,7 +1,7 @@
 import { getWailsMilaBridge } from '../bridge';
 
 export interface TorrentSearchItem {
-  source: 'nyaa' | 'anilibria' | string;
+  source: 'nyaa' | 'anilibria' | 'rutor' | 'knaben' | 'torrentscsv' | string;
   title: string;
   infoHash: string;
   magnet: string;

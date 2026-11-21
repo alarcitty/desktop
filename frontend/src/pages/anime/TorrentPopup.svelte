@@ -22,7 +22,7 @@
     onselect: (itemOrMagnet: TorrentSearchItem | string) => void;
   }
 
-  type SourceFilter = 'all' | 'nyaa' | 'anilibria';
+  type SourceFilter = 'all' | 'nyaa' | 'anilibria' | 'rutor';
   type QualityFilter = 'all' | '2160p' | '1440p' | '1080p' | '720p' | '480p';
   type FormatFilter = 'all' | 'bdrip' | 'hevc' | 'avc' | 'dual' | 'rus';
   type SortMode = 'best' | 'seeds' | 'size-asc' | 'size-desc';
@@ -76,7 +76,7 @@
   function detectQuality(tor: TorrentSearchItem): QualityFilter | '' {
     const text = `${tor.quality ?? ''} ${tor.title}`.toLowerCase();
     if (text.includes('2160') || text.includes('4k') || text.includes('uhd')) return '2160p';
-    if (text.includes('1440') || text.includes('2k')) return '1440p';
+    if (text.includes('1440') || text.includes('qhd') || /(?:^|[^a-z0-9])2k(?:[^a-z0-9]|$)/.test(text)) return '1440p';
     if (text.includes('1080')) return '1080p';
     if (text.includes('720')) return '720p';
     if (text.includes('480')) return '480p';
@@ -95,8 +95,19 @@
         return text.includes('avc') || text.includes('x264') || text.includes('h264') || text.includes('h.264');
       case 'dual':
         return text.includes('dual') || text.includes('multi-audio') || text.includes('multiaudio');
-      case 'rus':
-        return tor.source.toLowerCase() === 'anilibria' || text.includes('rus') || text.includes('anilibria') || text.includes('russian');
+      case 'rus': {
+        const src = tor.source.toLowerCase();
+        return (
+          src === 'anilibria' ||
+          src === 'rutor' ||
+          text.includes('rus') ||
+          text.includes('anilibria') ||
+          text.includes('studioband') ||
+          text.includes('dream cast') ||
+          text.includes('russian') ||
+          /[а-яё]/i.test(tor.title)
+        );
+      }
     }
   }
 
@@ -163,11 +174,22 @@
     } else if (sortBy === 'size-desc') {
       base = [...base].sort((a, b) => parseByteSize(b.size) - parseByteSize(a.size));
     }
-    return base.slice(0, 30);
+    return base.slice(0, 50);
   });
 
   function formatSourceName(source: string): string {
-    return source.toLowerCase() === 'anilibria' ? 'AniLibria' : 'Nyaa';
+    switch (source.toLowerCase()) {
+      case 'anilibria':
+        return 'AniLibria';
+      case 'rutor':
+        return 'RuTor';
+      case 'torrentscsv':
+        return 'Global';
+      case 'knaben':
+        return 'Knaben';
+      default:
+        return 'Nyaa';
+    }
   }
 
   function formatMetaParts(tor: TorrentSearchItem): string[] {
@@ -281,6 +303,16 @@
             onclick={() => { sourceFilter = 'anilibria'; }}
           >
             AniLibria
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sourceFilter === 'rutor'}
+            class="source-chip"
+            class:active={sourceFilter === 'rutor'}
+            onclick={() => { sourceFilter = 'rutor'; }}
+          >
+            RuTor
           </button>
         </div>
 

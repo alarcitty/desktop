@@ -109,3 +109,48 @@ func TestManagerMountHandlerAndReleaseJSON(t *testing.T) {
 		t.Fatalf("expected mediaBaseUrl in serialized release info, got %s", string(raw))
 	}
 }
+
+func TestDeriveSearchQueriesAndMultiSourceParsers(t *testing.T) {
+	plan := deriveSearchQueries("Solo Leveling Season 2: Arise from the Shadow")
+	if plan.Base != "Solo Leveling" {
+		t.Fatalf("expected Base='Solo Leveling', got %q", plan.Base)
+	}
+	if plan.SeasonNumber != 2 || plan.SeasonQuery != "Solo Leveling S02" {
+		t.Fatalf("expected SeasonNumber=2 SeasonQuery='Solo Leveling S02', got %d %q", plan.SeasonNumber, plan.SeasonQuery)
+	}
+	if !strings.Contains(plan.HiResQuery, "2160p|4K|UHD|1440p|QHD|2K") {
+		t.Fatalf("unexpected HiResQuery: %q", plan.HiResQuery)
+	}
+
+	knabenJSON := []byte(`{"hits":[
+		{"title":"[SickeClipse] Solo Leveling - Season 2 [2160p]","hash":"315027557c70ef8af2f64a4f0b26ae54bf0434e3","bytes":15780000000,"seeders":12,"peers":2,"cachedOrigin":"Nyaa.si"},
+		{"title":"[Breeze] Solo Leveling S01 [1080p]","hash":"abcdef1234567890abcdef1234567890abcdef12","bytes":10000000000,"seeders":90,"peers":4,"cachedOrigin":"The Pirate Bay"}
+	]}`)
+	kItems, err := parseKnabenJSON(knabenJSON)
+	if err != nil || len(kItems) != 2 {
+		t.Fatalf("parseKnabenJSON failed: len=%d err=%v", len(kItems), err)
+	}
+	if kItems[0].Source != "nyaa" || kItems[0].Quality != "2160p" {
+		t.Fatalf("unexpected first knaben item: %+v", kItems[0])
+	}
+	if kItems[1].Source != "knaben" || kItems[1].Quality != "1080p" {
+		t.Fatalf("unexpected second knaben item: %+v", kItems[1])
+	}
+	if rankSearchResult(kItems[0], 2) <= rankSearchResult(kItems[1], 2) {
+		t.Fatalf("expected 2160p S02 torrent to outrank S01 1080p torrent")
+	}
+
+	rutorHTML := []byte(`<table>
+		<tr class="gai"><td>22&nbsp;Сен&nbsp;25</td><td><a href="magnet:?xt=urn:btih:2e823dd449a13c7f89628681dc2286e348e3ac39&dn=rutor.info">M</a><a href="/torrent/1054139/solo">Поднятие уровня в одиночку / Solo Leveling [S01-02] BDRip 1080p | StudioBand</a></td><td align="right">1</td><td align="right">27.82&nbsp;GB</td><td align="center"><span class="green"><img alt="S" />&nbsp;50</span>&nbsp;<img alt="L" /><span class="red">&nbsp;14</span></td></tr>
+	</table>`)
+	rItems := parseRuTorHTML(rutorHTML)
+	if len(rItems) != 1 || rItems[0].Source != "rutor" || rItems[0].Seeders != 50 || rItems[0].Leechers != 14 || rItems[0].Size != "27.82 GB" {
+		t.Fatalf("unexpected rutor parse result: %+v", rItems)
+	}
+
+	csvJSON := []byte(`{"torrents":[{"infohash":"1234567890abcdef1234567890abcdef12345678","name":"Solo Leveling S02 1440p QHD","size_bytes":2147483648,"seeders":19,"leechers":3},{"infohash":"ffffffffffffffffffffffffffffffffffffffff","name":"Unrelated Movie","size_bytes":1000,"seeders":99,"leechers":1}]}`)
+	csvItems, err := parseTorrentsCSVJSON(csvJSON, "Solo Leveling")
+	if err != nil || len(csvItems) != 1 || csvItems[0].Quality != "1440p" {
+		t.Fatalf("unexpected torrentscsv parse result: items=%+v err=%v", csvItems, err)
+	}
+}
